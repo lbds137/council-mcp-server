@@ -3,10 +3,10 @@
 import pytest
 import json
 import os
+import sys
 from unittest.mock import Mock, patch, MagicMock
 
 # Add src to path
-import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from gemini_mcp.server import GeminiMCPServer, DualModelManager

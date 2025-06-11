@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+# Disable output capture in PyCharm
+addopts = "-v --tb=short"
+
+[tool.pytest.pycharm]
+# Special handling for PyCharm test runner
+disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
