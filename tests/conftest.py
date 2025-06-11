@@ -1,9 +1,8 @@
 """Pytest configuration for PyCharm compatibility"""
 
-import sys
-import io
 import atexit
-
+import io
+import sys
 
 # Store the original stdout/stderr
 _original_stdout = sys.stdout
@@ -17,7 +16,7 @@ def ensure_valid_streams():
         sys.stdout.write("")
     except (ValueError, AttributeError):
         sys.stdout = _original_stdout if _original_stdout else io.StringIO()
-    
+
     try:
         sys.stderr.write("")
     except (ValueError, AttributeError):

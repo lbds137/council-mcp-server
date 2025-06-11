@@ -31,7 +31,7 @@ def main():
     # Configure unbuffered output for proper MCP communication
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
-    
+
     server = GeminiMCPServer()
     server.run()
 ```

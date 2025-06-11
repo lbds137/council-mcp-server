@@ -41,7 +41,7 @@ echo "🔧 Registering with Claude..."
 if command -v claude &> /dev/null; then
     # Remove old registration if exists
     claude mcp remove gemini-collab 2>/dev/null || true
-    
+
     # Add new registration
     claude mcp add --scope user gemini-collab python3 "$MCP_DIR/server.py"
     echo "✅ Registered with Claude CLI"

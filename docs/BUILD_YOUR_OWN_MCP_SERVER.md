@@ -128,7 +128,7 @@ def handle_tools_list(request_id: Any) -> Dict[str, Any]:
             }
         }
     ]
-    
+
     return {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -141,14 +141,14 @@ def handle_tool_call(request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle tool execution"""
     tool_name = params.get("name")
     arguments = params.get("arguments", {})
-    
+
     try:
         if tool_name == "hello_world":
             name = arguments.get("name", "World")
             result = f"Hello, {name}! This is a response from your MCP server."
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
-        
+
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -178,12 +178,12 @@ def main():
             line = sys.stdin.readline()
             if not line:
                 break
-            
+
             request = json.loads(line.strip())
             method = request.get("method")
             request_id = request.get("id")
             params = request.get("params", {})
-            
+
             if method == "initialize":
                 response = handle_initialize(request_id)
             elif method == "tools/list":
@@ -199,9 +199,9 @@ def main():
                         "message": f"Method not found: {method}"
                     }
                 }
-            
+
             send_response(response)
-            
+
         except json.JSONDecodeError:
             continue
         except EOFError:
@@ -241,10 +241,10 @@ Your MCP server must handle these JSON-RPC methods:
 
 1. **`initialize`** - Called when Claude connects to your server
    - Must return protocol version and capabilities
-   
+
 2. **`tools/list`** - Lists all available tools
    - Returns array of tool definitions with schemas
-   
+
 3. **`tools/call`** - Executes a specific tool
    - Receives tool name and arguments
    - Returns results that Claude can use
@@ -311,7 +311,7 @@ def get_weather(city: str) -> str:
         }
         response = requests.get(url, params=params)
         data = response.json()
-        
+
         if response.status_code == 200:
             temp = data["main"]["temp"]
             desc = data["weather"][0]["description"]
@@ -424,15 +424,15 @@ claude mcp list
    ```bash
    # Check what's configured
    claude mcp list
-   
+
    # Check if you're in a directory with local config
    ls .vscode/mcp.json
-   
+
    # Test in different directories
    cd ~ && claude mcp list
    ```
 
-2. **Check logs**: 
+2. **Check logs**:
    ```bash
    ls ~/Library/Caches/claude-cli-nodejs/*/mcp-logs-<server-name>/
    ```
@@ -453,10 +453,10 @@ claude mcp list
    ```bash
    # Remove project-local config
    rm .vscode/mcp.json
-   
+
    # Remove local scope config
    claude mcp remove server-name
-   
+
    # Re-add with user scope
    claude mcp add --scope user server-name python3 /path/to/server.py
    ```
@@ -470,7 +470,7 @@ Store conversation context:
 class MCPServer:
     def __init__(self):
         self.conversation_history = []
-    
+
     def add_to_history(self, role: str, content: str):
         self.conversation_history.append({
             "role": role,
@@ -577,13 +577,13 @@ def check_dependencies():
     """Check if all required packages are installed"""
     required = ["requests", "other-package"]
     missing = []
-    
+
     for package in required:
         try:
             __import__(package)
         except ImportError:
             missing.append(package)
-    
+
     if missing:
         return f"Missing packages: {', '.join(missing)}"
     return "All dependencies installed!"

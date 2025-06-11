@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """PyCharm-compatible test runner that handles file descriptor issues"""
 
-import sys
-import subprocess
 import os
+import subprocess
+import sys
 
 # Get the directory containing this script
 test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +14,7 @@ result = subprocess.run(
     [sys.executable, os.path.join(test_dir, "test_server.py")],
     cwd=project_root,
     capture_output=True,
-    text=True
+    text=True,
 )
 
 # Print the output

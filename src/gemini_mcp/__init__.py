@@ -3,6 +3,6 @@
 __version__ = "2.0.0"
 __author__ = "Your Name"
 
-from .server import GeminiMCPServer, DualModelManager
+from .server import DualModelManager, GeminiMCPServer
 
 __all__ = ["GeminiMCPServer", "DualModelManager"]

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Test runner script for IDE integration"""
 
-import sys
 import subprocess
+import sys
 
 # Run pytest with the given arguments or default to all tests
 args = sys.argv[1:] if len(sys.argv) > 1 else ["tests/", "-v"]

@@ -1,6 +1,6 @@
 """Setup configuration for Gemini MCP Server"""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -40,6 +40,8 @@ setup(
             "black>=23.0",
             "flake8>=6.0",
             "mypy>=1.0",
+            "isort>=5.12.0",
+            "pre-commit>=3.5.0",
         ],
     },
     entry_points={
