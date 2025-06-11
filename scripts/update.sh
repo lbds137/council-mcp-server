@@ -33,8 +33,8 @@ cp "$PROJECT_DIR/.env.example" "$MCP_DIR/"
 
 # Update documentation
 cp "$PROJECT_DIR/README.md" "$MCP_DIR/"
-if [ -f "$PROJECT_DIR/README_DUAL_MODEL.md" ]; then
-    cp "$PROJECT_DIR/README_DUAL_MODEL.md" "$MCP_DIR/"
+if [ -f "$PROJECT_DIR/docs/DUAL_MODEL_CONFIGURATION.md" ]; then
+    cp "$PROJECT_DIR/docs/DUAL_MODEL_CONFIGURATION.md" "$MCP_DIR/"
 fi
 
 # Show what changed

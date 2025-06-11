@@ -1,10 +1,10 @@
 # Dual-Model Configuration Guide
 
-This guide explains how to use the enhanced dual-model version of the Gemini MCP server.
+This guide explains how to use the dual-model features of the Gemini MCP server.
 
 ## Overview
 
-The enhanced server (`server_improved.py`) supports dual-model configuration with automatic fallback:
+The server (`server.py`) includes built-in dual-model configuration with automatic fallback:
 
 1. **Primary Model**: Tries the best/experimental model first
 2. **Fallback Model**: Automatically switches to stable model if primary fails
@@ -33,26 +33,23 @@ GEMINI_MODEL_FALLBACK=gemini-1.5-pro
 GEMINI_MODEL_TIMEOUT=10000
 ```
 
-### 3. Test the Improved Server
+### 3. Test the Server
 
 ```bash
 # Test directly
-python3 server_improved.py
+python3 ~/.claude-mcp-servers/gemini-collab/server.py
 
 # In another terminal, send a test request
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"server_info","arguments":{}}}' | python3 server_improved.py
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"server_info","arguments":{}}}' | python3 ~/.claude-mcp-servers/gemini-collab/server.py
 ```
 
-### 4. Update MCP Registration
+### 4. Register with MCP
 
-Replace the current server with the improved version:
+Register the server with Claude:
 
 ```bash
-# Remove old registration
-claude mcp remove gemini-collab
-
-# Add improved version with environment variables
-claude mcp add --scope user gemini-collab python3 ~/.claude-mcp-servers/gemini-collab/server_improved.py
+# Add with user scope for global access
+claude mcp add --scope user gemini-collab python3 ~/.claude-mcp-servers/gemini-collab/server.py
 ```
 
 ### 5. Load Environment Variables
@@ -165,14 +162,14 @@ export $(cat ~/.claude-mcp-servers/gemini-collab/.env | grep -v '^#' | xargs)
 3. **Transparent Operation**: Works seamlessly with Claude
 4. **Future-Proof**: As new models release, just update config
 
-## Migration from Original Server
+## Upgrading from Single-Model Configuration
 
-The improved server is fully backward compatible. To migrate:
+If you were using an older version without dual-model support:
 
 1. Keep your existing `GEMINI_API_KEY`
-2. Add the new model configuration variables
-3. Replace `server.py` with `server_improved.py` in MCP registration
-4. Enjoy enhanced capabilities!
+2. Add the new model configuration variables to your `.env`
+3. Restart Claude Desktop
+4. Enjoy enhanced capabilities with automatic fallback!
 
 ## Next Steps
 
