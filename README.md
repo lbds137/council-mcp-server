@@ -22,7 +22,7 @@ A Model Context Protocol (MCP) server that enables Claude to collaborate with Go
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gemini-mcp-server.git
+git clone https://github.com/lbds137/gemini-mcp-server.git
 cd gemini-mcp-server
 
 # Install dependencies
@@ -121,20 +121,32 @@ gemini-mcp-server/
 ├── src/
 │   └── gemini_mcp/
 │       ├── __init__.py
-│       ├── server.py
-│       ├── models.py
-│       └── utils.py
+│       └── server.py      # Main server with DualModelManager
 ├── tests/
 │   └── test_server.py
 ├── scripts/
-│   ├── install.sh
-│   └── update.sh
-├── .env.example
+│   ├── install.sh       # Quick installation script
+│   ├── update.sh        # Update deployment script
+│   └── dev-link.sh      # Development symlink script
+├── docs/
+│   └── BUILD_YOUR_OWN_MCP_SERVER.md
+├── .claude/
+│   └── settings.json    # Claude Code permissions
+├── .env                 # Your configuration (git-ignored)
+├── .env.example         # Example configuration
 ├── .gitignore
+├── CLAUDE.md           # Instructions for Claude Code
 ├── LICENSE
-├── README.md
+├── README.md           # This file
+├── docs/
+│   ├── BUILD_YOUR_OWN_MCP_SERVER.md
+│   ├── DUAL_MODEL_CONFIGURATION.md # Dual-model setup guide
+│   ├── PYCHARM_SETUP.md
+│   └── TESTING.md
 ├── requirements.txt
-└── setup.py
+├── setup.py
+├── package.json        # MCP registration metadata
+└── package-lock.json
 ```
 
 ### Running Tests

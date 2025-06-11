@@ -8,12 +8,12 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="gemini-mcp-server",
     version="2.0.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="lbds137",
+    author_email="",
     description="MCP server for Claude-Gemini collaboration",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/gemini-mcp-server",
+    url="https://github.com/lbds137/gemini-mcp-server",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[
