@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ..models.base import ToolInput, ToolOutput
+from ..models.base import ToolOutput
 from ..protocols.debate import DebateProtocol
 from ..services.cache import ResponseCache
 from ..services.memory import ConversationMemory
@@ -47,20 +47,20 @@ class ConversationOrchestrator:
                 tool_name=tool_name, result=None, success=False, error=f"Unknown tool: {tool_name}"
             )
 
-        # Create tool input with context
-        tool_input = ToolInput(
-            tool_name=tool_name,
-            parameters=parameters,
-            context={
-                "model_manager": self.model_manager,
-                "memory": self.memory,
-                "orchestrator": self,
-            },
-            request_id=request_id,
-        )
+        # Create tool input with context (kept for reference, though not used in new API)
+        # tool_input = ToolInput(
+        #     tool_name=tool_name,
+        #     parameters=parameters,
+        #     context={
+        #         "model_manager": self.model_manager,
+        #         "memory": self.memory,
+        #         "orchestrator": self,
+        #     },
+        #     request_id=request_id,
+        # )
 
-        # Execute the tool
-        output = await tool.run(tool_input)
+        # Execute the tool with just parameters (new API)
+        output = await tool.execute(parameters)
 
         # Cache successful results
         if output.success:

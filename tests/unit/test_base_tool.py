@@ -1,36 +1,64 @@
 """Unit tests for the base tool."""
 
 import asyncio
+from typing import Any, Dict
 
 import pytest
 
-from gemini_mcp.models.base import ToolInput, ToolMetadata
-from gemini_mcp.tools.base import BaseTool
+from gemini_mcp.tools.base import MCPTool, ToolOutput
 
 
-class ConcreteTestTool(BaseTool):
+class ConcreteTestTool(MCPTool):
     """Concrete implementation for testing."""
 
     def __init__(self, should_fail: bool = False):
         self.should_fail = should_fail
         self.execution_count = 0
-        super().__init__()
 
-    def _get_metadata(self) -> ToolMetadata:
-        return ToolMetadata(name="test_tool", description="A test tool", tags=["test", "example"])
+    @property
+    def name(self) -> str:
+        return "test_tool"
 
-    async def _execute(self, input_data: ToolInput) -> str:
-        self.execution_count += 1
-        if self.should_fail:
-            raise ValueError("Test error")
-        return f"Processed: {input_data.parameters.get('input', 'no input')}"
+    @property
+    def description(self) -> str:
+        return "A test tool"
 
-    def _get_input_schema(self):
+    @property
+    def input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {"input": {"type": "string", "description": "Test input"}},
             "required": ["input"],
         }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        self.execution_count += 1
+        if self.should_fail:
+            return ToolOutput(success=False, error="Test error")
+
+        result = f"Processed: {parameters.get('input', 'no input')}"
+        output = ToolOutput(success=True, result=result)
+        output.metadata = {"tags": ["test", "example"]}
+        return output
+
+
+class InvalidTool(MCPTool):
+    """Invalid tool for testing validation."""
+
+    @property
+    def name(self) -> str:
+        return ""  # Invalid empty name
+
+    @property
+    def description(self) -> str:
+        return "Test"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {}
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        return ToolOutput(success=True, result="test")
 
 
 class TestBaseTool:
@@ -40,47 +68,35 @@ class TestBaseTool:
     async def test_successful_execution(self):
         """Test successful tool execution."""
         tool = ConcreteTestTool()
-        input_data = ToolInput(tool_name="test_tool", parameters={"input": "test value"})
+        parameters = {"input": "test value"}
 
-        result = await tool.run(input_data)
+        result = await tool.execute(parameters)
 
         assert result.success is True
-        assert result.tool_name == "test_tool"
         assert result.result == "Processed: test value"
         assert result.error is None
-        assert result.execution_time_ms > 0
         assert tool.execution_count == 1
 
     @pytest.mark.asyncio
     async def test_failed_execution(self):
         """Test tool execution with error."""
         tool = ConcreteTestTool(should_fail=True)
-        input_data = ToolInput(tool_name="test_tool", parameters={"input": "test value"})
+        parameters = {"input": "test value"}
 
-        result = await tool.run(input_data)
+        result = await tool.execute(parameters)
 
         assert result.success is False
-        assert result.tool_name == "test_tool"
         assert result.result is None
         assert "Test error" in result.error
-        assert result.execution_time_ms > 0
         assert tool.execution_count == 1
 
     def test_metadata_validation(self):
-        """Test that metadata validation works."""
-
-        class InvalidTool(BaseTool):
-            def _get_metadata(self):
-                return ToolMetadata(name="", description="Test")
-
-            async def _execute(self, input_data):
-                return "test"
-
-            def _get_input_schema(self):
-                return {}
-
-        with pytest.raises(ValueError, match="Tool must have a name"):
-            InvalidTool()
+        """Test that tools can be created with empty names (no validation in new API)."""
+        # The new API doesn't validate metadata in __init__
+        # so we just test that the tool can be created
+        tool = InvalidTool()
+        assert tool.name == ""
+        assert tool.description == "Test"
 
     def test_get_mcp_definition(self):
         """Test MCP definition generation."""
@@ -95,31 +111,31 @@ class TestBaseTool:
 
     @pytest.mark.asyncio
     async def test_execution_timing(self):
-        """Test that execution time is measured correctly."""
+        """Test that execution with delay works correctly."""
         tool = ConcreteTestTool()
-        input_data = ToolInput(tool_name="test_tool", parameters={"input": "test"})
+        parameters = {"input": "test"}
 
         # Add a small delay to the tool
-        original_execute = tool._execute
+        original_execute = tool.execute
 
-        async def delayed_execute(input_data):
+        async def delayed_execute(params):
             await asyncio.sleep(0.01)  # 10ms delay
-            return await original_execute(input_data)
+            return await original_execute(params)
 
-        tool._execute = delayed_execute
+        tool.execute = delayed_execute
 
-        result = await tool.run(input_data)
+        result = await tool.execute(parameters)
 
-        assert result.execution_time_ms >= 10  # At least 10ms
-        assert result.execution_time_ms < 100  # But not too long
+        assert result.success is True
+        assert result.result == "Processed: test"
 
     @pytest.mark.asyncio
     async def test_metadata_in_output(self):
-        """Test that tool metadata is included in output."""
+        """Test that tool metadata can be included in output."""
         tool = ConcreteTestTool()
-        input_data = ToolInput(tool_name="test_tool", parameters={"input": "test"})
+        parameters = {"input": "test"}
 
-        result = await tool.run(input_data)
+        result = await tool.execute(parameters)
 
         assert result.metadata is not None
         assert result.metadata["tags"] == ["test", "example"]

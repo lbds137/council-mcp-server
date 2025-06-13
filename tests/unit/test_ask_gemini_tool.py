@@ -1,10 +1,11 @@
 """Unit tests for the ask_gemini tool."""
 
+import sys
+from unittest.mock import Mock, patch
+
 import pytest
 
-from gemini_mcp.models.base import ToolInput
 from gemini_mcp.tools.ask_gemini import AskGeminiTool
-from tests.fixtures import create_mock_model_manager
 
 
 class TestAskGeminiTool:
@@ -15,16 +16,22 @@ class TestAskGeminiTool:
         """Create an AskGeminiTool instance."""
         return AskGeminiTool()
 
+    @pytest.fixture
+    def mock_model_manager(self):
+        """Create a mock model manager."""
+        manager = Mock()
+        manager.primary_model_name = "primary-model"
+        manager.generate_content.return_value = ("Test response", "primary-model")
+        return manager
+
     def test_metadata(self, tool):
         """Test tool metadata."""
-        metadata = tool.metadata
-        assert metadata.name == "ask_gemini"
-        assert "general question" in metadata.description
-        assert "general" in metadata.tags
+        assert tool.name == "ask_gemini"
+        assert "general question" in tool.description
 
     def test_input_schema(self, tool):
         """Test input schema definition."""
-        schema = tool._get_input_schema()
+        schema = tool.input_schema
 
         assert schema["type"] == "object"
         assert "question" in schema["properties"]
@@ -33,127 +40,120 @@ class TestAskGeminiTool:
         assert "context" not in schema["required"]  # Optional
 
     @pytest.mark.asyncio
-    async def test_execute_with_question_only(self, tool):
+    async def test_execute_with_question_only(self, tool, mock_model_manager, monkeypatch):
         """Test execution with just a question."""
-        model_manager = create_mock_model_manager()
+        # Create a mock module and set model_manager on it
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "What is AI?"},
-            context={"model_manager": model_manager},
-        )
+        # Patch sys.modules to make the import work
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "What is AI?"}
+            result = await tool.execute(parameters)
 
-        result = await tool._execute(input_data)
+            assert result.success is True
+            assert "🤖 Gemini's Response:" in result.result
+            assert "Test response" in result.result
 
-        assert "🤖 Gemini's Response:" in result
-        assert "Test response" in result
-
-        # Verify model was called correctly
-        model_manager.generate_content.assert_called_once()
-        call_args = model_manager.generate_content.call_args[0][0]
-        assert "Question: What is AI?" in call_args
-        assert "Context:" not in call_args  # No context provided
+            # Verify model was called correctly
+            mock_model_manager.generate_content.assert_called_once()
+            call_args = mock_model_manager.generate_content.call_args[0][0]
+            assert "Question: What is AI?" in call_args
+            assert "Context:" not in call_args  # No context provided
 
     @pytest.mark.asyncio
-    async def test_execute_with_context(self, tool):
+    async def test_execute_with_context(self, tool, mock_model_manager):
         """Test execution with question and context."""
-        model_manager = create_mock_model_manager()
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "What is AI?", "context": "We're discussing machine learning"},
-            context={"model_manager": model_manager},
-        )
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "What is AI?", "context": "We're discussing machine learning"}
+            result = await tool.execute(parameters)
 
-        result = await tool._execute(input_data)
+            assert result.success is True
+            assert "🤖 Gemini's Response:" in result.result
 
-        assert "🤖 Gemini's Response:" in result
-        assert "Test response" in result
-
-        # Verify prompt includes context
-        call_args = model_manager.generate_content.call_args[0][0]
-        assert "Context: We're discussing machine learning" in call_args
-        assert "Question: What is AI?" in call_args
+            # Verify prompt includes context
+            call_args = mock_model_manager.generate_content.call_args[0][0]
+            assert "Context: We're discussing machine learning" in call_args
+            assert "Question: What is AI?" in call_args
 
     @pytest.mark.asyncio
-    async def test_execute_without_question(self, tool):
+    async def test_execute_without_question(self, tool, mock_model_manager):
         """Test that execution fails without a question."""
-        model_manager = create_mock_model_manager()
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={},  # No question
-            context={"model_manager": model_manager},
-        )
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {}  # No question
+            result = await tool.execute(parameters)
 
-        with pytest.raises(ValueError, match="Question is required"):
-            await tool._execute(input_data)
+            assert result.success is False
+            assert "Question is required" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_without_model_manager(self, tool):
-        """Test that execution fails without model manager in context."""
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "Test question"},
-            context={},  # No model manager
-        )
+        """Test that execution fails without model manager."""
+        # Create mock module with model_manager that raises AttributeError
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = Mock(side_effect=AttributeError("No model_manager"))
 
-        with pytest.raises(RuntimeError, match="Model manager not available"):
-            await tool._execute(input_data)
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "Test question"}
+            result = await tool.execute(parameters)
+
+            assert result.success is False
+            assert "Error:" in result.error
 
     @pytest.mark.asyncio
-    async def test_format_response_with_primary_model(self, tool):
+    async def test_format_response_with_primary_model(self, tool, mock_model_manager):
         """Test response formatting when primary model is used."""
-        model_manager = create_mock_model_manager()
-        model_manager.primary_model_name = "primary-model"
-        model_manager.generate_content.return_value = ("Response text", "primary-model")
+        mock_model_manager.primary_model_name = "primary-model"
+        mock_model_manager.generate_content.return_value = ("Response text", "primary-model")
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "Test"},
-            context={"model_manager": model_manager},
-        )
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        result = await tool._execute(input_data)
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "Test"}
+            result = await tool.execute(parameters)
 
-        # Should not include model indicator for primary model
-        assert "[Model:" not in result
-        assert "Response text" in result
+            assert result.success is True
+            # Should not include model indicator for primary model
+            assert "[Model:" not in result.result
+            assert "Response text" in result.result
 
     @pytest.mark.asyncio
-    async def test_format_response_with_fallback_model(self, tool):
+    async def test_format_response_with_fallback_model(self, tool, mock_model_manager):
         """Test response formatting when fallback model is used."""
-        model_manager = create_mock_model_manager()
-        model_manager.primary_model_name = "primary-model"
-        model_manager.generate_content.return_value = ("Response text", "fallback-model")
+        mock_model_manager.primary_model_name = "primary-model"
+        mock_model_manager.generate_content.return_value = ("Response text", "fallback-model")
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "Test"},
-            context={"model_manager": model_manager},
-        )
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        result = await tool._execute(input_data)
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "Test"}
+            result = await tool.execute(parameters)
 
-        # Should include model indicator for fallback model
-        assert "[Model: fallback-model]" in result
-        assert "Response text" in result
+            assert result.success is True
+            # Should include model indicator for fallback model
+            assert "[Model: fallback-model]" in result.result
+            assert "Response text" in result.result
 
     @pytest.mark.asyncio
-    async def test_empty_context_parameter(self, tool):
+    async def test_empty_context_parameter(self, tool, mock_model_manager):
         """Test that empty context parameter is handled correctly."""
-        model_manager = create_mock_model_manager()
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp.model_manager = mock_model_manager
 
-        input_data = ToolInput(
-            tool_name="ask_gemini",
-            parameters={"question": "Test", "context": ""},  # Empty context
-            context={"model_manager": model_manager},
-        )
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            parameters = {"question": "Test", "context": ""}  # Empty context
+            result = await tool.execute(parameters)
 
-        result = await tool._execute(input_data)
+            assert result.success is True
+            assert "🤖 Gemini's Response:" in result.result
 
-        # Should work fine, just no context in prompt
-        assert "🤖 Gemini's Response:" in result
-
-        call_args = model_manager.generate_content.call_args[0][0]
-        assert call_args == "Question: Test"  # No context prefix
+            call_args = mock_model_manager.generate_content.call_args[0][0]
+            assert call_args == "Question: Test"  # No context prefix
