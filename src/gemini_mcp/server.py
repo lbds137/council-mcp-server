@@ -1235,19 +1235,29 @@ class GeminiMCPServerV3:
         """Initialize the model manager with API key."""
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            logger.warning("No GEMINI_API_KEY found in environment")
+            logger.error("No GEMINI_API_KEY found in environment. Please check your .env file.")
+            # Log all env vars starting with GEMINI for debugging
+            gemini_vars = {k: v for k, v in os.environ.items() if k.startswith("GEMINI")}
+            if gemini_vars:
+                logger.info(f"Found GEMINI env vars: {list(gemini_vars.keys())}")
+            else:
+                logger.warning("No GEMINI environment variables found at all")
             return False
 
         try:
+            logger.info(f"Initializing DualModelManager with API key (length: {len(api_key)})")
             self.model_manager = DualModelManager(api_key)
 
             # Inject model manager into tools
+            logger.info("Injecting model manager into tools...")
             for tool_name in self.tool_registry.list_tools():
                 tool = self.tool_registry.get_tool(tool_name)
                 if tool:
                     setattr(tool, "_model_manager", self.model_manager)
+                    logger.debug(f"Injected model manager into tool: {tool_name}")
 
             # Create orchestrator with all components
+            logger.info("Creating conversation orchestrator...")
             self.orchestrator = ConversationOrchestrator(
                 tool_registry=self.tool_registry,
                 model_manager=self.model_manager,
@@ -1255,9 +1265,10 @@ class GeminiMCPServerV3:
                 cache=self.cache,
             )
 
+            logger.info("Model manager initialization complete")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize model manager: {e}")
+            logger.error(f"Failed to initialize model manager: {e}", exc_info=True)
             return False
 
     def _setup_handlers(self):
@@ -1270,16 +1281,31 @@ class GeminiMCPServerV3:
 
     def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialization request."""
-        # Load environment variables if available
-        if load_dotenv:
-            load_dotenv()
+        # Load environment variables from the MCP installation directory
+        mcp_dir = os.path.dirname(os.path.abspath(__file__))
+        env_path = os.path.join(mcp_dir, ".env")
 
-        # Initialize model manager
-        model_initialized = self._initialize_model_manager()
+        if load_dotenv and os.path.exists(env_path):
+            logger.info(f"Loading .env from {env_path}")
+            load_dotenv(env_path)
+        else:
+            # Try loading from current directory as fallback
+            if load_dotenv:
+                load_dotenv()
 
-        # Discover and register all tools
+        # Log the API key status
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if api_key:
+            logger.info(f"GEMINI_API_KEY found (length: {len(api_key)})")
+        else:
+            logger.warning("GEMINI_API_KEY not found in environment")
+
+        # Discover and register all tools FIRST
         self.tool_registry.discover_tools()
         logger.info(f"Registered {len(self.tool_registry.list_tools())} tools")
+
+        # Initialize model manager AFTER tools are registered
+        model_initialized = self._initialize_model_manager()
 
         return create_result_response(
             request_id,

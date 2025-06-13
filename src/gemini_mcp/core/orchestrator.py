@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..models.base import ToolInput, ToolOutput
+from ..protocols.debate import DebateProtocol
 from ..services.cache import ResponseCache
 from ..services.memory import ConversationMemory
 from .registry import ToolRegistry
@@ -78,8 +79,6 @@ class ConversationOrchestrator:
         self, protocol_name: str, initial_input: Dict[str, Any]
     ) -> List[ToolOutput]:
         """Execute a multi-step protocol (e.g., debate, synthesis)."""
-        # This is where we'd implement debate protocols, etc.
-        # For now, just a placeholder
         logger.info(f"Executing protocol: {protocol_name}")
 
         # Example: Simple sequential execution
@@ -90,7 +89,49 @@ class ConversationOrchestrator:
                 )
             ]
 
-        # TODO: Implement debate protocol, synthesis protocol, etc.
+        # Debate protocol
+        elif protocol_name == "debate":
+            topic = initial_input.get("topic", "")
+            positions = initial_input.get("positions", [])
+
+            if not topic or not positions:
+                return [
+                    ToolOutput(
+                        tool_name="debate_protocol",
+                        result=None,
+                        success=False,
+                        error="Debate protocol requires 'topic' and 'positions' parameters",
+                    )
+                ]
+
+            debate = DebateProtocol(self, topic, positions)
+            try:
+                result = await debate.run()
+                return [
+                    ToolOutput(
+                        tool_name="debate_protocol",
+                        result=result,
+                        success=True,
+                        metadata={"protocol": "debate", "rounds": len(result.get("rounds", []))},
+                    )
+                ]
+            except Exception as e:
+                logger.error(f"Debate protocol error: {e}")
+                return [
+                    ToolOutput(
+                        tool_name="debate_protocol", result=None, success=False, error=str(e)
+                    )
+                ]
+
+        # Synthesis protocol (simple wrapper around synthesize tool)
+        elif protocol_name == "synthesis":
+            return [
+                await self.execute_tool(
+                    "synthesize_perspectives", initial_input.get("parameters", {})
+                )
+            ]
+
+        # Protocol not implemented
         raise NotImplementedError(f"Protocol {protocol_name} not implemented")
 
     def get_execution_stats(self) -> Dict[str, Any]:

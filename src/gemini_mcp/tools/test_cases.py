@@ -1,23 +1,26 @@
 """Test case generation tool for suggesting comprehensive test scenarios."""
 
+import logging
 from typing import Any, Dict
 
-from ..models.base import ToolInput, ToolMetadata
-from .base import BaseTool
+from .base import MCPTool, ToolOutput
+
+logger = logging.getLogger(__name__)
 
 
-class TestCasesTool(BaseTool):
-    """Tool for generating test cases with Gemini."""
+class TestCasesTool(MCPTool):
+    """Tool for Test Cases."""
 
-    def _get_metadata(self) -> ToolMetadata:
-        return ToolMetadata(
-            name="gemini_test_cases",
-            description="Ask Gemini to suggest test cases for code or features",
-            tags=["testing", "quality", "test-cases"],
-            version="1.0.0",
-        )
+    @property
+    def name(self) -> str:
+        return "gemini_test_cases"
 
-    def _get_input_schema(self) -> Dict[str, Any]:
+    @property
+    def description(self) -> str:
+        return "Ask Gemini to suggest test cases for code or features"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -34,32 +37,36 @@ class TestCasesTool(BaseTool):
             "required": ["code_or_feature"],
         }
 
-    async def _execute(self, input_data: ToolInput) -> str:
-        """Execute test case generation."""
-        code_or_feature = input_data.parameters.get("code_or_feature")
-        if not code_or_feature:
-            raise ValueError("Code or feature description is required")
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+            code_or_feature = parameters.get("code_or_feature")
+            if not code_or_feature:
+                return ToolOutput(success=False, error="Code or feature description is required")
 
-        test_type = input_data.parameters.get("test_type", "all")
+            test_type = parameters.get("test_type", "all")
 
-        # Get model manager from context
-        model_manager = input_data.context.get("model_manager")
-        if not model_manager:
-            raise RuntimeError("Model manager not available in context")
+            # Build the prompt
+            prompt = self._build_prompt(code_or_feature, test_type)
 
-        # Build the prompt
-        prompt = self._build_prompt(code_or_feature, test_type)
+            # Get model manager from global context
+            from .. import model_manager
 
-        # Generate test cases
-        response_text, model_used = model_manager.generate_content(prompt)
-
-        return self._format_response(response_text, model_used, model_manager.primary_model_name)
+            response_text, model_used = model_manager.generate_content(prompt)
+            formatted_response = f"🧪 Test Cases:\n\n{response_text}"
+            if model_used != model_manager.primary_model_name:
+                formatted_response += f"\n\n[Model: {model_used}]"
+            return ToolOutput(success=True, result=formatted_response)
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, code_or_feature: str, test_type: str) -> str:
         """Build the test case generation prompt."""
         test_type_instructions = {
             "unit": "Focus on unit tests that test individual functions or methods in isolation.",
-            "integration": "Focus on integration tests that verify components work together correctly.",
+            "integration": "Focus on integration tests that verify "
+            "components work together correctly.",
             "edge": "Focus on edge cases, boundary conditions, and error scenarios.",
             "performance": "Include performance and load testing scenarios.",
             "all": "Provide comprehensive test cases covering all aspects.",
@@ -87,8 +94,3 @@ For each test case, provide:
 4. Why this test is important
 
 Include both positive (happy path) and negative (error) test cases."""
-
-    def _format_response(self, response_text: str, model_used: str, primary_model: str) -> str:
-        """Format the response with model indicator if needed."""
-        model_indicator = f" [Model: {model_used}]" if model_used != primary_model else ""
-        return f"🧪 Test Cases{model_indicator}:\n\n{response_text}"

@@ -1,22 +1,26 @@
 """Tool for asking Gemini general questions."""
 
+import logging
 from typing import Any, Dict
 
-from ..models.base import ToolInput, ToolMetadata
-from .base import BaseTool
+from .base import MCPTool, ToolOutput
+
+logger = logging.getLogger(__name__)
 
 
-class AskGeminiTool(BaseTool):
-    """Tool for asking Gemini general questions."""
+class AskGeminiTool(MCPTool):
+    """Tool for Ask Gemini."""
 
-    def _get_metadata(self) -> ToolMetadata:
-        return ToolMetadata(
-            name="ask_gemini",
-            description="Ask Gemini a general question or for help with a problem",
-            tags=["general", "question", "help"],
-        )
+    @property
+    def name(self) -> str:
+        return "ask_gemini"
 
-    def _get_input_schema(self) -> Dict[str, Any]:
+    @property
+    def description(self) -> str:
+        return "Ask Gemini a general question or for help with a problem"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -33,34 +37,29 @@ class AskGeminiTool(BaseTool):
             "required": ["question"],
         }
 
-    async def _execute(self, input_data: ToolInput) -> str:
-        """Execute the ask_gemini tool."""
-        # Get parameters
-        question = input_data.parameters.get("question", "")
-        context = input_data.parameters.get("context", "")
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+            # Get parameters
+            question = parameters.get("question", "")
+            context = parameters.get("context", "")
 
-        if not question:
-            raise ValueError("Question is required")
+            if not question:
+                return ToolOutput(success=False, error="Question is required")
 
-        # Build prompt
-        prompt = f"Context: {context}\n\n" if context else ""
-        prompt += f"Question: {question}"
+            # Build prompt
+            prompt = f"Context: {context}\n\n" if context else ""
+            prompt += f"Question: {question}"
 
-        # Get model manager from context (will be injected by orchestrator)
-        model_manager = input_data.context.get("model_manager")
-        if not model_manager:
-            raise RuntimeError("Model manager not available in context")
+            # Get model manager from global context (will be injected during bundling)
+            # In modular mode, this would come from the orchestrator context
+            from .. import model_manager
 
-        # Generate response
-        response_text, model_used = model_manager.generate_content(prompt)
-
-        # Format response
-        formatted_response = self._format_response(response_text, model_used, model_manager)
-        return f"🤖 Gemini's Response:\n\n{formatted_response}"
-
-    def _format_response(self, response_text: str, model_used: str, model_manager) -> str:
-        """Format response with model information."""
-        model_indicator = ""
-        if model_used != model_manager.primary_model_name:
-            model_indicator = f"\n\n[Model: {model_used}]"
-        return response_text + model_indicator
+            response_text, model_used = model_manager.generate_content(prompt)
+            formatted_response = f"🤖 Gemini's Response:\n\n{response_text}"
+            if model_used != model_manager.primary_model_name:
+                formatted_response += f"\n\n[Model: {model_used}]"
+            return ToolOutput(success=True, result=formatted_response)
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")

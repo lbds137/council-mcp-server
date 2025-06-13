@@ -1,23 +1,26 @@
 """Synthesis tool for combining multiple perspectives into cohesive insights."""
 
+import logging
 from typing import Any, Dict, List
 
-from ..models.base import ToolInput, ToolMetadata
-from .base import BaseTool
+from .base import MCPTool, ToolOutput
+
+logger = logging.getLogger(__name__)
 
 
-class SynthesizeTool(BaseTool):
-    """Tool for synthesizing multiple perspectives with Gemini."""
+class SynthesizeTool(MCPTool):
+    """Tool for Synthesize."""
 
-    def _get_metadata(self) -> ToolMetadata:
-        return ToolMetadata(
-            name="synthesize_perspectives",
-            description="Synthesize multiple viewpoints or pieces of information into a coherent summary",
-            tags=["synthesis", "summary", "analysis"],
-            version="1.0.0",
-        )
+    @property
+    def name(self) -> str:
+        return "synthesize_perspectives"
 
-    def _get_input_schema(self) -> Dict[str, Any]:
+    @property
+    def description(self) -> str:
+        return "Synthesize multiple viewpoints or pieces of information into a coherent summary"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -44,28 +47,31 @@ class SynthesizeTool(BaseTool):
             "required": ["topic", "perspectives"],
         }
 
-    async def _execute(self, input_data: ToolInput) -> str:
-        """Execute the synthesis."""
-        topic = input_data.parameters.get("topic")
-        if not topic:
-            raise ValueError("Topic is required for synthesis")
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+            topic = parameters.get("topic")
+            if not topic:
+                return ToolOutput(success=False, error="Topic is required for synthesis")
 
-        perspectives = input_data.parameters.get("perspectives", [])
-        if not perspectives:
-            raise ValueError("At least one perspective is required")
+            perspectives = parameters.get("perspectives", [])
+            if not perspectives:
+                return ToolOutput(success=False, error="At least one perspective is required")
 
-        # Get model manager from context
-        model_manager = input_data.context.get("model_manager")
-        if not model_manager:
-            raise RuntimeError("Model manager not available in context")
+            # Build the prompt
+            prompt = self._build_prompt(topic, perspectives)
 
-        # Build the prompt
-        prompt = self._build_prompt(topic, perspectives)
+            # Get model manager from global context
+            from .. import model_manager
 
-        # Generate synthesis
-        response_text, model_used = model_manager.generate_content(prompt)
-
-        return self._format_response(response_text, model_used, model_manager.primary_model_name)
+            response_text, model_used = model_manager.generate_content(prompt)
+            formatted_response = f"🔄 Synthesis:\n\n{response_text}"
+            if model_used != model_manager.primary_model_name:
+                formatted_response += f"\n\n[Model: {model_used}]"
+            return ToolOutput(success=True, result=formatted_response)
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, topic: str, perspectives: List[Dict[str, str]]) -> str:
         """Build the synthesis prompt."""
@@ -88,8 +94,3 @@ Provide a balanced synthesis that:
 5. Suggests actionable insights or next steps
 
 Be objective and fair to all viewpoints while providing critical analysis."""
-
-    def _format_response(self, response_text: str, model_used: str, primary_model: str) -> str:
-        """Format the response with model indicator if needed."""
-        model_indicator = f" [Model: {model_used}]" if model_used != primary_model else ""
-        return f"🔄 Synthesis{model_indicator}:\n\n{response_text}"

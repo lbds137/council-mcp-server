@@ -1,23 +1,26 @@
 """Brainstorming tool for generating ideas and solutions."""
 
+import logging
 from typing import Any, Dict
 
-from ..models.base import ToolInput, ToolMetadata
-from .base import BaseTool
+from .base import MCPTool, ToolOutput
+
+logger = logging.getLogger(__name__)
 
 
-class BrainstormTool(BaseTool):
-    """Tool for brainstorming ideas with Gemini."""
+class BrainstormTool(MCPTool):
+    """Tool for Brainstorm."""
 
-    def _get_metadata(self) -> ToolMetadata:
-        return ToolMetadata(
-            name="gemini_brainstorm",
-            description="Brainstorm ideas or solutions with Gemini",
-            tags=["creative", "ideas", "brainstorm"],
-            version="1.0.0",
-        )
+    @property
+    def name(self) -> str:
+        return "gemini_brainstorm"
 
-    def _get_input_schema(self) -> Dict[str, Any]:
+    @property
+    def description(self) -> str:
+        return "Brainstorm ideas or solutions with Gemini"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -34,26 +37,29 @@ class BrainstormTool(BaseTool):
             "required": ["topic"],
         }
 
-    async def _execute(self, input_data: ToolInput) -> str:
-        """Execute the brainstorming session."""
-        topic = input_data.parameters.get("topic")
-        if not topic:
-            raise ValueError("Topic is required for brainstorming")
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+            topic = parameters.get("topic")
+            if not topic:
+                return ToolOutput(success=False, error="Topic is required for brainstorming")
 
-        constraints = input_data.parameters.get("constraints", "")
+            constraints = parameters.get("constraints", "")
 
-        # Get model manager from context
-        model_manager = input_data.context.get("model_manager")
-        if not model_manager:
-            raise RuntimeError("Model manager not available in context")
+            # Build the prompt
+            prompt = self._build_prompt(topic, constraints)
 
-        # Build the prompt
-        prompt = self._build_prompt(topic, constraints)
+            # Get model manager from global context
+            from .. import model_manager
 
-        # Generate ideas
-        response_text, model_used = model_manager.generate_content(prompt)
-
-        return self._format_response(response_text, model_used, model_manager.primary_model_name)
+            response_text, model_used = model_manager.generate_content(prompt)
+            formatted_response = f"💡 Brainstorming Results:\n\n{response_text}"
+            if model_used != model_manager.primary_model_name:
+                formatted_response += f"\n\n[Model: {model_used}]"
+            return ToolOutput(success=True, result=formatted_response)
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, topic: str, constraints: str) -> str:
         """Build the brainstorming prompt."""
@@ -68,8 +74,3 @@ Please provide:
 4. Actionable next steps
 
 Be creative but practical. Think outside the box while considering feasibility."""
-
-    def _format_response(self, response_text: str, model_used: str, primary_model: str) -> str:
-        """Format the response with model indicator if needed."""
-        model_indicator = f" [Model: {model_used}]" if model_used != primary_model else ""
-        return f"💡 Brainstorming Results{model_indicator}:\n\n{response_text}"

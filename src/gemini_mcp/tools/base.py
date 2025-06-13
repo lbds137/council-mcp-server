@@ -1,78 +1,77 @@
 """Base class for all tools."""
 
 import logging
-import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict
-
-from ..models.base import ToolInput, ToolMetadata, ToolOutput
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class BaseTool(ABC):
-    """Abstract base class for all tools."""
+# Simplified ToolOutput for bundled tools
+class ToolOutput:
+    """Standard output format for tool execution."""
 
-    def __init__(self):
-        self.metadata = self._get_metadata()
-        self._validate_metadata()
+    def __init__(self, success: bool, result: Optional[str] = None, error: Optional[str] = None):
+        self.success = success
+        self.result = result
+        self.error = error
+        self.metadata: Dict[str, Any] = {}
 
+
+class MCPTool(ABC):
+    """Abstract base class for all tools using simplified property-based approach."""
+
+    @property
     @abstractmethod
-    def _get_metadata(self) -> ToolMetadata:
-        """Return metadata for this tool."""
+    def name(self) -> str:
+        """Return the tool name."""
+        pass
+
+    @property
+    @abstractmethod
+    def description(self) -> str:
+        """Return the tool description."""
+        pass
+
+    @property
+    @abstractmethod
+    def input_schema(self) -> Dict[str, Any]:
+        """Return the JSON schema for tool inputs."""
         pass
 
     @abstractmethod
-    async def _execute(self, input_data: ToolInput) -> Any:
-        """Execute the tool logic. Can be async for I/O operations."""
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
         pass
-
-    def _validate_metadata(self):
-        """Validate that metadata is properly configured."""
-        if not self.metadata.name:
-            raise ValueError("Tool must have a name")
-        if not self.metadata.description:
-            raise ValueError("Tool must have a description")
-
-    async def run(self, input_data: ToolInput) -> ToolOutput:
-        """Run the tool with timing and error handling."""
-        start_time = time.time()
-
-        try:
-            logger.info(f"Executing tool: {self.metadata.name}")
-            result = await self._execute(input_data)
-
-            execution_time = (time.time() - start_time) * 1000
-
-            return ToolOutput(
-                tool_name=self.metadata.name,
-                result=result,
-                success=True,
-                execution_time_ms=execution_time,
-                metadata={"tags": self.metadata.tags},
-            )
-
-        except Exception as e:
-            logger.error(f"Tool {self.metadata.name} failed: {e}")
-            execution_time = (time.time() - start_time) * 1000
-
-            return ToolOutput(
-                tool_name=self.metadata.name,
-                result=None,
-                success=False,
-                error=str(e),
-                execution_time_ms=execution_time,
-            )
 
     def get_mcp_definition(self) -> Dict[str, Any]:
         """Get the MCP tool definition."""
         return {
-            "name": self.metadata.name,
-            "description": self.metadata.description,
-            "inputSchema": self._get_input_schema(),
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": self.input_schema,
         }
 
-    @abstractmethod
-    def _get_input_schema(self) -> Dict[str, Any]:
-        """Return the JSON schema for tool inputs."""
+
+# Keep the original BaseTool for backwards compatibility during migration
+class BaseTool(MCPTool):
+    """Legacy base class that wraps MCPTool for backwards compatibility."""
+
+    def __init__(self):
+        # No-op for legacy compatibility
         pass
+
+    @property
+    def name(self) -> str:
+        """Default to empty string for legacy tools."""
+        return ""
+
+    @property
+    def description(self) -> str:
+        """Default to empty string for legacy tools."""
+        return ""
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        """Default to empty schema for legacy tools."""
+        return {"type": "object", "properties": {}, "required": []}
