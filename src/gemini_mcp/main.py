@@ -2,7 +2,6 @@
 Main MCP server implementation that orchestrates all modular components.
 """
 
-import json
 import logging
 import os
 import sys
@@ -40,6 +39,14 @@ class GeminiMCPServer:
         # Create JSON-RPC server
         self.server = JsonRpcServer("gemini-mcp-server")
         self._setup_handlers()
+
+        # Make server instance available globally for tools
+        import gemini_mcp
+
+        gemini_mcp._server_instance = self
+
+        # Also set as global for bundled mode
+        globals()["_server_instance"] = self
 
     def _initialize_model_manager(self) -> bool:
         """Initialize the model manager with API key."""
@@ -138,15 +145,6 @@ class GeminiMCPServer:
                 }
             )
 
-        # Add server info tool
-        tools.append(
-            {
-                "name": "server_info",
-                "description": "Get server version and status",
-                "inputSchema": {"type": "object", "properties": {}},
-            }
-        )
-
         return create_result_response(request_id, {"tools": tools})
 
     def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -155,13 +153,6 @@ class GeminiMCPServer:
         arguments = params.get("arguments", {})
 
         logger.info(f"Executing tool: {tool_name}")
-
-        # Handle server info specially
-        if tool_name == "server_info":
-            result = self._get_server_info()
-            return create_result_response(
-                request_id, {"content": [{"type": "text", "text": result}]}
-            )
 
         # Check if models are initialized
         if not self.orchestrator:
@@ -207,34 +198,6 @@ class GeminiMCPServer:
             result = f"❌ Error executing tool: {str(e)}"
 
         return create_result_response(request_id, {"content": [{"type": "text", "text": result}]})
-
-    def _get_server_info(self) -> str:
-        """Get server information and status."""
-        # Get list of available tools
-        registered_tools = self.tool_registry.list_tools()
-        all_tools = registered_tools + ["server_info"]
-
-        info = {
-            "version": __version__,
-            "architecture": "modular",
-            "available_tools": all_tools,
-            "components": {
-                "tools_registered": len(registered_tools),
-                "total_tools_available": len(all_tools),
-                "cache_stats": self.cache.get_stats() if self.cache else None,
-                "memory_stats": self.memory.get_stats() if self.memory else None,
-            },
-            "models": {
-                "initialized": self.model_manager is not None,
-                "primary": getattr(self.model_manager, "primary_model_name", None),
-                "fallback": getattr(self.model_manager, "fallback_model_name", None),
-            },
-        }
-
-        if self.orchestrator:
-            info["execution_stats"] = self.orchestrator.get_execution_stats()
-
-        return f"🤖 Gemini MCP Server v{__version__}\n\n{json.dumps(info, indent=2)}"
 
     def run(self):
         """Run the MCP server."""

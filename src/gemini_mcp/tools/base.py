@@ -16,6 +16,11 @@ class ToolOutput:
         self.result = result
         self.error = error
         self.metadata: Dict[str, Any] = {}
+        # Add missing attributes for compatibility with orchestrator
+        self.tool_name: str = ""
+        self.execution_time_ms: Optional[float] = None
+        self.model_used: Optional[str] = None
+        self.timestamp = None
 
 
 class MCPTool(ABC):

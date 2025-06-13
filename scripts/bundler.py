@@ -192,6 +192,11 @@ class Bundler:
 
             # Global model manager instance (will be set by server)
             model_manager = None
+
+            # Create gemini_mcp namespace for bundled mode
+            class _GeminiMCP:
+                _server_instance = None
+            gemini_mcp = _GeminiMCP()
         """
         ).strip()
 

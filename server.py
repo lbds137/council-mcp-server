@@ -48,6 +48,14 @@ __version__ = "3.0.0"
 model_manager = None
 
 
+# Create gemini_mcp namespace for bundled mode
+class _GeminiMCP:
+    _server_instance = None
+
+
+gemini_mcp = _GeminiMCP()
+
+
 # ========== Standalone JSON-RPC 2.0 implementation for MCP servers. Based on Gemini's rec... ==========
 
 
@@ -614,6 +622,11 @@ class ToolOutput:
         self.result = result
         self.error = error
         self.metadata: Dict[str, Any] = {}
+        # Add missing attributes for compatibility with orchestrator
+        self.tool_name: str = ""
+        self.execution_time_ms: Optional[float] = None
+        self.model_used: Optional[str] = None
+        self.timestamp = None
 
 
 class MCPTool(ABC):
@@ -1118,6 +1131,13 @@ class GeminiMCPServer:
         self.server = JsonRpcServer("gemini-mcp-server")
         self._setup_handlers()
 
+        # Make server instance available globally for tools
+
+        gemini_mcp._server_instance = self
+
+        # Also set as global for bundled mode
+        globals()["_server_instance"] = self
+
     def _initialize_model_manager(self) -> bool:
         """Initialize the model manager with API key."""
         api_key = os.getenv("GEMINI_API_KEY")
@@ -1215,15 +1235,6 @@ class GeminiMCPServer:
                 }
             )
 
-        # Add server info tool
-        tools.append(
-            {
-                "name": "server_info",
-                "description": "Get server version and status",
-                "inputSchema": {"type": "object", "properties": {}},
-            }
-        )
-
         return create_result_response(request_id, {"tools": tools})
 
     def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -1232,13 +1243,6 @@ class GeminiMCPServer:
         arguments = params.get("arguments", {})
 
         logger.info(f"Executing tool: {tool_name}")
-
-        # Handle server info specially
-        if tool_name == "server_info":
-            result = self._get_server_info()
-            return create_result_response(
-                request_id, {"content": [{"type": "text", "text": result}]}
-            )
 
         # Check if models are initialized
         if not self.orchestrator:
@@ -1284,34 +1288,6 @@ class GeminiMCPServer:
             result = f"❌ Error executing tool: {str(e)}"
 
         return create_result_response(request_id, {"content": [{"type": "text", "text": result}]})
-
-    def _get_server_info(self) -> str:
-        """Get server information and status."""
-        # Get list of available tools
-        registered_tools = self.tool_registry.list_tools()
-        all_tools = registered_tools + ["server_info"]
-
-        info = {
-            "version": __version__,
-            "architecture": "modular",
-            "available_tools": all_tools,
-            "components": {
-                "tools_registered": len(registered_tools),
-                "total_tools_available": len(all_tools),
-                "cache_stats": self.cache.get_stats() if self.cache else None,
-                "memory_stats": self.memory.get_stats() if self.memory else None,
-            },
-            "models": {
-                "initialized": self.model_manager is not None,
-                "primary": getattr(self.model_manager, "primary_model_name", None),
-                "fallback": getattr(self.model_manager, "fallback_model_name", None),
-            },
-        }
-
-        if self.orchestrator:
-            info["execution_stats"] = self.orchestrator.get_execution_stats()
-
-        return f"🤖 Gemini MCP Server v{__version__}\n\n{json.dumps(info, indent=2)}"
 
     def run(self):
         """Run the MCP server."""
@@ -1678,6 +1654,86 @@ Structure your explanation with:
 4. Key takeaways"""
 
 
+# ========== Server information tool for checking status and configuration. ==========
+
+
+from typing import Any, Dict
+
+__version__ = "3.0.0"
+
+
+class ServerInfoTool(MCPTool):
+    """Tool for getting server information and status."""
+
+    @property
+    def name(self) -> str:
+        return "server_info"
+
+    @property
+    def description(self) -> str:
+        return "Get server version and status"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+            # Access the server components through global context
+            # In bundled mode, will be set as global _server_instance
+            server = None
+
+            # Try modular approach first
+            try:
+
+                server = getattr(gemini_mcp, "_server_instance", None)
+            except ImportError:
+                pass
+
+            # Fall back to global _server_instance (for bundled mode)
+            if not server:
+                server = globals().get("_server_instance", None)
+            if not server:
+                # Fallback to basic info if server instance not available
+                info = {
+                    "version": __version__,
+                    "architecture": "modular",
+                    "status": "running",
+                    "note": "Full stats unavailable - server instance not accessible",
+                }
+            else:
+                # Get list of available tools from registry
+                registered_tools = server.tool_registry.list_tools()
+                all_tools = registered_tools  # server_info is now just another tool
+
+                info = {
+                    "version": __version__,
+                    "architecture": "modular",
+                    "available_tools": all_tools,
+                    "components": {
+                        "tools_registered": len(registered_tools),
+                        "total_tools_available": len(all_tools),
+                        "cache_stats": server.cache.get_stats() if server.cache else None,
+                        "memory_stats": server.memory.get_stats() if server.memory else None,
+                    },
+                    "models": {
+                        "initialized": server.model_manager is not None,
+                        "primary": getattr(server.model_manager, "primary_model_name", None),
+                        "fallback": getattr(server.model_manager, "fallback_model_name", None),
+                    },
+                }
+
+                if server.orchestrator:
+                    info["execution_stats"] = server.orchestrator.get_execution_stats()
+
+            result = f"🤖 Gemini MCP Server v{__version__}\n\n{json.dumps(info, indent=2)}"
+            return ToolOutput(success=True, result=result)
+
+        except Exception as e:
+            return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
+
+
 # ========== Synthesis tool for combining multiple perspectives into cohesive insights. ==========
 
 
@@ -1886,6 +1942,7 @@ def _bundled_discover_tools(self, tools_path: Optional[Path] = None) -> None:
         BrainstormTool,
         CodeReviewTool,
         ExplainTool,
+        ServerInfoTool,
         SynthesizeTool,
         TestCasesTool,
     ]
