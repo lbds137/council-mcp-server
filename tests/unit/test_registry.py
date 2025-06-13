@@ -1,10 +1,7 @@
 """Unit tests for the tool registry."""
 
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from gemini_mcp.core.registry import ToolRegistry
 from gemini_mcp.models.base import ToolMetadata

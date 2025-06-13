@@ -8,8 +8,6 @@ This version combines all modular components into a single deployable file.
 import asyncio
 import collections
 import hashlib
-import importlib
-import inspect
 import json
 import logging
 import os
@@ -17,8 +15,8 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
@@ -912,7 +910,9 @@ class CodeReviewTool(MCPTool):
                 },
                 "focus": {
                     "type": "string",
-                    "description": "Specific aspect to focus on (e.g., security, performance, readability)",
+                    "description": (
+                        "Specific aspect to focus on " "(e.g., security, performance, readability)"
+                    ),
                     "default": "general",
                 },
             },

@@ -1,7 +1,5 @@
 """Integration tests for the orchestrator."""
 
-from unittest.mock import AsyncMock, Mock, patch
-
 import pytest
 
 from gemini_mcp.core.orchestrator import ConversationOrchestrator

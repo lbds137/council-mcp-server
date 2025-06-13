@@ -1,12 +1,10 @@
 """Unit tests for the base tool."""
 
 import asyncio
-from datetime import datetime
-from unittest.mock import Mock, patch
 
 import pytest
 
-from gemini_mcp.models.base import ToolInput, ToolMetadata, ToolOutput
+from gemini_mcp.models.base import ToolInput, ToolMetadata
 from gemini_mcp.tools.base import BaseTool
 
 

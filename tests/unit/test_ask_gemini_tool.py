@@ -1,7 +1,5 @@
 """Unit tests for the ask_gemini tool."""
 
-from unittest.mock import Mock
-
 import pytest
 
 from gemini_mcp.models.base import ToolInput

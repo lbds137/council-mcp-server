@@ -4,7 +4,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from typing import Optional, Tuple
+from typing import Tuple
 
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
@@ -71,7 +71,7 @@ class DualModelManager:
                 response_text = self._generate_with_timeout(
                     self._primary_model, self.primary_model_name, prompt, self.timeout
                 )
-                logger.debug(f"Primary model responded successfully")
+                logger.debug("Primary model responded successfully")
                 return response_text, self.primary_model_name
             except (google_exceptions.GoogleAPICallError, ValueError, TimeoutError) as e:
                 self.primary_failures += 1
@@ -87,7 +87,7 @@ class DualModelManager:
                     prompt,
                     self.timeout * 1.5,  # Give fallback more time
                 )
-                logger.info(f"Fallback model responded successfully")
+                logger.info("Fallback model responded successfully")
                 return response_text, self.fallback_model_name
             except Exception as e:
                 logger.error(f"Fallback model also failed: {e}")

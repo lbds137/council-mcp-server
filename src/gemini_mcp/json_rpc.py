@@ -3,11 +3,10 @@ Standalone JSON-RPC 2.0 implementation for MCP servers.
 Based on Gemini's recommendations for replacing the mcp library.
 """
 
-import asyncio
 import json
 import logging
 import sys
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

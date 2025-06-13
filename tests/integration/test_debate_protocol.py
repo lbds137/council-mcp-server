@@ -1,14 +1,12 @@
 """Integration tests for the debate protocol."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from gemini_mcp.core.orchestrator import ConversationOrchestrator
-from gemini_mcp.core.registry import ToolRegistry
 from gemini_mcp.models.base import ToolOutput
 from gemini_mcp.protocols.debate import DebatePosition, DebateProtocol, DebateRound
-from tests.fixtures import create_mock_model_manager
 
 
 class TestDebateProtocol:

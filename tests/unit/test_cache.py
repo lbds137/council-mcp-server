@@ -1,9 +1,6 @@
 """Unit tests for the cache service."""
 
-import time
 from unittest.mock import patch
-
-import pytest
 
 from gemini_mcp.services.cache import ResponseCache
 

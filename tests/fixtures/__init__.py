@@ -1,7 +1,6 @@
 """Test fixtures for the Gemini MCP server tests."""
 
-from typing import Tuple
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from gemini_mcp.models.base import ToolMetadata
 

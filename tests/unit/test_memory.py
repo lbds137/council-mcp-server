@@ -3,9 +3,6 @@
 from datetime import datetime
 from unittest.mock import patch
 
-import pytest
-
-from gemini_mcp.models.memory import ConversationTurn, MemoryEntry
 from gemini_mcp.services.memory import ConversationMemory
 
 

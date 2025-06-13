@@ -4,7 +4,6 @@ Create a single-file version of v3 that can be deployed as an MCP server.
 This manually combines all necessary components.
 """
 
-import os
 from pathlib import Path
 
 # Configuration
@@ -932,7 +931,10 @@ class CodeReviewTool(MCPTool):
                 },
                 "focus": {
                     "type": "string",
-                    "description": "Specific aspect to focus on (e.g., security, performance, readability)",
+                    "description": (
+                        "Specific aspect to focus on "
+                        "(e.g., security, performance, readability)"
+                    ),
                     "default": "general"
                 }
             },
