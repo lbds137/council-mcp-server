@@ -10,16 +10,16 @@ import pytest
 # Add the scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from bundler import DynamicBundlerV2  # noqa: E402
+from bundler import Bundler  # noqa: E402
 
 
-class TestDynamicBundlerV2:
-    """Test suite for the dynamic bundler."""
+class TestBundler:
+    """Test suite for the bundler."""
 
     @pytest.fixture
     def bundler(self):
         """Create a bundler instance."""
-        return DynamicBundlerV2()
+        return Bundler()
 
     @pytest.fixture
     def mock_src_dir(self, tmp_path):
@@ -360,14 +360,14 @@ class TestBundlerEdgeCases:
     @pytest.fixture
     def bundler(self):
         """Create a bundler instance."""
-        return DynamicBundlerV2()
+        return Bundler()
 
     def test_empty_source_directory(self, tmp_path, monkeypatch):
         """Test bundler with empty source directory."""
         empty_src = tmp_path / "empty" / "src" / "gemini_mcp"
         empty_src.mkdir(parents=True)
 
-        bundler = DynamicBundlerV2()
+        bundler = Bundler()
         monkeypatch.setattr("bundler.SRC_DIR", empty_src)
 
         bundler.discover_all()
@@ -378,7 +378,7 @@ class TestBundlerEdgeCases:
 
     def test_malformed_tool_class(self, tmp_path, monkeypatch):
         """Test handling of malformed tool classes."""
-        bundler = DynamicBundlerV2()
+        bundler = Bundler()
 
         # Create mock src dir
         src_dir = tmp_path / "src" / "gemini_mcp"
