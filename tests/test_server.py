@@ -120,7 +120,7 @@ class TestGeminiMCPServer:
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 123
-        assert len(response["result"]["tools"]) == 6  # 5 Gemini tools + server_info
+        assert len(response["result"]["tools"]) == 7  # 6 Gemini tools + server_info
 
     @patch("gemini_mcp.server.DualModelManager")
     def test_handle_tool_call_ask_gemini(self, mock_manager_class):
