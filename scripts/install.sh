@@ -1,63 +1,80 @@
 #!/bin/bash
-# Install script for Gemini MCP Server
+# Smart install/update script for Gemini MCP Server v3
 
 set -e
 
-echo "🚀 Installing Gemini MCP Server"
-echo "==============================="
-
-# Get the directory of this script
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MCP_DIR="$HOME/.claude-mcp-servers/gemini-collab"
 
-# Create MCP directory if it doesn't exist
-echo "📁 Creating MCP directory..."
-mkdir -p "$MCP_DIR"
-
-# Copy necessary files
-echo "📦 Copying server files..."
-cp "$PROJECT_DIR/src/gemini_mcp/server.py" "$MCP_DIR/"
-cp "$PROJECT_DIR/requirements.txt" "$MCP_DIR/"
-cp "$PROJECT_DIR/.env.example" "$MCP_DIR/"
-
-# Copy README files
-cp "$PROJECT_DIR/README.md" "$MCP_DIR/"
-if [ -f "$PROJECT_DIR/docs/DUAL_MODEL_CONFIGURATION.md" ]; then
-    cp "$PROJECT_DIR/docs/DUAL_MODEL_CONFIGURATION.md" "$MCP_DIR/"
+# Determine if this is first install or update
+if [ -d "$MCP_DIR" ]; then
+    echo "🔄 Updating Gemini MCP Server v3"
+    IS_UPDATE=true
+else
+    echo "🚀 Installing Gemini MCP Server v3"
+    IS_UPDATE=false
 fi
 
-# Check if .env exists
-if [ ! -f "$MCP_DIR/.env" ]; then
+echo "   Source: $PROJECT_ROOT/server.py"
+echo "   Target: $MCP_DIR"
+
+# Check if bundled server exists, if not create it
+if [ ! -f "$PROJECT_ROOT/server.py" ]; then
+    echo "🔨 Bundled server not found, creating from modular source..."
+    cd "$PROJECT_ROOT"
+    python3 scripts/bundle.py
+fi
+
+# Create MCP directory if needed
+if [ ! -d "$MCP_DIR" ]; then
+    echo "📁 Creating MCP directory..."
+    mkdir -p "$MCP_DIR"
+fi
+
+# Backup existing server if updating
+if [ "$IS_UPDATE" = true ] && [ -f "$MCP_DIR/server.py" ]; then
+    if ! cmp -s "$PROJECT_ROOT/server.py" "$MCP_DIR/server.py"; then
+        echo "📦 Backing up current server..."
+        cp "$MCP_DIR/server.py" "$MCP_DIR/server.backup.$(date +%Y%m%d_%H%M%S).py"
+    fi
+fi
+
+# Deploy the server
+if [ "$IS_UPDATE" = true ]; then
+    echo "📝 Updating server..."
+else
+    echo "📦 Installing server..."
+fi
+cp "$PROJECT_ROOT/server.py" "$MCP_DIR/server.py"
+chmod +x "$MCP_DIR/server.py"
+
+# Copy requirements
+echo "📋 Copying requirements..."
+cp "$PROJECT_ROOT/requirements.txt" "$MCP_DIR/"
+
+# Copy .env.example if .env doesn't exist
+if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
     echo "📝 Creating .env file from template..."
-    cp "$MCP_DIR/.env.example" "$MCP_DIR/.env"
-    echo "⚠️  Please edit $MCP_DIR/.env and add your GEMINI_API_KEY"
-else
-    echo "✅ Existing .env file preserved"
-fi
-
-# Register with Claude
-echo "🔧 Registering with Claude..."
-if command -v claude &> /dev/null; then
-    # Remove old registration if exists
-    claude mcp remove gemini-collab 2>/dev/null || true
-
-    # Add new registration
-    claude mcp add --scope user gemini-collab python3 "$MCP_DIR/server.py"
-    echo "✅ Registered with Claude CLI"
-else
-    echo "⚠️  Claude CLI not found. Manual registration required:"
-    echo "   claude mcp add --scope user gemini-collab python3 $MCP_DIR/server.py"
+    cp "$PROJECT_ROOT/.env.example" "$MCP_DIR/.env"
+    echo "   ⚠️  Remember to add your GEMINI_API_KEY to $MCP_DIR/.env"
 fi
 
 echo ""
-echo "✅ Installation complete!"
+if [ "$IS_UPDATE" = true ]; then
+    echo "✅ Update complete!"
+    echo ""
+    echo "📊 Changes:"
+    echo "   - Server rebuilt from modular source"
+    echo "   - Previous version backed up"
+else
+    echo "✅ Installation complete!"
+    echo ""
+    echo "🎉 Gemini MCP Server v3 is ready to use!"
+fi
+
 echo ""
-echo "Next steps:"
-echo "1. Edit $MCP_DIR/.env with your GEMINI_API_KEY"
-echo "2. Restart Claude Desktop"
-echo "3. Test with: mcp__gemini-collab__server_info"
-echo ""
-echo "For development:"
-echo "- Make changes in: $PROJECT_DIR"
-echo "- Update MCP with: ./scripts/update.sh"
+echo "📋 Next steps:"
+echo "   1. Ensure GEMINI_API_KEY is set in $MCP_DIR/.env"
+echo "   2. Restart Claude Desktop"
+echo "   3. Test with: mcp__gemini-collab__server_info"
