@@ -69,7 +69,8 @@ class ToolRegistry:
         try:
             # Instantiate the tool to get its metadata
             tool_instance = tool_class()
-            tool_name = tool_instance.metadata.name
+            # Use property-based access for compatibility
+            tool_name = tool_instance.name
 
             if tool_name in self._tools:
                 logger.warning(f"Tool {tool_name} already registered, skipping")
@@ -105,5 +106,7 @@ class ToolRegistry:
             try:
                 definitions.append(tool.get_mcp_definition())
             except Exception as e:
-                logger.error(f"Failed to get MCP definition for {tool.metadata.name}: {e}")
+                # Use property-based access for error logging
+                tool_name = getattr(tool, "name", tool.__class__.__name__)
+                logger.error(f"Failed to get MCP definition for {tool_name}: {e}")
         return definitions

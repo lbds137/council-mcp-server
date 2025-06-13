@@ -23,7 +23,7 @@ echo "   Target: $MCP_DIR"
 if [ ! -f "$PROJECT_ROOT/server.py" ]; then
     echo "🔨 Bundled server not found, creating from modular source..."
     cd "$PROJECT_ROOT"
-    python3 scripts/bundle.py
+    python3 scripts/bundler.py
 fi
 
 # Create MCP directory if needed

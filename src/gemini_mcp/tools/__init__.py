@@ -5,7 +5,6 @@ from .base import BaseTool, MCPTool, ToolOutput
 from .brainstorm import BrainstormTool
 from .code_review import CodeReviewTool
 from .explain import ExplainTool
-from .server_info import ServerInfoTool
 from .synthesize import SynthesizeTool
 from .test_cases import TestCasesTool
 
@@ -17,7 +16,6 @@ __all__ = [
     "BrainstormTool",
     "CodeReviewTool",
     "ExplainTool",
-    "ServerInfoTool",
     "SynthesizeTool",
     "TestCasesTool",
 ]
