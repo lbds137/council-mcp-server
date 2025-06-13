@@ -692,6 +692,7 @@ class ToolRegistry:
             BrainstormTool(),
             TestCasesTool(),
             ExplainTool(),
+            SynthesizeTool(),
         ]
 
         for tool in builtin_tools:
@@ -1127,6 +1128,91 @@ class ExplainTool(MCPTool):
             return ToolOutput(success=False, error=f"Error getting explanation: {str(e)}")
 
 
+class SynthesizeTool(MCPTool):
+    """Synthesis tool for combining multiple perspectives."""
+
+    @property
+    def name(self) -> str:
+        return "synthesize_perspectives"
+
+    @property
+    def description(self) -> str:
+        return "Synthesize multiple viewpoints or pieces of information into a coherent summary"
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "The topic or question being addressed"},
+                "perspectives": {
+                    "type": "array",
+                    "description": "List of different perspectives or pieces of information",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source": {
+                                "type": "string",
+                                "description": "Source or viewpoint identifier",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "The perspective or information",
+                            },
+                        },
+                        "required": ["content"],
+                    },
+                },
+            },
+            "required": ["topic", "perspectives"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        topic = parameters.get("topic", "")
+        if not topic:
+            return ToolOutput(success=False, error="Topic is required for synthesis")
+
+        perspectives = parameters.get("perspectives", [])
+        if not perspectives:
+            return ToolOutput(success=False, error="At least one perspective is required")
+
+        model_manager = getattr(self, "_model_manager", None)
+        if not model_manager:
+            return ToolOutput(success=False, error="Model manager not available")
+
+        # Build the prompt
+        perspectives_text = "\n\n".join(
+            [
+                f"**{p.get('source', f'Perspective {i+1}')}:**\n{p['content']}"
+                for i, p in enumerate(perspectives)
+            ]
+        )
+
+        prompt = f"""Please synthesize the following perspectives on: {topic}
+
+{perspectives_text}
+
+Provide a balanced synthesis that:
+1. Identifies common themes and agreements
+2. Highlights key differences and tensions
+3. Evaluates the strengths and weaknesses of each perspective
+4. Proposes a unified understanding or framework
+5. Suggests actionable insights or next steps
+
+Be objective and fair to all viewpoints while providing critical analysis."""
+
+        try:
+            response_text, model_used = model_manager.generate_content(prompt)
+            formatted_response = f"🔄 Synthesis:\n\n{response_text}"
+            if model_used != model_manager.primary_model_name:
+                formatted_response += f"\n\n[Model: {model_used}]"
+            return ToolOutput(success=True, result=formatted_response)
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            return ToolOutput(success=False, error=f"Error during synthesis: {str(e)}")
+
+
 # ========== Main Server Implementation ==========
 
 
@@ -1286,11 +1372,17 @@ class GeminiMCPServerV3:
 
     def _get_server_info(self) -> str:
         """Get server information and status."""
+        # Get list of available tools
+        registered_tools = self.tool_registry.list_tools()
+        all_tools = registered_tools + ["server_info"]  # Include server_info tool
+
         info = {
             "version": __version__,
             "architecture": "modular-single-file",
+            "available_tools": all_tools,
             "components": {
-                "tools_registered": len(self.tool_registry.list_tools()),
+                "tools_registered": len(registered_tools),
+                "total_tools_available": len(all_tools),
                 "cache_stats": self.cache.get_stats() if self.cache else None,
                 "memory_stats": self.memory.get_stats() if self.memory else None,
             },
