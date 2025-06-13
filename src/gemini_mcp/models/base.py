@@ -1,25 +1,25 @@
 """Base models for tools and responses."""
 
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class ToolMetadata:
     """Metadata for a tool."""
-    
+
     name: str
     description: str
     version: str = "1.0.0"
     author: str = "gemini-mcp"
     tags: List[str] = field(default_factory=list)
-    
+
 
 @dataclass
 class ToolInput:
     """Base class for tool inputs."""
-    
+
     tool_name: str
     parameters: Dict[str, Any]
     context: Optional[Dict[str, Any]] = None
@@ -30,7 +30,7 @@ class ToolInput:
 @dataclass
 class ToolOutput:
     """Base class for tool outputs."""
-    
+
     tool_name: str
     result: Any
     success: bool = True

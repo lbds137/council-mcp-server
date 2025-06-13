@@ -2,7 +2,8 @@
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Optional, Tuple
 
 import google.generativeai as genai
@@ -19,21 +20,15 @@ class DualModelManager:
         genai.configure(api_key=api_key)
 
         # Get model names from environment or use defaults
-        self.primary_model_name = os.getenv(
-            "GEMINI_MODEL_PRIMARY", "gemini-2.0-flash-exp"
-        )
-        self.fallback_model_name = os.getenv(
-            "GEMINI_MODEL_FALLBACK", "gemini-1.5-pro"
-        )
+        self.primary_model_name = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.0-flash-exp")
+        self.fallback_model_name = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-1.5-pro")
 
         # Timeout configuration (in seconds)
         self.timeout = float(os.getenv("GEMINI_MODEL_TIMEOUT", "10000")) / 1000
 
         # Initialize models
         self._primary_model = self._initialize_model(self.primary_model_name, "Primary")
-        self._fallback_model = self._initialize_model(
-            self.fallback_model_name, "Fallback"
-        )
+        self._fallback_model = self._initialize_model(self.fallback_model_name, "Fallback")
 
         # Track model usage
         self.primary_calls = 0
@@ -50,9 +45,7 @@ class DualModelManager:
             logger.error(f"Failed to initialize {model_type} model {model_name}: {e}")
             return None
 
-    def _generate_with_timeout(
-        self, model, model_name: str, prompt: str, timeout: float
-    ) -> str:
+    def _generate_with_timeout(self, model, model_name: str, prompt: str, timeout: float) -> str:
         """Execute model generation with timeout using ThreadPoolExecutor."""
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(model.generate_content, prompt)
@@ -82,9 +75,7 @@ class DualModelManager:
                 return response_text, self.primary_model_name
             except (google_exceptions.GoogleAPICallError, ValueError, TimeoutError) as e:
                 self.primary_failures += 1
-                logger.warning(
-                    f"Primary model failed (attempt {self.primary_failures}): {e}"
-                )
+                logger.warning(f"Primary model failed (attempt {self.primary_failures}): {e}")
 
         # Fallback to secondary model
         if self._fallback_model:

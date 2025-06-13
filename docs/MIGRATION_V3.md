@@ -85,7 +85,7 @@ class MyTool(BaseTool):
             tags=["relevant", "tags"],
             version="1.0.0"
         )
-    
+
     def _get_input_schema(self):
         return {
             "type": "object",
@@ -94,7 +94,7 @@ class MyTool(BaseTool):
             },
             "required": ["param"]
         }
-    
+
     async def _execute(self, input_data: ToolInput) -> str:
         # Tool implementation
         model_manager = input_data.context.get("model_manager")

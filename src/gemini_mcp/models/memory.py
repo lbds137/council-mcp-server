@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 @dataclass
 class ConversationTurn:
     """Represents a single turn in a conversation."""
-    
+
     role: str  # "user", "assistant", "system"
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
@@ -18,7 +18,7 @@ class ConversationTurn:
 @dataclass
 class MemoryEntry:
     """Represents an entry in conversation memory."""
-    
+
     key: str
     value: Any
     category: str = "general"
