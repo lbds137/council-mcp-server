@@ -7,4 +7,4 @@ __author__ = "Your Name"
 _server_instance = None
 
 # Don't import server at package level to avoid circular imports
-__all__ = []
+__all__: list[str] = []

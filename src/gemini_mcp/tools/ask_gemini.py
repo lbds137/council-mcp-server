@@ -51,9 +51,20 @@ class AskGeminiTool(MCPTool):
             prompt = f"Context: {context}\n\n" if context else ""
             prompt += f"Question: {question}"
 
-            # Get model manager from global context (will be injected during bundling)
-            # In modular mode, this would come from the orchestrator context
-            from .. import model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+                from .. import _server_instance
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt)
             formatted_response = f"🤖 Gemini's Response:\n\n{response_text}"

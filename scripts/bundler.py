@@ -307,17 +307,44 @@ ToolRegistry.discover_tools = _bundled_discover_tools
         if not is_tool:
             return content
 
-        # Replace the model manager import with global access
+        # Look for the model manager access block and replace it
+        lines = content.split("\n")
+        new_lines = []
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # Check if this is the start of the model manager access block
+            if "# Get model manager from server instance" in line:
+                # Skip lines until we find the generate_content call
+                new_lines.append("            # Access global model manager in bundled version")
+                new_lines.append("            global model_manager")
+                new_lines.append("")
+
+                # Skip ahead until we find the response_text line
+                while (
+                    i < len(lines)
+                    and "response_text, model_used = model_manager.generate_content" not in lines[i]
+                ):
+                    i += 1
+                # Now include the generate_content line
+                if i < len(lines):
+                    new_lines.append(lines[i])
+            else:
+                new_lines.append(line)
+            i += 1
+
+        content = "\n".join(new_lines)
+
+        # Also handle any remaining import attempts
         content = content.replace(
             "from .. import model_manager",
             "# Model manager will be accessed as global in bundled version",
         )
-
-        # Ensure tools use the global model_manager
-        content = re.sub(
-            r"(\s+)(response_text, model_used = )(model_manager\.generate_content\()",
-            r"\1# Access global model manager in bundled version\n\1global model_manager\n\1\2\3",
-            content,
+        content = content.replace(
+            "from .. import _server_instance",
+            "# Server instance access not needed in bundled version",
         )
 
         return content

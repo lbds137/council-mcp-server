@@ -195,7 +195,7 @@ class TestGeminiMCPServer:
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 5
-        assert "Tool 'None' not found" in response["result"]["content"][0]["text"]
+        assert "Tool name is required" in response["result"]["content"][0]["text"]
 
     @patch("asyncio.get_event_loop")
     @patch("asyncio.set_event_loop")

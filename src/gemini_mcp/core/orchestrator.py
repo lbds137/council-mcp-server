@@ -3,10 +3,10 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from ..models.base import ToolOutput
 from ..protocols.debate import DebateProtocol
 from ..services.cache import ResponseCache
 from ..services.memory import ConversationMemory
+from ..tools.base import ToolOutput
 from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -43,9 +43,9 @@ class ConversationOrchestrator:
         # Get the tool
         tool = self.tool_registry.get_tool(tool_name)
         if not tool:
-            return ToolOutput(
-                tool_name=tool_name, result=None, success=False, error=f"Unknown tool: {tool_name}"
-            )
+            output = ToolOutput(success=False, error=f"Unknown tool: {tool_name}")
+            output.tool_name = tool_name
+            return output
 
         # Create tool input with context (kept for reference, though not used in new API)
         # tool_input = ToolInput(
@@ -83,11 +83,11 @@ class ConversationOrchestrator:
 
         # Example: Simple sequential execution
         if protocol_name == "simple":
-            return [
-                await self.execute_tool(
-                    initial_input.get("tool_name"), initial_input.get("parameters")
-                )
-            ]
+            tool_name = initial_input.get("tool_name", "")
+            parameters = initial_input.get("parameters", {})
+            if tool_name:
+                return [await self.execute_tool(tool_name, parameters)]
+            return []
 
         # Debate protocol
         elif protocol_name == "debate":
@@ -95,33 +95,28 @@ class ConversationOrchestrator:
             positions = initial_input.get("positions", [])
 
             if not topic or not positions:
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol",
-                        result=None,
-                        success=False,
-                        error="Debate protocol requires 'topic' and 'positions' parameters",
-                    )
-                ]
+                output = ToolOutput(
+                    success=False,
+                    error="Debate protocol requires 'topic' and 'positions' parameters",
+                )
+                output.tool_name = "debate_protocol"
+                return [output]
 
             debate = DebateProtocol(self, topic, positions)
             try:
                 result = await debate.run()
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol",
-                        result=result,
-                        success=True,
-                        metadata={"protocol": "debate", "rounds": len(result.get("rounds", []))},
-                    )
-                ]
+                output = ToolOutput(
+                    success=True,
+                    result=str(result),  # Convert to string
+                )
+                output.tool_name = "debate_protocol"
+                output.metadata = {"protocol": "debate", "rounds": len(result.get("rounds", []))}
+                return [output]
             except Exception as e:
                 logger.error(f"Debate protocol error: {e}")
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol", result=None, success=False, error=str(e)
-                    )
-                ]
+                output = ToolOutput(success=False, error=str(e))
+                output.tool_name = "debate_protocol"
+                return [output]
 
         # Synthesis protocol (simple wrapper around synthesize tool)
         elif protocol_name == "synthesis":
@@ -140,7 +135,7 @@ class ConversationOrchestrator:
         successful = sum(1 for output in self.execution_history if output.success)
         failed = total - successful
 
-        avg_time = 0
+        avg_time: float = 0
         if total > 0:
             times = [o.execution_time_ms for o in self.execution_history if o.execution_time_ms]
             avg_time = sum(times) / len(times) if times else 0

@@ -42,9 +42,11 @@ class TestAskGeminiTool:
     @pytest.mark.asyncio
     async def test_execute_with_question_only(self, tool, mock_model_manager, monkeypatch):
         """Test execution with just a question."""
-        # Create a mock module and set model_manager on it
+        # Create a mock module with _server_instance instead of model_manager
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         # Patch sys.modules to make the import work
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
@@ -65,7 +67,9 @@ class TestAskGeminiTool:
     async def test_execute_with_context(self, tool, mock_model_manager):
         """Test execution with question and context."""
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {"question": "What is AI?", "context": "We're discussing machine learning"}
@@ -83,7 +87,9 @@ class TestAskGeminiTool:
     async def test_execute_without_question(self, tool, mock_model_manager):
         """Test that execution fails without a question."""
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {}  # No question
@@ -95,16 +101,16 @@ class TestAskGeminiTool:
     @pytest.mark.asyncio
     async def test_execute_without_model_manager(self, tool):
         """Test that execution fails without model manager."""
-        # Create mock module with model_manager that raises AttributeError
+        # Create mock module without _server_instance
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = Mock(side_effect=AttributeError("No model_manager"))
+        mock_gemini_mcp._server_instance = None  # No server instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {"question": "Test question"}
             result = await tool.execute(parameters)
 
             assert result.success is False
-            assert "Error:" in result.error
+            assert "Model manager not available" in result.error  # Updated expected error
 
     @pytest.mark.asyncio
     async def test_format_response_with_primary_model(self, tool, mock_model_manager):
@@ -113,7 +119,9 @@ class TestAskGeminiTool:
         mock_model_manager.generate_content.return_value = ("Response text", "primary-model")
 
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {"question": "Test"}
@@ -131,7 +139,9 @@ class TestAskGeminiTool:
         mock_model_manager.generate_content.return_value = ("Response text", "fallback-model")
 
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {"question": "Test"}
@@ -146,7 +156,9 @@ class TestAskGeminiTool:
     async def test_empty_context_parameter(self, tool, mock_model_manager):
         """Test that empty context parameter is handled correctly."""
         mock_gemini_mcp = Mock()
-        mock_gemini_mcp.model_manager = mock_model_manager
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
         with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
             parameters = {"question": "Test", "context": ""}  # Empty context

@@ -5,7 +5,8 @@ Main MCP server implementation that orchestrates all modular components.
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional
+from os import PathLike
+from typing import IO, Any, Dict, Optional, Union
 
 from .core.orchestrator import ConversationOrchestrator
 from .core.registry import ToolRegistry
@@ -17,8 +18,22 @@ from .services.memory import ConversationMemory
 # Try to import dotenv if available
 try:
     from dotenv import load_dotenv
+
+    HAS_DOTENV = True
 except ImportError:
-    load_dotenv = None
+    HAS_DOTENV = False
+
+    def load_dotenv(
+        dotenv_path: Optional[Union[str, PathLike[str]]] = None,
+        stream: Optional[IO[str]] = None,
+        verbose: bool = False,
+        override: bool = False,
+        interpolate: bool = True,
+        encoding: Optional[str] = None,
+    ) -> bool:
+        """Dummy function when dotenv is not available."""
+        return False
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +58,7 @@ class GeminiMCPServer:
         # Make server instance available globally for tools
         import gemini_mcp
 
-        gemini_mcp._server_instance = self
+        setattr(gemini_mcp, "_server_instance", self)
 
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
@@ -90,7 +105,7 @@ class GeminiMCPServer:
     def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialization request."""
         # Load environment variables
-        if load_dotenv:
+        if HAS_DOTENV:
             # Try MCP directory first
             mcp_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             env_path = os.path.join(mcp_dir, ".env")
@@ -149,10 +164,17 @@ class GeminiMCPServer:
 
     def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle tool execution request."""
-        tool_name = params.get("name")
+        tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
 
         logger.info(f"Executing tool: {tool_name}")
+
+        # Validate tool name
+        if not tool_name:
+            return create_result_response(
+                request_id,
+                {"content": [{"type": "text", "text": "❌ Error: Tool name is required"}]},
+            )
 
         # Check if models are initialized
         if not self.orchestrator:
@@ -184,7 +206,7 @@ class GeminiMCPServer:
                 )
 
                 if output.success:
-                    result = output.result
+                    result = output.result or ""
                 else:
                     result = f"❌ Error: {output.error or 'Unknown error'}"
 

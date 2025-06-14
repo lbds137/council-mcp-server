@@ -38,7 +38,7 @@ class JsonRpcRequest:
 class JsonRpcResponse:
     """JSON-RPC 2.0 Response"""
 
-    def __init__(self, result: Any = None, error: Dict[str, Any] = None, id: Any = None):
+    def __init__(self, result: Any = None, error: Optional[Dict[str, Any]] = None, id: Any = None):
         self.jsonrpc = JSONRPC_VERSION
         self.id = id
         if error is not None:
@@ -51,7 +51,7 @@ class JsonRpcResponse:
         if hasattr(self, "error"):
             d["error"] = self.error
         else:
-            d["result"] = self.result
+            d["result"] = self.result if hasattr(self, "result") else None
         return d
 
 
@@ -127,7 +127,7 @@ class JsonRpcServer:
                 ).to_dict()
 
             # Find handler
-            handler = self._handlers.get(request.method)
+            handler = self._handlers.get(request.method) if request.method else None
             if not handler:
                 return JsonRpcResponse(
                     error=JsonRpcError(

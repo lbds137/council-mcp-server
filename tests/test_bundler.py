@@ -230,6 +230,13 @@ from .. import model_manager
 
 class MyTool:
     def execute(self):
+        # Get model manager from server instance
+        try:
+            import gemini_mcp
+            model_manager = gemini_mcp._server_instance.model_manager
+        except:
+            pass
+
         response_text, model_used = model_manager.generate_content(prompt)
 """
 
@@ -237,7 +244,7 @@ class MyTool:
 
         assert "from .. import model_manager" not in fixed
         assert "global model_manager" in fixed
-        assert "Model manager will be accessed as global" in fixed
+        assert "Access global model manager in bundled version" in fixed
 
     def test_fix_orchestrator_for_bundled(self, bundler):
         """Test orchestrator fixing for bundled operation."""

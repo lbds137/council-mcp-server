@@ -42,6 +42,10 @@ class ServerInfoTool(MCPTool):
             # Fall back to global _server_instance (for bundled mode)
             if not server:
                 server = globals().get("_server_instance", None)
+
+            # Declare info variable
+            info: Dict[str, Any]
+
             if not server:
                 # Fallback to basic info if server instance not available
                 info = {

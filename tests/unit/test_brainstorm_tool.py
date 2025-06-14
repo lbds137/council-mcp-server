@@ -4,7 +4,7 @@ Tests for the BrainstormTool class.
 
 import logging
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -14,19 +14,10 @@ from gemini_mcp.tools.brainstorm import BrainstormTool
 @pytest.fixture
 def mock_model_manager():
     """Fixture to mock the model manager."""
-    # Create a mock model_manager module
-    mock_mm = MagicMock()
-    mock_mm.primary_model_name = "primary-model"
-    mock_mm.generate_content.return_value = ("Default response", "primary-model")
-
-    # Inject it into sys.modules
-    sys.modules["gemini_mcp.model_manager"] = mock_mm
-
-    yield mock_mm
-
-    # Clean up after test
-    if "gemini_mcp.model_manager" in sys.modules:
-        del sys.modules["gemini_mcp.model_manager"]
+    manager = Mock()
+    manager.primary_model_name = "primary-model"
+    manager.generate_content.return_value = ("Default response", "primary-model")
+    return manager
 
 
 class TestBrainstormTool:
@@ -74,7 +65,14 @@ class TestBrainstormTool:
             "primary-model",
         )
 
-        result = await tool.execute({"topic": "AI applications in healthcare"})
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            result = await tool.execute({"topic": "AI applications in healthcare"})
 
         assert result.success is True
         assert "💡 Brainstorming Results:" in result.result
@@ -98,12 +96,19 @@ class TestBrainstormTool:
             "primary-model",
         )
 
-        result = await tool.execute(
-            {
-                "topic": "Mobile app ideas",
-                "constraints": "Must work offline and be privacy-focused",
-            }
-        )
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            result = await tool.execute(
+                {
+                    "topic": "Mobile app ideas",
+                    "constraints": "Must work offline and be privacy-focused",
+                }
+            )
 
         assert result.success is True
         assert "💡 Brainstorming Results:" in result.result
@@ -125,7 +130,14 @@ class TestBrainstormTool:
             "fallback-model",
         )
 
-        result = await tool.execute({"topic": "Test topic"})
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            result = await tool.execute({"topic": "Test topic"})
 
         assert result.success is True
         assert "💡 Brainstorming Results:" in result.result
@@ -139,7 +151,14 @@ class TestBrainstormTool:
 
         mock_model_manager.generate_content.side_effect = Exception("API Error")
 
-        result = await tool.execute({"topic": "Test topic"})
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            result = await tool.execute({"topic": "Test topic"})
 
         assert result.success is False
         assert result.error == "Error: API Error"
@@ -151,8 +170,15 @@ class TestBrainstormTool:
 
         mock_model_manager.generate_content.side_effect = Exception("Test error")
 
-        with caplog.at_level(logging.ERROR):
-            await tool.execute({"topic": "Test topic"})
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            with caplog.at_level(logging.ERROR):
+                await tool.execute({"topic": "Test topic"})
 
         assert "Gemini API error: Test error" in caplog.text
 
@@ -184,20 +210,27 @@ class TestBrainstormTool:
 
         mock_model_manager.generate_content.return_value = ("Response", "primary-model")
 
-        # Reset the mock to track calls separately
-        mock_model_manager.reset_mock()
+        # Mock the server instance
+        mock_gemini_mcp = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_gemini_mcp._server_instance = mock_server_instance
 
-        # Test with empty string
-        await tool.execute({"topic": "Test", "constraints": ""})
-        prompt1 = mock_model_manager.generate_content.call_args[0][0]
+        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+            # Reset the mock to track calls separately
+            mock_model_manager.reset_mock()
 
-        # Reset between tests
-        mock_model_manager.reset_mock()
+            # Test with empty string
+            await tool.execute({"topic": "Test", "constraints": ""})
+            prompt1 = mock_model_manager.generate_content.call_args[0][0]
 
-        # Test with no constraints key
-        await tool.execute({"topic": "Test"})
-        prompt2 = mock_model_manager.generate_content.call_args[0][0]
+            # Reset between tests
+            mock_model_manager.reset_mock()
 
-        # Both should produce the same prompt
-        assert prompt1 == prompt2
-        assert "Constraints to consider:" not in prompt1
+            # Test with no constraints key
+            await tool.execute({"topic": "Test"})
+            prompt2 = mock_model_manager.generate_content.call_args[0][0]
+
+            # Both should produce the same prompt
+            assert prompt1 == prompt2
+            assert "Constraints to consider:" not in prompt1

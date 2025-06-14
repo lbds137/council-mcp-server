@@ -89,7 +89,7 @@ class JsonRpcRequest:
 class JsonRpcResponse:
     """JSON-RPC 2.0 Response"""
 
-    def __init__(self, result: Any = None, error: Dict[str, Any] = None, id: Any = None):
+    def __init__(self, result: Any = None, error: Optional[Dict[str, Any]] = None, id: Any = None):
         self.jsonrpc = JSONRPC_VERSION
         self.id = id
         if error is not None:
@@ -102,7 +102,7 @@ class JsonRpcResponse:
         if hasattr(self, "error"):
             d["error"] = self.error
         else:
-            d["result"] = self.result
+            d["result"] = self.result if hasattr(self, "result") else None
         return d
 
 
@@ -178,7 +178,7 @@ class JsonRpcServer:
                 ).to_dict()
 
             # Find handler
-            handler = self._handlers.get(request.method)
+            handler = self._handlers.get(request.method) if request.method else None
             if not handler:
                 return JsonRpcResponse(
                     error=JsonRpcError(
@@ -1369,11 +1369,7 @@ class AskGeminiTool(MCPTool):
             prompt = f"Context: {context}\n\n" if context else ""
             prompt += f"Question: {question}"
 
-            # Get model manager from global context (will be injected during bundling)
-            # In modular mode, this would come from the orchestrator context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
@@ -1433,10 +1429,7 @@ class BrainstormTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(topic, constraints)
 
-            # Get model manager from global context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
@@ -1514,10 +1507,7 @@ class CodeReviewTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(code, language, focus)
 
-            # Get model manager from global context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
@@ -1604,10 +1594,7 @@ class ExplainTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(topic, level)
 
-            # Get model manager from global context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
@@ -1793,10 +1780,7 @@ class SynthesizeTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(topic, perspectives)
 
-            # Get model manager from global context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
@@ -1878,10 +1862,7 @@ class TestCasesTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(code_or_feature, test_type)
 
-            # Get model manager from global context
-
             # Access global model manager in bundled version
-
             global model_manager
 
             response_text, model_used = model_manager.generate_content(prompt)
