@@ -14,7 +14,7 @@ A Model Context Protocol (MCP) server that enables Claude to collaborate with Go
 
 ### 1. Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - [Claude Desktop](https://claude.ai/download)
 - [Google AI API Key](https://makersuite.google.com/app/apikey)
 
