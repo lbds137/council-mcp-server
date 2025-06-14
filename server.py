@@ -857,6 +857,34 @@ class ConversationOrchestrator:
 
         return output
 
+        # Create tool input with context (kept for reference, though not used in new API)
+        # tool_input = ToolInput(
+        #     tool_name=tool_name,
+        #     parameters=parameters,
+        #     context={
+        #         "model_manager": self.model_manager,
+        #         "memory": self.memory,
+        #         "orchestrator": self,
+        #     },
+        #     request_id=request_id,
+        # )
+
+        # Execute the tool with just parameters (new API)
+        output = await tool.execute(parameters)
+
+        # Cache successful results
+        if output.success:
+            self.cache.set(cache_key, output)
+
+        # Store in execution history
+        self.execution_history.append(output)
+
+        # Update memory if needed
+        if output.success and hasattr(tool, "update_memory"):
+            tool.update_memory(self.memory, output)
+
+        return output
+
     async def execute_protocol(
         self, protocol_name: str, initial_input: Dict[str, Any]
     ) -> List[ToolOutput]:
@@ -865,11 +893,11 @@ class ConversationOrchestrator:
 
         # Example: Simple sequential execution
         if protocol_name == "simple":
-            return [
-                await self.execute_tool(
-                    initial_input.get("tool_name"), initial_input.get("parameters")
-                )
-            ]
+            tool_name = initial_input.get("tool_name", "")
+            parameters = initial_input.get("parameters", {})
+            if tool_name:
+                return [await self.execute_tool(tool_name, parameters)]
+            return []
 
         # Debate protocol
         elif protocol_name == "debate":
@@ -877,33 +905,28 @@ class ConversationOrchestrator:
             positions = initial_input.get("positions", [])
 
             if not topic or not positions:
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol",
-                        result=None,
-                        success=False,
-                        error="Debate protocol requires 'topic' and 'positions' parameters",
-                    )
-                ]
+                output = ToolOutput(
+                    success=False,
+                    error="Debate protocol requires 'topic' and 'positions' parameters",
+                )
+                output.tool_name = "debate_protocol"
+                return [output]
 
             debate = DebateProtocol(self, topic, positions)
             try:
                 result = await debate.run()
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol",
-                        result=result,
-                        success=True,
-                        metadata={"protocol": "debate", "rounds": len(result.get("rounds", []))},
-                    )
-                ]
+                output = ToolOutput(
+                    success=True,
+                    result=str(result),  # Convert to string
+                )
+                output.tool_name = "debate_protocol"
+                output.metadata = {"protocol": "debate", "rounds": len(result.get("rounds", []))}
+                return [output]
             except Exception as e:
                 logger.error(f"Debate protocol error: {e}")
-                return [
-                    ToolOutput(
-                        tool_name="debate_protocol", result=None, success=False, error=str(e)
-                    )
-                ]
+                output = ToolOutput(success=False, error=str(e))
+                output.tool_name = "debate_protocol"
+                return [output]
 
         # Synthesis protocol (simple wrapper around synthesize tool)
         elif protocol_name == "synthesis":
@@ -922,7 +945,7 @@ class ConversationOrchestrator:
         successful = sum(1 for output in self.execution_history if output.success)
         failed = total - successful
 
-        avg_time = 0
+        avg_time: float = 0
         if total > 0:
             times = [o.execution_time_ms for o in self.execution_history if o.execution_time_ms]
             avg_time = sum(times) / len(times) if times else 0
@@ -1104,13 +1127,27 @@ Keep your response under 100 words."""
 
 
 import os
-from typing import Any, Dict, Optional
+from os import PathLike
+from typing import IO, Any, Dict, Optional, Union
 
 # Try to import dotenv if available
 try:
     from dotenv import load_dotenv
+
+    HAS_DOTENV = True
 except ImportError:
-    load_dotenv = None
+    HAS_DOTENV = False
+
+    def load_dotenv(
+        dotenv_path: Optional[Union[str, PathLike[str]]] = None,
+        stream: Optional[IO[str]] = None,
+        verbose: bool = False,
+        override: bool = False,
+        interpolate: bool = True,
+        encoding: Optional[str] = None,
+    ) -> bool:
+        """Dummy function when dotenv is not available."""
+        return False
 
 
 __version__ = "3.0.0"
@@ -1133,7 +1170,7 @@ class GeminiMCPServer:
 
         # Make server instance available globally for tools
 
-        gemini_mcp._server_instance = self
+        setattr(gemini_mcp, "_server_instance", self)
 
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
@@ -1180,7 +1217,7 @@ class GeminiMCPServer:
     def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialization request."""
         # Load environment variables
-        if load_dotenv:
+        if HAS_DOTENV:
             # Try MCP directory first
             mcp_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             env_path = os.path.join(mcp_dir, ".env")
@@ -1239,10 +1276,17 @@ class GeminiMCPServer:
 
     def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle tool execution request."""
-        tool_name = params.get("name")
+        tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
 
         logger.info(f"Executing tool: {tool_name}")
+
+        # Validate tool name
+        if not tool_name:
+            return create_result_response(
+                request_id,
+                {"content": [{"type": "text", "text": "❌ Error: Tool name is required"}]},
+            )
 
         # Check if models are initialized
         if not self.orchestrator:
@@ -1274,7 +1318,7 @@ class GeminiMCPServer:
                 )
 
                 if output.success:
-                    result = output.result
+                    result = output.result or ""
                 else:
                     result = f"❌ Error: {output.error or 'Unknown error'}"
 
@@ -1681,6 +1725,10 @@ class ServerInfoTool(MCPTool):
             # Fall back to global _server_instance (for bundled mode)
             if not server:
                 server = globals().get("_server_instance", None)
+
+            # Declare info variable
+            info: Dict[str, Any]
+
             if not server:
                 # Fallback to basic info if server instance not available
                 info = {
