@@ -8,16 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- CHANGELOG.md to track version history
-- Improved project structure documentation in README.md
-- PyCharm setup documentation
-- Test runner scripts for IDE integration
+- Comprehensive test coverage for JSON-RPC layer (30 tests)
+- Complete test suite for main.py entry point (16 tests)
+- Full test coverage for DualModelManager (15 tests)
+- Test suite for BrainstormTool (12 tests)
+- Python path setup in conftest.py for proper test imports
+- python-dotenv to install_requires
+- Type annotations throughout the codebase
+
+### Changed
+- Python version requirement updated to 3.9+ (required by google-generativeai)
+- Test coverage increased from 49% to 80%
+- Entry point in setup.py corrected to gemini_mcp.main:main
 
 ### Fixed
-- Corrected project structure in README.md to match actual files
-- Updated .claude/settings.json to be Python-focused instead of Node.js
-- Fixed pytest/PyCharm integration by moving stdout/stderr modifications to main()
-- Resolved "Bad file descriptor" errors when running tests
+- All mypy type errors resolved - project now passes strict type checking
+- Test import errors in CI (ModuleNotFoundError issues)
+- Optional type hints in JSON-RPC classes
+- ToolOutput import conflicts between models.base and tools.base
+- CI dependency issues - all tests now pass in CI
+- Model manager access pattern for tools in bundled mode
 
 ## [2.0.0] - 2025-06-10
 

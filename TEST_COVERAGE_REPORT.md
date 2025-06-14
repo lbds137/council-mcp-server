@@ -1,8 +1,8 @@
 # Test Coverage Report - Gemini MCP Server
 
 ## Summary
-✅ **All 77 tests passing!**
-📊 **Overall coverage: 50%** (up from ~30% when we started)
+✅ **All 158 tests passing!**
+📊 **Overall coverage: 80%** (up from 49% when we started)
 
 ## Key Achievements
 
@@ -29,28 +29,40 @@
 | **Models** | | |
 | - base.py | 100% | ✅ Complete |
 | - memory.py | 100% | ✅ Complete |
-| - manager.py | 23% | ⚠️ Needs work |
+| - manager.py | 100% | ✅ Complete |
 | **Services** | | |
 | - cache.py | 100% | ✅ Complete |
 | - memory.py | 100% | ✅ Complete |
 | **Core** | | |
 | - orchestrator.py | 75% | ✅ Good |
 | - registry.py | 81% | ✅ Good |
+| - json_rpc.py | 100% | ✅ Complete |
+| - main.py | 100% | ✅ Complete |
 | **Protocols** | | |
 | - debate.py | 100% | ✅ Complete |
 | **Tools** | | |
 | - ask_gemini.py | 100% | ✅ Complete |
+| - brainstorm.py | 100% | ✅ Complete |
 | - base.py | 80% | ✅ Good |
-| - Other tools | ~37% | ⚠️ Need tests |
+| - Other tools | ~60% | 🔄 Improved |
 | **Scripts** | | |
 | - bundler.py | 86% | ✅ Good |
 
-### 4. Critical Paths Tested
+### 4. New Tests Added (June 2025)
+- **JSON-RPC layer**: 30 comprehensive tests covering all request/response scenarios
+- **Main entry point**: 16 tests for server initialization and handler methods
+- **DualModelManager**: 15 tests including timeout scenarios and fallback logic
+- **BrainstormTool**: 12 tests covering all execution paths
+
+### 5. Critical Paths Tested
 - Tool discovery and registration
 - Tool execution with caching
 - Debate protocol flow
 - Memory and cache services
 - Bundle generation and compilation
+- JSON-RPC protocol handling
+- Model fallback mechanisms
+- Type safety and error handling
 
 ## Areas Needing Improvement
 
