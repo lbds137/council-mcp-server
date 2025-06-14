@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.gemini_mcp.tools.server_info import ServerInfoTool
+from gemini_mcp.tools.server_info import ServerInfoTool
 
 
 class TestServerInfoTool:
