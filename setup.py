@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="gemini-mcp-server",
-    version="2.0.0",
+    version="3.0.0",
     author="lbds137",
     author_email="",
     description="MCP server for Claude-Gemini collaboration",
@@ -46,7 +46,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "gemini-mcp-server=gemini_mcp.server:main",
+            "gemini-mcp-server=gemini_mcp.main:main",
         ],
     },
 )
