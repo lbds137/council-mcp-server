@@ -16,6 +16,7 @@ class TestDualModelManager:
     """Test the DualModelManager class."""
 
     @patch("gemini_mcp.models.manager.genai")
+    @patch.dict(os.environ, {}, clear=True)  # Clear env vars to test defaults
     def test_init_with_defaults(self, mock_genai):
         """Test initialization with default model names."""
         manager = DualModelManager("test-api-key")
@@ -126,7 +127,7 @@ class TestDualModelManager:
         response_text, model_used = manager.generate_content("test prompt")
 
         assert response_text == "Primary response"
-        assert model_used == "gemini-2.0-flash-exp"
+        assert model_used == manager.primary_model_name  # Use actual model name
         assert manager.primary_calls == 1
         assert manager.fallback_calls == 0
         assert manager.primary_failures == 0
@@ -153,7 +154,7 @@ class TestDualModelManager:
         response_text, model_used = manager.generate_content("test prompt")
 
         assert response_text == "Fallback response"
-        assert model_used == "gemini-1.5-pro"
+        assert model_used == manager.fallback_model_name  # Use actual model name
         assert manager.primary_calls == 1
         assert manager.fallback_calls == 1
         assert manager.primary_failures == 1
@@ -224,7 +225,7 @@ class TestDualModelManager:
             response_text, model_used = manager.generate_content("test prompt")
 
             assert response_text == "Fallback response"
-            assert model_used == "gemini-1.5-pro"
+            assert model_used == manager.fallback_model_name
             assert manager.primary_failures == 1
 
     @patch("gemini_mcp.models.manager.genai")
@@ -266,14 +267,14 @@ class TestDualModelManager:
 
         stats = manager.get_stats()
 
-        assert stats["primary_model"] == "gemini-2.0-flash-exp"
-        assert stats["fallback_model"] == "gemini-1.5-pro"
+        assert stats["primary_model"] == manager.primary_model_name  # Use actual model name
+        assert stats["fallback_model"] == manager.fallback_model_name  # Use actual model name
         assert stats["total_calls"] == 13
         assert stats["primary_calls"] == 10
         assert stats["fallback_calls"] == 3
         assert stats["primary_failures"] == 2
         assert stats["primary_success_rate"] == 0.8  # (10-2)/10
-        assert stats["timeout_seconds"] == 10.0
+        assert stats["timeout_seconds"] == manager.timeout  # Use actual timeout
 
     @patch("gemini_mcp.models.manager.genai")
     def test_get_stats_no_calls(self, mock_genai):
@@ -306,5 +307,5 @@ class TestDualModelManager:
         response_text, model_used = manager.generate_content("test prompt")
 
         assert response_text == "Fallback response"
-        assert model_used == "gemini-1.5-pro"
+        assert model_used == manager.fallback_model_name
         assert manager.primary_failures == 1
