@@ -126,7 +126,7 @@ gemini-mcp-server/
 │   └── test_server.py
 ├── scripts/
 │   ├── install.sh       # Quick installation script
-│   ├── update.sh        # Update deployment script
+│   ├── install.sh       # Install/update deployment script
 │   └── dev-link.sh      # Development symlink script
 ├── docs/
 │   └── BUILD_YOUR_OWN_MCP_SERVER.md
@@ -167,10 +167,10 @@ python -m pytest tests/ -v
 To update your local MCP installation after making changes:
 
 ```bash
-./scripts/update.sh
+./scripts/install.sh
 ```
 
-This will copy the latest version to your MCP servers directory.
+This script intelligently handles both installation and updates.
 
 ## Troubleshooting
 

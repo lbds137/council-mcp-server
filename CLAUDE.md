@@ -192,10 +192,7 @@ mcp__gemini-collab__gemini_test_cases
 
 ### 2. Deploying Changes
 ```bash
-# Quick update (preserves configuration)
-./scripts/update.sh
-
-# Full reinstall (if structure changed)
+# Install or update (smart script that handles both)
 ./scripts/install.sh
 
 # Development symlink (for rapid iteration)
@@ -405,7 +402,7 @@ git push origin main
 
 ```bash
 # Development
-./scripts/update.sh          # Deploy changes to MCP location
+./scripts/install.sh         # Deploy changes to MCP location (handles updates)
 ./scripts/dev-link.sh        # Create development symlink
 pytest tests/ -v             # Run tests
 

@@ -34,12 +34,7 @@ try:
 except ImportError:
     load_dotenv = None
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
-)
+# Create logger without configuring (main() will configure)
 logger = logging.getLogger("gemini-mcp")
 
 __version__ = "3.0.0"
@@ -333,7 +328,7 @@ class DualModelManager:
         genai.configure(api_key=api_key)
 
         # Get model names from environment or use defaults
-        self.primary_model_name = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.0-flash-exp")
+        self.primary_model_name = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.5-pro-preview-06-05")
         self.fallback_model_name = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-1.5-pro")
 
         # Timeout configuration (in seconds)
@@ -403,8 +398,8 @@ class DualModelManager:
                 self.primary_failures += 1
                 error_type = type(e).__name__
                 logger.warning(
-                    f"Primary model {self.primary_model_name} failed (attempt {self.primary_failures}): "
-                    f"{error_type}: {e}"
+                    f"Primary model {self.primary_model_name} failed "
+                    f"(attempt {self.primary_failures}): {error_type}: {e}"
                 )
                 if hasattr(e, "code"):
                     logger.warning(f"Error code: {e.code}")
@@ -1412,6 +1407,7 @@ def main():
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
+        force=True,  # Ensure logging is configured even if already configured elsewhere
     )
 
     logger.info(f"Logging to file: {log_file}")

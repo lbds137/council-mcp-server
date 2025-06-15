@@ -12,8 +12,9 @@ import textwrap
 from pathlib import Path
 from typing import Dict, Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# Configure logging only if running as main script
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -180,12 +181,7 @@ class Bundler:
             except ImportError:
                 load_dotenv = None
 
-            # Configure logging
-            logging.basicConfig(
-                level=logging.INFO,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                stream=sys.stderr,
-            )
+            # Create logger without configuring (main() will configure)
             logger = logging.getLogger("gemini-mcp")
 
             __version__ = "3.0.0"

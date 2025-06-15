@@ -262,6 +262,7 @@ def main():
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
+        force=True,  # Ensure logging is configured even if already configured elsewhere
     )
 
     logger.info(f"Logging to file: {log_file}")
