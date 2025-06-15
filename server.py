@@ -316,6 +316,7 @@ class ToolOutput:
 
 
 import os
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Tuple
@@ -392,9 +393,30 @@ class DualModelManager:
                 )
                 logger.debug("Primary model responded successfully")
                 return response_text, self.primary_model_name
-            except (google_exceptions.GoogleAPICallError, ValueError, TimeoutError) as e:
+            except (
+                google_exceptions.GoogleAPICallError,
+                google_exceptions.InternalServerError,
+                ValueError,
+                TimeoutError,
+                Exception,
+            ) as e:
                 self.primary_failures += 1
-                logger.warning(f"Primary model failed (attempt {self.primary_failures}): {e}")
+                error_type = type(e).__name__
+                logger.warning(
+                    f"Primary model {self.primary_model_name} failed (attempt {self.primary_failures}): "
+                    f"{error_type}: {e}"
+                )
+                if hasattr(e, "code"):
+                    logger.warning(f"Error code: {e.code}")
+                if hasattr(e, "details"):
+                    logger.warning(f"Error details: {e.details}")
+                # Check for 500 errors specifically
+                if "500" in str(e) or "Internal" in str(e):
+                    logger.warning(
+                        "Detected 500/Internal error - typically a temporary Gemini API issue"
+                    )
+                # Log full traceback for debugging
+                logger.debug(f"Full traceback:\n{traceback.format_exc()}")
 
         # Fallback to secondary model
         if self._fallback_model:
@@ -409,8 +431,17 @@ class DualModelManager:
                 logger.info("Fallback model responded successfully")
                 return response_text, self.fallback_model_name
             except Exception as e:
-                logger.error(f"Fallback model also failed: {e}")
-                raise RuntimeError(f"Both models failed. Last error: {e}")
+                error_type = type(e).__name__
+                logger.error(
+                    f"Fallback model {self.fallback_model_name} also failed: {error_type}: {e}"
+                )
+                if hasattr(e, "code"):
+                    logger.error(f"Error code: {e.code}")
+                if hasattr(e, "details"):
+                    logger.error(f"Error details: {e.details}")
+                # Log full traceback for debugging
+                logger.debug(f"Full traceback:\n{traceback.format_exc()}")
+                raise RuntimeError(f"Both models failed. Last error: {error_type}: {e}")
 
         raise RuntimeError("No models available for content generation")
 
@@ -1134,6 +1165,7 @@ Keep your response under 100 words."""
 
 
 import os
+from logging.handlers import RotatingFileHandler
 from os import PathLike
 from typing import IO, Any, Dict, Optional, Union
 
@@ -1354,12 +1386,35 @@ class GeminiMCPServer:
 
 def main():
     """Main entry point."""
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.expanduser("~/.claude-mcp-servers/gemini-collab/logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Configure logging with both stderr and file output
+    log_file = os.path.join(log_dir, "gemini-mcp-server.log")
+
+    # Create handlers
+    handlers = [
+        logging.StreamHandler(sys.stderr),
+        RotatingFileHandler(
+            log_file,
+            mode="a",
+            encoding="utf-8",
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,  # Keep 5 backup files
+        ),
+    ]
+
     # Configure logging
+    # Use DEBUG level if GEMINI_DEBUG env var is set, otherwise INFO
+    log_level = logging.DEBUG if os.getenv("GEMINI_DEBUG") else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr,
+        handlers=handlers,
     )
+
+    logger.info(f"Logging to file: {log_file}")
 
     try:
         server = GeminiMCPServer()

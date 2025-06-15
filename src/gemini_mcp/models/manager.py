@@ -2,6 +2,7 @@
 
 import logging
 import os
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Tuple
@@ -90,7 +91,8 @@ class DualModelManager:
                 self.primary_failures += 1
                 error_type = type(e).__name__
                 logger.warning(
-                    f"Primary model failed (attempt {self.primary_failures}): {error_type}: {e}"
+                    f"Primary model {self.primary_model_name} failed "
+                    f"(attempt {self.primary_failures}): {error_type}: {e}"
                 )
                 if hasattr(e, "code"):
                     logger.warning(f"Error code: {e.code}")
@@ -101,6 +103,8 @@ class DualModelManager:
                     logger.warning(
                         "Detected 500/Internal error - typically a temporary Gemini API issue"
                     )
+                # Log full traceback for debugging
+                logger.debug(f"Full traceback:\n{traceback.format_exc()}")
 
         # Fallback to secondary model
         if self._fallback_model:
@@ -116,11 +120,15 @@ class DualModelManager:
                 return response_text, self.fallback_model_name
             except Exception as e:
                 error_type = type(e).__name__
-                logger.error(f"Fallback model also failed: {error_type}: {e}")
+                logger.error(
+                    f"Fallback model {self.fallback_model_name} also failed: {error_type}: {e}"
+                )
                 if hasattr(e, "code"):
                     logger.error(f"Error code: {e.code}")
                 if hasattr(e, "details"):
                     logger.error(f"Error details: {e.details}")
+                # Log full traceback for debugging
+                logger.debug(f"Full traceback:\n{traceback.format_exc()}")
                 raise RuntimeError(f"Both models failed. Last error: {error_type}: {e}")
 
         raise RuntimeError("No models available for content generation")

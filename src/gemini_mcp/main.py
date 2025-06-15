@@ -256,8 +256,10 @@ def main():
     ]
 
     # Configure logging
+    # Use DEBUG level if GEMINI_DEBUG env var is set, otherwise INFO
+    log_level = logging.DEBUG if os.getenv("GEMINI_DEBUG") else logging.INFO
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
     )
