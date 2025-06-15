@@ -229,17 +229,29 @@ class TestMainFunction:
     """Test the main function."""
 
     @patch("gemini_mcp.main.sys.exit")
+    @patch("gemini_mcp.main.os.makedirs")
+    @patch("gemini_mcp.main.RotatingFileHandler")
     @patch("gemini_mcp.main.logging.basicConfig")
     @patch("gemini_mcp.main.GeminiMCPServer")
-    def test_main_success(self, mock_server_class, mock_logging, mock_exit):
+    def test_main_success(
+        self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
+    ):
         """Test main function successful run."""
         mock_server_instance = MagicMock()
         mock_server_class.return_value = mock_server_instance
 
         main()
 
+        # Verify directory creation
+        mock_makedirs.assert_called_once()
+
+        # Verify file handler was created
+        mock_file_handler.assert_called_once()
+
         # Verify logging was configured
         mock_logging.assert_called_once()
+        logging_call = mock_logging.call_args
+        assert "handlers" in logging_call.kwargs
 
         # Verify server was created and run
         mock_server_class.assert_called_once()
@@ -249,9 +261,13 @@ class TestMainFunction:
         mock_exit.assert_not_called()
 
     @patch("gemini_mcp.main.sys.exit")
+    @patch("gemini_mcp.main.os.makedirs")
+    @patch("gemini_mcp.main.RotatingFileHandler")
     @patch("gemini_mcp.main.logging.basicConfig")
     @patch("gemini_mcp.main.GeminiMCPServer")
-    def test_main_with_exception(self, mock_server_class, mock_logging, mock_exit):
+    def test_main_with_exception(
+        self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
+    ):
         """Test main function with exception during server run."""
         mock_server_instance = MagicMock()
         mock_server_instance.run.side_effect = Exception("Test error")
@@ -264,9 +280,13 @@ class TestMainFunction:
         mock_exit.assert_called_once_with(1)
 
     @patch("gemini_mcp.main.sys.exit")
+    @patch("gemini_mcp.main.os.makedirs")
+    @patch("gemini_mcp.main.RotatingFileHandler")
     @patch("gemini_mcp.main.logging.basicConfig")
     @patch("gemini_mcp.main.GeminiMCPServer")
-    def test_main_with_keyboard_interrupt(self, mock_server_class, mock_logging, mock_exit):
+    def test_main_with_keyboard_interrupt(
+        self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
+    ):
         """Test main function with keyboard interrupt."""
         mock_server_instance = MagicMock()
         mock_server_instance.run.side_effect = KeyboardInterrupt()
@@ -295,3 +315,63 @@ class TestMainFunction:
 
         # Verify JSON-RPC server was run
         mock_run.assert_called_once()
+
+    @patch("gemini_mcp.main.sys.exit")
+    @patch("gemini_mcp.main.os.path.expanduser")
+    @patch("gemini_mcp.main.os.makedirs")
+    @patch("gemini_mcp.main.RotatingFileHandler")
+    @patch("gemini_mcp.main.logging.StreamHandler")
+    @patch("gemini_mcp.main.logging.basicConfig")
+    @patch("gemini_mcp.main.GeminiMCPServer")
+    def test_main_file_logging_configuration(
+        self,
+        mock_server_class,
+        mock_logging,
+        mock_stream_handler,
+        mock_file_handler,
+        mock_makedirs,
+        mock_expanduser,
+        mock_exit,
+    ):
+        """Test that file logging is properly configured."""
+        mock_server_instance = MagicMock()
+        mock_server_class.return_value = mock_server_instance
+
+        # Mock expanduser to return a test path
+        mock_expanduser.return_value = "/test/home/.claude-mcp-servers/gemini-collab/logs"
+
+        # Mock file handler instance
+        mock_file_handler_instance = MagicMock()
+        mock_file_handler.return_value = mock_file_handler_instance
+
+        # Mock stream handler instance
+        mock_stream_handler_instance = MagicMock()
+        mock_stream_handler.return_value = mock_stream_handler_instance
+
+        main()
+
+        # Verify log directory was created
+        mock_makedirs.assert_called_once_with(
+            "/test/home/.claude-mcp-servers/gemini-collab/logs", exist_ok=True
+        )
+
+        # Verify RotatingFileHandler was created with correct parameters
+        mock_file_handler.assert_called_once()
+        call_args = mock_file_handler.call_args
+        assert (
+            call_args[0][0]
+            == "/test/home/.claude-mcp-servers/gemini-collab/logs/gemini-mcp-server.log"
+        )
+        assert call_args[1]["mode"] == "a"
+        assert call_args[1]["encoding"] == "utf-8"
+        assert call_args[1]["maxBytes"] == 10 * 1024 * 1024  # 10MB
+        assert call_args[1]["backupCount"] == 5
+
+        # Verify StreamHandler was created
+        mock_stream_handler.assert_called_once()
+
+        # Verify logging.basicConfig was called with handlers
+        mock_logging.assert_called_once()
+        config_call = mock_logging.call_args
+        assert "handlers" in config_call[1]
+        assert len(config_call[1]["handlers"]) == 2

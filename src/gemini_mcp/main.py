@@ -5,6 +5,7 @@ Main MCP server implementation that orchestrates all modular components.
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from os import PathLike
 from typing import IO, Any, Dict, Optional, Union
 
@@ -235,12 +236,33 @@ class GeminiMCPServer:
 
 def main():
     """Main entry point."""
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.expanduser("~/.claude-mcp-servers/gemini-collab/logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Configure logging with both stderr and file output
+    log_file = os.path.join(log_dir, "gemini-mcp-server.log")
+
+    # Create handlers
+    handlers = [
+        logging.StreamHandler(sys.stderr),
+        RotatingFileHandler(
+            log_file,
+            mode="a",
+            encoding="utf-8",
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,  # Keep 5 backup files
+        ),
+    ]
+
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr,
+        handlers=handlers,
     )
+
+    logger.info(f"Logging to file: {log_file}")
 
     try:
         server = GeminiMCPServer()

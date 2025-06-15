@@ -80,9 +80,27 @@ class DualModelManager:
                 )
                 logger.debug("Primary model responded successfully")
                 return response_text, self.primary_model_name
-            except (google_exceptions.GoogleAPICallError, ValueError, TimeoutError) as e:
+            except (
+                google_exceptions.GoogleAPICallError,
+                google_exceptions.InternalServerError,
+                ValueError,
+                TimeoutError,
+                Exception,
+            ) as e:
                 self.primary_failures += 1
-                logger.warning(f"Primary model failed (attempt {self.primary_failures}): {e}")
+                error_type = type(e).__name__
+                logger.warning(
+                    f"Primary model failed (attempt {self.primary_failures}): {error_type}: {e}"
+                )
+                if hasattr(e, "code"):
+                    logger.warning(f"Error code: {e.code}")
+                if hasattr(e, "details"):
+                    logger.warning(f"Error details: {e.details}")
+                # Check for 500 errors specifically
+                if "500" in str(e) or "Internal" in str(e):
+                    logger.warning(
+                        "Detected 500/Internal error - typically a temporary Gemini API issue"
+                    )
 
         # Fallback to secondary model
         if self._fallback_model:
@@ -97,8 +115,13 @@ class DualModelManager:
                 logger.info("Fallback model responded successfully")
                 return response_text, self.fallback_model_name
             except Exception as e:
-                logger.error(f"Fallback model also failed: {e}")
-                raise RuntimeError(f"Both models failed. Last error: {e}")
+                error_type = type(e).__name__
+                logger.error(f"Fallback model also failed: {error_type}: {e}")
+                if hasattr(e, "code"):
+                    logger.error(f"Error code: {e.code}")
+                if hasattr(e, "details"):
+                    logger.error(f"Error details: {e.details}")
+                raise RuntimeError(f"Both models failed. Last error: {error_type}: {e}")
 
         raise RuntimeError("No models available for content generation")
 
