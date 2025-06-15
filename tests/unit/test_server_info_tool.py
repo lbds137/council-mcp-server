@@ -73,6 +73,16 @@ class TestServerInfoTool:
         mock_model_manager = Mock()
         mock_model_manager.primary_model_name = "gemini-2.0-flash-exp"
         mock_model_manager.fallback_model_name = "gemini-1.5-pro"
+        mock_model_manager.get_stats.return_value = {
+            "primary_model": "gemini-2.0-flash-exp",
+            "fallback_model": "gemini-1.5-pro",
+            "total_calls": 25,
+            "primary_calls": 20,
+            "fallback_calls": 5,
+            "primary_failures": 2,
+            "primary_success_rate": 0.9,
+            "timeout_seconds": 600.0,
+        }
 
         mock_orchestrator = Mock()
         mock_orchestrator.get_execution_stats.return_value = {
@@ -109,6 +119,12 @@ class TestServerInfoTool:
         assert info["components"]["tools_registered"] == 3
         assert info["models"]["initialized"] is True
         assert info["models"]["primary"] == "gemini-2.0-flash-exp"
+        assert info["models"]["stats"]["total_calls"] == 25
+        assert info["models"]["stats"]["primary_calls"] == 20
+        assert info["models"]["stats"]["fallback_calls"] == 5
+        assert info["models"]["stats"]["primary_failures"] == 2
+        assert info["models"]["stats"]["primary_success_rate"] == 0.9
+        assert info["models"]["stats"]["timeout_seconds"] == 600.0
         assert info["execution_stats"]["total_executions"] == 15
 
     @pytest.mark.asyncio
@@ -139,7 +155,39 @@ class TestServerInfoTool:
         info = json.loads(json_str)
 
         assert info["models"]["initialized"] is False
+        assert info["models"]["stats"] is None
         assert "execution_stats" not in info
+
+    @pytest.mark.asyncio
+    async def test_execute_with_model_stats_exception(self, tool):
+        """Test execute handles model stats exception gracefully."""
+        # Create mock server with model_manager that raises exception
+        mock_model_manager = Mock()
+        mock_model_manager.primary_model_name = "gemini-2.0-flash-exp"
+        mock_model_manager.fallback_model_name = "gemini-1.5-pro"
+        mock_model_manager.get_stats.side_effect = Exception("Stats error")
+
+        mock_server = Mock()
+        mock_server.tool_registry = Mock()
+        mock_server.tool_registry.list_tools.return_value = ["ask_gemini"]
+        mock_server.model_manager = mock_model_manager
+        mock_server.cache = None
+        mock_server.memory = None
+        mock_server.orchestrator = None
+
+        # Mock gemini_mcp module
+        mock_gemini_mcp = Mock()
+        mock_gemini_mcp._server_instance = mock_server
+
+        with patch.dict("sys.modules", {"gemini_mcp": mock_gemini_mcp}):
+            result = await tool.execute({})
+
+        # Should still succeed but stats should be None
+        assert result.success is True
+        json_str = result.result.split("\n\n", 1)[1]
+        info = json.loads(json_str)
+        assert info["models"]["initialized"] is True
+        assert info["models"]["stats"] is None
 
     @pytest.mark.asyncio
     async def test_execute_with_exception(self, tool):

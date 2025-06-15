@@ -73,6 +73,7 @@ class ServerInfoTool(MCPTool):
                         "initialized": server.model_manager is not None,
                         "primary": getattr(server.model_manager, "primary_model_name", None),
                         "fallback": getattr(server.model_manager, "fallback_model_name", None),
+                        "stats": self._get_model_stats(server.model_manager),
                     },
                 }
 
@@ -84,3 +85,13 @@ class ServerInfoTool(MCPTool):
 
         except Exception as e:
             return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
+
+    def _get_model_stats(self, model_manager):
+        """Safely get model stats, returning None if there's an error."""
+        if not model_manager:
+            return None
+        try:
+            return model_manager.get_stats()
+        except Exception:
+            # If get_stats() fails, return None instead of crashing
+            return None
