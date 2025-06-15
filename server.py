@@ -2028,32 +2028,31 @@ Include both positive (happy path) and negative (error) test cases."""
 
 # ========== Tool Registry Override for Bundled Operation ==========
 
+# Store the bundled tool classes globally
+BUNDLED_TOOL_CLASSES = [
+    AskGeminiTool,
+    BrainstormTool,
+    CodeReviewTool,
+    ExplainTool,
+    ServerInfoTool,
+    SynthesizeTool,
+    TestCasesTool,
+]
+
 
 # Override the ToolRegistry's discover_tools method for bundled operation
 def _bundled_discover_tools(self, tools_path: Optional[Path] = None) -> None:
     """Discover and register all tools - bundled version."""
-    logger.info("Discovering tools in bundled server")
+    # Clear any existing tools to ensure clean state
+    self._tools.clear()
+    self._tool_classes.clear()
 
-    # All tool classes available in global scope
-    bundled_tool_classes = [
-        AskGeminiTool,
-        BrainstormTool,
-        CodeReviewTool,
-        ExplainTool,
-        ServerInfoTool,
-        SynthesizeTool,
-        TestCasesTool,
-    ]
+    logger.info("Registering bundled tools")
 
-    for tool_class in bundled_tool_classes:
+    for tool_class in BUNDLED_TOOL_CLASSES:
         try:
-            # Use the existing _register_tool_class method
             tool_instance = tool_class()
             tool_name = tool_instance.name  # Use property access
-
-            if tool_name in self._tools:
-                logger.warning(f"Tool {tool_name} already registered, skipping")
-                continue
 
             self._tools[tool_name] = tool_instance
             self._tool_classes[tool_name] = tool_class
@@ -2065,7 +2064,7 @@ def _bundled_discover_tools(self, tools_path: Optional[Path] = None) -> None:
     logger.info(f"Registered {len(self._tools)} tools in bundled mode")
 
 
-# Replace the discover_tools method
+# Directly replace the method on the class
 ToolRegistry.discover_tools = _bundled_discover_tools
 
 # ========== Main Execution ==========
