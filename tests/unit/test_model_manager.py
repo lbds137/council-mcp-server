@@ -92,7 +92,12 @@ class TestDualModelManager:
         result = manager._generate_with_timeout(mock_model, "test-model", "prompt", 5.0)
 
         assert result == "Generated text"
-        mock_model.generate_content.assert_called_once_with("prompt")
+        # Check that generate_content was called with prompt and request_options
+        assert mock_model.generate_content.call_count == 1
+        call_args = mock_model.generate_content.call_args
+        assert call_args[0][0] == "prompt"
+        assert "request_options" in call_args[1]
+        assert call_args[1]["request_options"].timeout == 5.0
 
     @patch("gemini_mcp.models.manager.genai")
     def test_generate_with_timeout_timeout_error(self, mock_genai):

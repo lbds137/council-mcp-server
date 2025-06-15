@@ -47,8 +47,15 @@ class DualModelManager:
 
     def _generate_with_timeout(self, model, model_name: str, prompt: str, timeout: float) -> str:
         """Execute model generation with timeout using ThreadPoolExecutor."""
+        from google.generativeai.types import RequestOptions
+
+        # Create request options with timeout
+        request_options = RequestOptions(timeout=timeout)
+
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(model.generate_content, prompt)
+            future = executor.submit(
+                model.generate_content, prompt, request_options=request_options
+            )
             try:
                 response = future.result(timeout=timeout)
                 return response.text
