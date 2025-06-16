@@ -46,6 +46,9 @@ class GeminiMCPServer:
 
     def __init__(self):
         """Initialize the server with modular components."""
+        # Load environment variables at startup
+        self._load_env_file()
+
         self.model_manager: Optional[DualModelManager] = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
@@ -63,6 +66,68 @@ class GeminiMCPServer:
 
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
+
+    def _load_env_file(self) -> None:
+        """Load .env file from multiple possible locations."""
+        # Try multiple locations for .env file
+        # 1. Directory of the main entry point (works with launcher.py)
+        main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        # 2. Parent directory of main (in case we're in a subdirectory)
+        parent_dir = os.path.dirname(main_dir)
+        # 3. Current working directory
+        cwd = os.getcwd()
+        # 4. Script directory (where this file is)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        env_locations = [
+            os.path.join(main_dir, ".env"),
+            os.path.join(parent_dir, ".env"),
+            os.path.join(cwd, ".env"),
+            os.path.join(script_dir, ".env"),
+        ]
+
+        # If python-dotenv is available, try to use it first
+        if HAS_DOTENV:
+            env_loaded = False
+            for env_path in env_locations:
+                if os.path.exists(env_path):
+                    logger.info(f"Loading .env from {env_path}")
+                    load_dotenv(env_path)
+                    env_loaded = True
+                    break
+
+            if not env_loaded:
+                # Try current directory as last fallback
+                logger.info("No .env file found in expected locations, trying current directory")
+                load_dotenv()
+        else:
+            # Manual .env loading if python-dotenv is not available
+            for env_path in env_locations:
+                if os.path.exists(env_path):
+                    logger.info(f"Loading .env from {env_path} (manual mode)")
+                    try:
+                        with open(env_path, "r") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith("#") and "=" in line:
+                                    key, value = line.split("=", 1)
+                                    # Strip whitespace from key and value
+                                    key = key.strip()
+                                    value = value.strip()
+                                    # Remove quotes if present
+                                    if (value.startswith('"') and value.endswith('"')) or (
+                                        value.startswith("'") and value.endswith("'")
+                                    ):
+                                        value = value[1:-1]
+                                    os.environ[key] = value
+                                    if key == "GEMINI_API_KEY":
+                                        logger.info(
+                                            f"Set GEMINI_API_KEY from .env file "
+                                            f"(length: {len(value)})"
+                                        )
+                        break
+                    except Exception as e:
+                        logger.error(f"Failed to load .env file: {e}")
 
     def _initialize_model_manager(self) -> bool:
         """Initialize the model manager with API key."""
@@ -105,18 +170,8 @@ class GeminiMCPServer:
 
     def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialization request."""
-        # Load environment variables
-        if HAS_DOTENV:
-            # Try MCP directory first
-            mcp_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            env_path = os.path.join(mcp_dir, ".env")
-
-            if os.path.exists(env_path):
-                logger.info(f"Loading .env from {env_path}")
-                load_dotenv(env_path)
-            else:
-                # Try current directory as fallback
-                load_dotenv()
+        # Reload environment variables in case they changed
+        self._load_env_file()
 
         # Log the API key status
         api_key = os.environ.get("GEMINI_API_KEY")

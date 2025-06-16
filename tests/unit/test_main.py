@@ -5,7 +5,20 @@ Tests for the main MCP server implementation.
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from gemini_mcp.main import GeminiMCPServer, main
+
+
+@pytest.fixture(autouse=True)
+def mock_env_loading(request):
+    """Mock _load_env_file for all tests except env loading tests."""
+    # Don't mock for tests that are actually testing env loading
+    if "load_env" in request.node.name:
+        yield
+    else:
+        with patch.object(GeminiMCPServer, "_load_env_file"):
+            yield
 
 
 class TestGeminiMCPServer:
@@ -70,6 +83,205 @@ class TestGeminiMCPServer:
 
         for method in expected_methods:
             assert method in server.server._handlers
+
+    @patch("gemini_mcp.main.HAS_DOTENV", True)
+    @patch("gemini_mcp.main.load_dotenv")
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch("gemini_mcp.main.os.path.abspath")
+    @patch("gemini_mcp.main.os.path.dirname")
+    @patch("gemini_mcp.main.sys.argv", ["launcher.py"])
+    def test_load_env_file_from_launcher_dir(
+        self, mock_dirname, mock_abspath, mock_exists, mock_load_dotenv
+    ):
+        """Test .env loading from launcher directory at startup."""
+        # Mock path resolution
+        mock_abspath.side_effect = lambda x: {
+            "launcher.py": "/home/user/.claude-mcp-servers/gemini-collab/launcher.py",
+            __file__: "/home/user/.claude-mcp-servers/gemini-collab/main.py",
+        }.get(x, x)
+        mock_dirname.side_effect = [
+            "/home/user/.claude-mcp-servers/gemini-collab",  # main_dir
+            "/home/user/.claude-mcp-servers",  # parent_dir
+            "/home/user/.claude-mcp-servers/gemini-collab",  # script_dir
+        ]
+
+        # Mock that .env exists in the launcher directory
+        def exists_side_effect(path):
+            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+
+        mock_exists.side_effect = exists_side_effect
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+        server._load_env_file()
+
+        # Verify .env was loaded from the launcher directory
+        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
+
+    @patch("gemini_mcp.main.HAS_DOTENV", True)
+    @patch("gemini_mcp.main.load_dotenv")
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch("gemini_mcp.main.os.getcwd")
+    def test_load_env_file_fallback_to_cwd(self, mock_getcwd, mock_exists, mock_load_dotenv):
+        """Test .env loading falls back to current working directory."""
+        mock_getcwd.return_value = "/home/user/project"
+
+        # Mock that .env doesn't exist in launcher/parent dirs but exists in cwd
+        def exists_side_effect(path):
+            return path == "/home/user/project/.env"
+
+        mock_exists.side_effect = exists_side_effect
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+        server._load_env_file()
+
+        # Verify .env was loaded from cwd
+        mock_load_dotenv.assert_called_with("/home/user/project/.env")
+
+    @patch("gemini_mcp.main.HAS_DOTENV", True)
+    @patch("gemini_mcp.main.load_dotenv")
+    @patch("gemini_mcp.main.os.path.exists")
+    def test_load_env_file_no_env_file(self, mock_exists, mock_load_dotenv):
+        """Test .env loading when no .env file exists."""
+        # Mock that no .env files exist
+        mock_exists.return_value = False
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+        server._load_env_file()
+
+        # Verify load_dotenv was called without arguments as fallback
+        mock_load_dotenv.assert_called_with()
+
+    @patch("gemini_mcp.main.HAS_DOTENV", True)
+    @patch("gemini_mcp.main.load_dotenv")
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch("gemini_mcp.main.os.path.abspath")
+    @patch("gemini_mcp.main.os.path.dirname")
+    @patch("gemini_mcp.main.os.getcwd")
+    @patch("gemini_mcp.main.sys.argv", ["/usr/bin/python3"])
+    def test_load_env_file_claude_launch_scenario(
+        self, mock_getcwd, mock_dirname, mock_abspath, mock_exists, mock_load_dotenv
+    ):
+        """Test .env loading in Claude's launch scenario where argv[0] is python interpreter."""
+        # Mock Claude's typical launch scenario
+        mock_abspath.side_effect = lambda x: {
+            "/usr/bin/python3": "/usr/bin/python3",
+            __file__: "/home/user/.claude-mcp-servers/gemini-collab/main.py",
+        }.get(x, x)
+        mock_dirname.side_effect = [
+            "/usr/bin",
+            "/usr",
+            "/home/user/.claude-mcp-servers/gemini-collab",
+        ]
+        mock_getcwd.return_value = "/home/user/.claude-mcp-servers/gemini-collab"
+
+        # .env exists only in cwd (the MCP installation directory)
+        def exists_side_effect(path):
+            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+
+        mock_exists.side_effect = exists_side_effect
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+        server._load_env_file()
+
+        # Verify .env was loaded from cwd (installation directory)
+        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
+
+    @patch("gemini_mcp.main.HAS_DOTENV", False)
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch("gemini_mcp.main.os.path.abspath")
+    @patch("gemini_mcp.main.os.path.dirname")
+    @patch("gemini_mcp.main.sys.argv", ["launcher.py"])
+    @patch.dict(os.environ, {}, clear=True)
+    def test_load_env_file_manual_mode(self, mock_dirname, mock_abspath, mock_exists):
+        """Test manual .env loading when python-dotenv is not available."""
+        # Mock path resolution
+        mock_abspath.side_effect = lambda x: {
+            "launcher.py": "/home/user/.claude-mcp-servers/gemini-collab/launcher.py",
+            __file__: "/home/user/.claude-mcp-servers/gemini-collab/server.py",
+        }.get(x, x)
+
+        mock_dirname.side_effect = [
+            "/home/user/.claude-mcp-servers/gemini-collab",  # main_dir
+            "/home/user/.claude-mcp-servers",  # parent_dir
+            "/home/user/.claude-mcp-servers/gemini-collab",  # script_dir
+        ]
+
+        # Mock that .env exists in the launcher directory
+        def exists_side_effect(path):
+            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+
+        mock_exists.side_effect = exists_side_effect
+
+        # Create a mock .env file content
+        env_content = "GEMINI_API_KEY=test-api-key-12345\nGEMINI_MODEL_PRIMARY=model1\n# Comment line\nGEMINI_DEBUG=true"
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+
+        with patch("builtins.open", create=True) as mock_open:
+            mock_open.return_value.__enter__.return_value = env_content.splitlines()
+            server._load_env_file()
+
+        # Verify environment variables were set correctly
+        assert os.environ.get("GEMINI_API_KEY") == "test-api-key-12345"
+        assert os.environ.get("GEMINI_MODEL_PRIMARY") == "model1"
+        assert os.environ.get("GEMINI_DEBUG") == "true"
+
+    @patch("gemini_mcp.main.HAS_DOTENV", False)
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_load_env_file_manual_mode_with_quotes(self, mock_exists):
+        """Test manual .env loading handles quoted values correctly."""
+        # Mock that .env exists
+        mock_exists.return_value = True
+
+        # Create a mock .env file content with quoted values
+        env_content = """GEMINI_API_KEY="test-key-with-quotes"
+SINGLE_QUOTES='single-quoted-value'
+NO_QUOTES=no-quotes-value
+EMPTY_VALUE=
+# COMMENTED_OUT=should-not-load
+SPACES_VALUE = value with spaces"""
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+
+        with patch("builtins.open", create=True) as mock_open:
+            mock_open.return_value.__enter__.return_value = env_content.splitlines()
+            server._load_env_file()
+
+        # Verify environment variables were set correctly with quotes removed
+        assert os.environ.get("GEMINI_API_KEY") == "test-key-with-quotes"
+        assert os.environ.get("SINGLE_QUOTES") == "single-quoted-value"
+        assert os.environ.get("NO_QUOTES") == "no-quotes-value"
+        assert os.environ.get("EMPTY_VALUE") == ""
+        assert os.environ.get("COMMENTED_OUT") is None
+        assert os.environ.get("SPACES_VALUE") == "value with spaces"
+
+    @patch("gemini_mcp.main.HAS_DOTENV", False)
+    @patch("gemini_mcp.main.os.path.exists")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_load_env_file_manual_mode_file_error(self, mock_exists, caplog):
+        """Test manual .env loading handles file errors gracefully."""
+        # Mock that .env exists
+        mock_exists.return_value = True
+
+        # Create a minimal server and test _load_env_file directly
+        server = object.__new__(GeminiMCPServer)
+
+        with patch("builtins.open", side_effect=IOError("Permission denied")):
+            server._load_env_file()
+
+        # Verify error was logged
+        assert "Failed to load .env file" in caplog.text
+        assert "Permission denied" in caplog.text
+
+        # Verify no environment variables were set
+        assert os.environ.get("GEMINI_API_KEY") is None
 
     def test_handle_initialize(self):
         """Test initialize handler."""

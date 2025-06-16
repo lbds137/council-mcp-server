@@ -235,8 +235,10 @@ def _bundled_discover_tools(self, tools_path: Optional[Path] = None) -> None:
 
     logger.info(f"Registered {{len(self._tools)}} tools in bundled mode")
 
-# Directly replace the method on the class
-ToolRegistry.discover_tools = _bundled_discover_tools
+# Function to apply the override - will be called from main()
+def _apply_tool_registry_override():
+    \"\"\"Apply the bundled tool registry override.\"\"\"
+    ToolRegistry.discover_tools = _bundled_discover_tools
         """
         ).strip()
 
@@ -551,6 +553,9 @@ ToolRegistry.discover_tools = _bundled_discover_tools
 # ========== Main Execution ==========
 
 if __name__ == "__main__":
+    # Apply the tool registry override before running
+    _apply_tool_registry_override()
+
     # Call the main function from the bundled code
     main()
         """
