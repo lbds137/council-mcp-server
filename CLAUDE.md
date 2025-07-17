@@ -263,13 +263,13 @@ def _new_tool(self, param1: str) -> str:
 
 ### Environment Variables
 - `GEMINI_API_KEY` - Required, your Gemini API key
-- `GEMINI_MODEL_PRIMARY` - Primary model (default: gemini-2.5-pro-preview-06-05)
-- `GEMINI_MODEL_FALLBACK` - Fallback model (default: gemini-1.5-pro)
-- `GEMINI_MODEL_TIMEOUT` - Timeout in ms (default: 10000)
+- `GEMINI_MODEL_PRIMARY` - Primary model (default: gemini-2.5-pro)
+- `GEMINI_MODEL_FALLBACK` - Fallback model (default: gemini-2.5-flash)
+- `GEMINI_MODEL_TIMEOUT` - Timeout in ms (default: 600000)
 
 ### Model Selection Strategy
-1. Always try experimental/preview models first for cutting-edge capabilities
-2. Fall back to stable models for reliability
+1. Use the latest Gemini 2.5 Pro model for best capabilities
+2. Fall back to Gemini 2.5 Flash for speed and reliability
 3. Log model usage for debugging
 
 ## Testing Guidelines
@@ -318,7 +318,7 @@ except Exception as e:
 
 ## Performance Considerations
 
-1. **Model Timeout**: 10 seconds default, configurable
+1. **Model Timeout**: 600 seconds (10 minutes) default, configurable
 2. **Response Caching**: Consider adding for repeated queries
 3. **Streaming**: Future enhancement for long responses
 4. **Rate Limiting**: Be mindful of Gemini API quotas

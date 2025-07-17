@@ -6,9 +6,9 @@ This guide explains how to use the dual-model features of the Gemini MCP server.
 
 The server (`server.py`) includes built-in dual-model configuration with automatic fallback:
 
-1. **Primary Model**: Tries the best/experimental model first
-2. **Fallback Model**: Automatically switches to stable model if primary fails
-3. **Zero Downtime**: Seamless experience even when models change
+1. **Primary Model**: Uses the latest Gemini 2.5 Pro model for best performance
+2. **Fallback Model**: Automatically switches to Gemini 2.5 Flash if primary fails
+3. **Zero Downtime**: Seamless experience even when models are unavailable
 
 ## Setup Instructions
 
@@ -28,9 +28,9 @@ Edit `.env` file with your preferred models:
 GEMINI_API_KEY=your_actual_api_key
 
 # Best Overall Configuration (Recommended)
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro-preview-06-05
-GEMINI_MODEL_FALLBACK=gemini-1.5-pro
-GEMINI_MODEL_TIMEOUT=10000
+GEMINI_MODEL_PRIMARY=gemini-2.5-pro
+GEMINI_MODEL_FALLBACK=gemini-2.5-flash
+GEMINI_MODEL_TIMEOUT=600000
 ```
 
 ### 3. Test the Server
@@ -67,19 +67,19 @@ fi
 
 ### Best Overall (Quality + Reliability)
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro-preview-06-05
-GEMINI_MODEL_FALLBACK=gemini-1.5-pro
+GEMINI_MODEL_PRIMARY=gemini-2.5-pro
+GEMINI_MODEL_FALLBACK=gemini-2.5-flash
 ```
-- Primary: Cutting-edge reasoning and code understanding
-- Fallback: Stable complex reasoning
+- Primary: Advanced reasoning and code understanding
+- Fallback: Fast and reliable with good capabilities
 
 ### Best Performance (Speed + Cost)
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-flash-preview-05-20
+GEMINI_MODEL_PRIMARY=gemini-2.5-flash
 GEMINI_MODEL_FALLBACK=gemini-2.0-flash
 ```
-- Primary: Fast with thinking capabilities
-- Fallback: Next-gen speed features
+- Primary: Fast with advanced capabilities
+- Fallback: Previous generation for compatibility
 
 ### Most Cost-Effective
 ```bash
@@ -93,7 +93,7 @@ GEMINI_MODEL_FALLBACK=gemini-2.0-flash-lite
 
 ### Automatic Fallback
 - If primary model fails, automatically uses fallback
-- If primary times out (default 10s), switches to fallback
+- If primary times out (default 600s/10 minutes), switches to fallback
 - Transparent to Claude - you always get a response
 
 ### Model Indicators
@@ -134,10 +134,10 @@ python3 -c "
 import google.generativeai as genai
 genai.configure(api_key='$GEMINI_API_KEY')
 try:
-    model = genai.GenerativeModel('gemini-2.5-pro-preview-06-05')
-    print('✅ 2.5 Pro Preview available')
+    model = genai.GenerativeModel('gemini-2.5-pro')
+    print('✅ 2.5 Pro available')
 except Exception as e:
-    print(f'❌ 2.5 Pro Preview error: {e}')
+    print(f'❌ 2.5 Pro error: {e}')
 "
 ```
 
@@ -152,12 +152,12 @@ export $(cat ~/.claude-mcp-servers/gemini-collab/.env | grep -v '^#' | xargs)
 
 ### Fallback Always Triggered
 - Increase timeout if primary model is just slow
-- Check if experimental model is temporarily unavailable
+- Check if primary model is temporarily unavailable
 - Verify API quota hasn't been exceeded
 
 ## Benefits
 
-1. **Always Get Best Available Response**: Uses cutting-edge models when they work
+1. **Always Get Best Available Response**: Uses the latest models when they work
 2. **Never Lose Functionality**: Falls back to stable models automatically
 3. **Transparent Operation**: Works seamlessly with Claude
 4. **Future-Proof**: As new models release, just update config

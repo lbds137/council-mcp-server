@@ -21,11 +21,11 @@ class DualModelManager:
         genai.configure(api_key=api_key)
 
         # Get model names from environment or use defaults
-        self.primary_model_name = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.5-pro-preview-06-05")
-        self.fallback_model_name = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-1.5-pro")
+        self.primary_model_name = os.getenv("GEMINI_MODEL_PRIMARY", "gemini-2.5-pro")
+        self.fallback_model_name = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash")
 
         # Timeout configuration (in seconds)
-        self.timeout = float(os.getenv("GEMINI_MODEL_TIMEOUT", "10000")) / 1000
+        self.timeout = float(os.getenv("GEMINI_MODEL_TIMEOUT", "600000")) / 1000
 
         # Initialize models
         self._primary_model = self._initialize_model(self.primary_model_name, "Primary")

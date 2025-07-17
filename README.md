@@ -42,7 +42,7 @@ Edit `.env` to configure your models:
 GEMINI_API_KEY=your_api_key_here
 
 # Model configuration (optional - defaults shown)
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro-preview-06-05
+GEMINI_MODEL_PRIMARY=gemini-2.5-pro
 GEMINI_MODEL_FALLBACK=gemini-1.5-pro
 GEMINI_MODEL_TIMEOUT=10000
 ```
@@ -97,13 +97,13 @@ Check server status and model configuration.
 
 ### Best Quality (Default)
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro-preview-06-05
-GEMINI_MODEL_FALLBACK=gemini-1.5-pro
+GEMINI_MODEL_PRIMARY=gemini-2.5-pro
+GEMINI_MODEL_FALLBACK=gemini-2.5-flash
 ```
 
 ### Best Performance
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-flash-preview-05-20
+GEMINI_MODEL_PRIMARY=gemini-2.5-flash
 GEMINI_MODEL_FALLBACK=gemini-2.0-flash
 ```
 
