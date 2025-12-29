@@ -47,7 +47,9 @@ else
     echo "📦 Installing server..."
 fi
 cp "$PROJECT_ROOT/server.py" "$MCP_DIR/server.py"
+cp "$PROJECT_ROOT/launcher.py" "$MCP_DIR/launcher.py"
 chmod +x "$MCP_DIR/server.py"
+chmod +x "$MCP_DIR/launcher.py"
 
 # Copy requirements
 echo "📋 Copying requirements..."
@@ -80,8 +82,11 @@ echo "   2. Update Claude Desktop config to point to council server"
 echo "   3. Restart Claude Desktop"
 echo "   4. Test with: mcp__council__server_info"
 echo ""
-echo "📝 Claude Desktop config example:"
+echo "📝 Claude Desktop/Code config example:"
 echo "   \"council\": {"
 echo "     \"command\": \"python3\","
-echo "     \"args\": [\"$MCP_DIR/server.py\"]"
+echo "     \"args\": [\"$MCP_DIR/launcher.py\"]"
 echo "   }"
+echo ""
+echo "💡 Note: Use launcher.py instead of server.py to ensure"
+echo "   dependencies are loaded from the project venv."
