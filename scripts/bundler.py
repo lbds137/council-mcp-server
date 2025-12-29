@@ -40,6 +40,7 @@ class Bundler:
             "providers/openrouter.py",  # OpenRouter implementation (new in v4)
             "discovery/model_cache.py",  # Model caching (new in v4)
             "discovery/model_filter.py",  # Model filtering (new in v4)
+            "discovery/model_registry.py",  # Curated model recommendations (new in v4)
             "manager.py",  # New OpenRouter-based ModelManager (v4)
             "models/base.py",  # Legacy models base (for backwards compat)
             "models/manager.py",  # Legacy DualModelManager (for backwards compat)
