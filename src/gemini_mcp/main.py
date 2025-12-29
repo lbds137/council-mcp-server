@@ -299,7 +299,7 @@ def main():
     log_file = os.path.join(log_dir, "gemini-mcp-server.log")
 
     # Create handlers
-    handlers = [
+    handlers: list[logging.Handler] = [
         logging.StreamHandler(sys.stderr),
         RotatingFileHandler(
             log_file,

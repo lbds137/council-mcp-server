@@ -25,14 +25,14 @@ class TestDualModelManager:
         mock_genai.configure.assert_called_once_with(api_key="test-api-key")
 
         # Verify default model names
-        assert manager.primary_model_name == "gemini-2.0-flash-exp"
-        assert manager.fallback_model_name == "gemini-1.5-pro"
-        assert manager.timeout == 10.0  # 10000ms / 1000
+        assert manager.primary_model_name == "gemini-2.5-pro"
+        assert manager.fallback_model_name == "gemini-2.5-flash"
+        assert manager.timeout == 600.0  # 600000ms / 1000 = 10 minutes
 
         # Verify models were initialized
         assert mock_genai.GenerativeModel.call_count == 2
-        mock_genai.GenerativeModel.assert_any_call("gemini-2.0-flash-exp")
-        mock_genai.GenerativeModel.assert_any_call("gemini-1.5-pro")
+        mock_genai.GenerativeModel.assert_any_call("gemini-2.5-pro")
+        mock_genai.GenerativeModel.assert_any_call("gemini-2.5-flash")
 
         # Verify initial stats
         assert manager.primary_calls == 0
