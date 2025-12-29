@@ -43,6 +43,13 @@ class SynthesizeTool(MCPTool):
                         "required": ["content"],
                     },
                 },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
             },
             "required": ["topic", "perspectives"],
         }
@@ -57,6 +64,8 @@ class SynthesizeTool(MCPTool):
             perspectives = parameters.get("perspectives", [])
             if not perspectives:
                 return ToolOutput(success=False, error="At least one perspective is required")
+
+            model_override = parameters.get("model")
 
             # Build the prompt
             prompt = self._build_prompt(topic, perspectives)
@@ -76,13 +85,12 @@ class SynthesizeTool(MCPTool):
                 if not model_manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt)
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🔄 Synthesis:\n\n{response_text}"
-            if model_used != model_manager.primary_model_name:
-                formatted_response += f"\n\n[Model: {model_used}]"
+            formatted_response += f"\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, topic: str, perspectives: List[Dict[str, str]]) -> str:

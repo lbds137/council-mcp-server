@@ -33,6 +33,13 @@ class AskGeminiTool(MCPTool):
                     "description": "Optional context to help Gemini understand better",
                     "default": "",
                 },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
             },
             "required": ["question"],
         }
@@ -43,6 +50,7 @@ class AskGeminiTool(MCPTool):
             # Get parameters
             question = parameters.get("question", "")
             context = parameters.get("context", "")
+            model_override = parameters.get("model")
 
             if not question:
                 return ToolOutput(success=False, error="Question is required")
@@ -66,11 +74,10 @@ class AskGeminiTool(MCPTool):
                 if not model_manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt)
-            formatted_response = f"🤖 Gemini's Response:\n\n{response_text}"
-            if model_used != model_manager.primary_model_name:
-                formatted_response += f"\n\n[Model: {model_used}]"
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
+            formatted_response = f"🤖 Response:\n\n{response_text}"
+            formatted_response += f"\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")

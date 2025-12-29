@@ -36,6 +36,13 @@ class CodeReviewTool(MCPTool):
                     "(e.g., security, performance, readability)",
                     "default": "general",
                 },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
             },
             "required": ["code"],
         }
@@ -49,6 +56,7 @@ class CodeReviewTool(MCPTool):
 
             language = parameters.get("language", "javascript")
             focus = parameters.get("focus", "general")
+            model_override = parameters.get("model")
 
             # Build the prompt
             prompt = self._build_prompt(code, language, focus)
@@ -68,13 +76,12 @@ class CodeReviewTool(MCPTool):
                 if not model_manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt)
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🔍 Code Review:\n\n{response_text}"
-            if model_used != model_manager.primary_model_name:
-                formatted_response += f"\n\n[Model: {model_used}]"
+            formatted_response += f"\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, code: str, language: str, focus: str) -> str:

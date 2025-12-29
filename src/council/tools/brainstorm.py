@@ -33,6 +33,13 @@ class BrainstormTool(MCPTool):
                     "description": "Any constraints or requirements to consider",
                     "default": "",
                 },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
             },
             "required": ["topic"],
         }
@@ -45,6 +52,7 @@ class BrainstormTool(MCPTool):
                 return ToolOutput(success=False, error="Topic is required for brainstorming")
 
             constraints = parameters.get("constraints", "")
+            model_override = parameters.get("model")
 
             # Build the prompt
             prompt = self._build_prompt(topic, constraints)
@@ -64,13 +72,12 @@ class BrainstormTool(MCPTool):
                 if not model_manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt)
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"💡 Brainstorming Results:\n\n{response_text}"
-            if model_used != model_manager.primary_model_name:
-                formatted_response += f"\n\n[Model: {model_used}]"
+            formatted_response += f"\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     def _build_prompt(self, topic: str, constraints: str) -> str:
