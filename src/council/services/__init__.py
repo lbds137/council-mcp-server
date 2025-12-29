@@ -2,5 +2,11 @@
 
 from .cache import ResponseCache
 from .memory import ConversationMemory
+from .session_manager import ConversationSession, SessionManager
 
-__all__ = ["ResponseCache", "ConversationMemory"]
+__all__ = [
+    "ConversationMemory",
+    "ConversationSession",
+    "ResponseCache",
+    "SessionManager",
+]

@@ -1759,6 +1759,237 @@ class ConversationMemory:
         }
 
 
+# ========== Session manager for multi-turn AI conversations. ==========
+
+
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+
+@dataclass
+class ConversationTurn:
+    """A single turn in a conversation."""
+
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class ConversationSession:
+    """A conversation session with a model."""
+
+    session_id: str
+    model: str
+    system_prompt: str
+    turns: List[ConversationTurn] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
+    last_activity: datetime = field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def add_turn(self, role: str, content: str) -> None:
+        """Add a turn to the conversation."""
+        self.turns.append(ConversationTurn(role=role, content=content))
+        self.last_activity = datetime.now()
+
+    def get_message_history(self) -> List[Dict[str, str]]:
+        """Get conversation history in OpenAI message format."""
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        for turn in self.turns:
+            messages.append({"role": turn.role, "content": turn.content})
+        return messages
+
+    def get_summary(self) -> str:
+        """Get a brief summary of the session."""
+        turn_count = len(self.turns)
+        duration = (self.last_activity - self.created_at).total_seconds()
+        first_message = self.turns[0].content[:100] if self.turns else "No messages"
+        return (
+            f"Session with {self.model}: {turn_count} turns over "
+            f"{duration:.0f}s. Started with: '{first_message}...'"
+        )
+
+
+class SessionManager:
+    """Manages multiple conversation sessions."""
+
+    def __init__(self, max_sessions: int = 20, max_turns_per_session: int = 50):
+        self.sessions: Dict[str, ConversationSession] = {}
+        self.max_sessions = max_sessions
+        self.max_turns_per_session = max_turns_per_session
+
+    def create_session(
+        self,
+        model: str,
+        system_prompt: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Create a new conversation session.
+
+        Args:
+            model: The model to use for this session
+            system_prompt: Optional system prompt to set context
+            metadata: Optional metadata for the session
+
+        Returns:
+            The session ID
+        """
+        # Clean up old sessions if at capacity
+        if len(self.sessions) >= self.max_sessions:
+            self._cleanup_oldest_session()
+
+        session_id = f"sess_{uuid.uuid4().hex[:12]}"
+        self.sessions[session_id] = ConversationSession(
+            session_id=session_id,
+            model=model,
+            system_prompt=system_prompt,
+            metadata=metadata or {},
+        )
+        logger.info(f"Created session {session_id} with model {model}")
+        return session_id
+
+    def get_session(self, session_id: str) -> Optional[ConversationSession]:
+        """Get a session by ID."""
+        return self.sessions.get(session_id)
+
+    def send_message(self, session_id: str, message: str, model_manager: Any) -> tuple[str, str]:
+        """Send a message in a session and get a response.
+
+        Args:
+            session_id: The session ID
+            message: The user's message
+            model_manager: The model manager to use for generation
+
+        Returns:
+            Tuple of (response_text, model_used)
+
+        Raises:
+            ValueError: If session not found or turn limit exceeded
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        if len(session.turns) >= self.max_turns_per_session:
+            raise ValueError(
+                f"Session {session_id} has reached the maximum of "
+                f"{self.max_turns_per_session} turns"
+            )
+
+        # Add user message
+        session.add_turn("user", message)
+
+        # Build prompt with history
+        history = session.get_message_history()
+        prompt = self._format_prompt_with_history(history)
+
+        # Generate response
+        response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+
+        # Add assistant response
+        session.add_turn("assistant", response_text)
+
+        logger.info(f"Session {session_id}: Turn {len(session.turns)//2} completed")
+        return response_text, model_used
+
+    def _format_prompt_with_history(self, messages: List[Dict[str, str]]) -> str:
+        """Format message history into a prompt string."""
+        parts = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                parts.append(f"System: {content}")
+            elif role == "user":
+                parts.append(f"User: {content}")
+            elif role == "assistant":
+                parts.append(f"Assistant: {content}")
+        parts.append("Assistant:")
+        return "\n\n".join(parts)
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """List all active sessions with summaries."""
+        return [
+            {
+                "session_id": s.session_id,
+                "model": s.model,
+                "turns": len(s.turns),
+                "created_at": s.created_at.isoformat(),
+                "last_activity": s.last_activity.isoformat(),
+                "preview": s.turns[0].content[:50] if s.turns else "Empty",
+            }
+            for s in sorted(
+                self.sessions.values(),
+                key=lambda x: x.last_activity,
+                reverse=True,
+            )
+        ]
+
+    def get_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, str]]:
+        """Get conversation history for a session.
+
+        Args:
+            session_id: The session ID
+            limit: Optional limit on number of turns to return
+
+        Returns:
+            List of message dicts with role and content
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        turns = session.turns
+        if limit:
+            turns = turns[-limit:]
+
+        return [{"role": t.role, "content": t.content} for t in turns]
+
+    def end_session(self, session_id: str, summarize: bool = False) -> str:
+        """End a session and optionally return a summary.
+
+        Args:
+            session_id: The session ID
+            summarize: Whether to return a summary
+
+        Returns:
+            Summary string or confirmation message
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        summary = session.get_summary() if summarize else f"Session {session_id} ended"
+        del self.sessions[session_id]
+        logger.info(f"Ended session {session_id}")
+        return summary
+
+    def _cleanup_oldest_session(self) -> None:
+        """Remove the oldest session to make room for new ones."""
+        if not self.sessions:
+            return
+        oldest_id = min(
+            self.sessions.keys(),
+            key=lambda k: self.sessions[k].last_activity,
+        )
+        logger.warning(f"Cleaning up oldest session {oldest_id} to make room")
+        del self.sessions[oldest_id]
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get session manager statistics."""
+        total_turns = sum(len(s.turns) for s in self.sessions.values())
+        return {
+            "active_sessions": len(self.sessions),
+            "max_sessions": self.max_sessions,
+            "total_turns": total_turns,
+            "max_turns_per_session": self.max_turns_per_session,
+        }
+
+
 # ========== Base class for all tools. ==========
 
 
@@ -2856,6 +3087,663 @@ Provide:
 Be constructive and specific in your feedback."""
 
 
+# ========== Tools for multi-turn conversations with AI models. ==========
+
+
+from typing import Any, Dict
+
+# Global session manager instance (initialized by server)
+_session_manager = None
+
+
+def get_session_manager():
+    """Get or create the session manager instance."""
+    global _session_manager
+    if _session_manager is None:
+
+        _session_manager = SessionManager()
+    return _session_manager
+
+
+class StartConversationTool(MCPTool):
+    """Tool to start a new conversation session with a model."""
+
+    @property
+    def name(self) -> str:
+        return "start_conversation"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Start a new multi-turn conversation session with an AI model. "
+            "Returns a session_id to use for follow-up messages."
+        )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "The model to converse with (e.g., 'deepseek/deepseek-r1', "
+                        "'anthropic/claude-3-haiku'). Use list_models to see options."
+                    ),
+                },
+                "system_prompt": {
+                    "type": "string",
+                    "description": (
+                        "Optional system prompt to set the model's role/context "
+                        "(e.g., 'You are a Python expert specializing in async programming')"
+                    ),
+                    "default": "",
+                },
+                "initial_message": {
+                    "type": "string",
+                    "description": ("Optional first message to send immediately after starting"),
+                },
+            },
+            "required": ["model"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Start a new conversation session."""
+        try:
+            model = parameters.get("model")
+            if not model:
+                return ToolOutput(success=False, error="Model is required")
+
+            system_prompt = parameters.get("system_prompt", "")
+            initial_message = parameters.get("initial_message")
+
+            session_manager = get_session_manager()
+            session_id = session_manager.create_session(
+                model=model,
+                system_prompt=system_prompt,
+            )
+
+            result_lines = [
+                "✅ **Conversation Started**",
+                "",
+                f"**Session ID:** `{session_id}`",
+                f"**Model:** {model}",
+            ]
+
+            if system_prompt:
+                result_lines.append(f"**System Prompt:** {system_prompt[:100]}...")
+
+            # If initial message provided, send it
+            if initial_message:
+                try:
+
+                    if _server_instance and _server_instance.model_manager:
+                        response, model_used = session_manager.send_message(
+                            session_id, initial_message, _server_instance.model_manager
+                        )
+                        result_lines.extend(
+                            [
+                                "",
+                                "---",
+                                f"**You:** {initial_message}",
+                                "",
+                                f"**{model}:** {response}",
+                            ]
+                        )
+                except Exception as e:
+                    result_lines.append(f"\n⚠️ Initial message failed: {e}")
+
+            result_lines.extend(
+                [
+                    "",
+                    f"💡 Use `continue_conversation` with session_id `{session_id}` to continue.",
+                ]
+            )
+
+            return ToolOutput(success=True, result="\n".join(result_lines))
+
+        except Exception as e:
+            logger.error(f"Error starting conversation: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+class ContinueConversationTool(MCPTool):
+    """Tool to continue an existing conversation session."""
+
+    @property
+    def name(self) -> str:
+        return "continue_conversation"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Send a message in an existing conversation session. "
+            "The model will have full context of previous messages."
+        )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID from start_conversation",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Your message to send",
+                },
+            },
+            "required": ["session_id", "message"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Continue a conversation."""
+        try:
+            session_id = parameters.get("session_id")
+            message = parameters.get("message")
+
+            if not session_id:
+                return ToolOutput(success=False, error="session_id is required")
+            if not message:
+                return ToolOutput(success=False, error="message is required")
+
+            session_manager = get_session_manager()
+            session = session_manager.get_session(session_id)
+
+            if not session:
+                return ToolOutput(
+                    success=False,
+                    error=f"Session {session_id} not found. "
+                    "Use list_conversations to see active sessions.",
+                )
+
+            # Get model manager
+            try:
+
+                if not _server_instance or not _server_instance.model_manager:
+                    raise AttributeError("Model manager not available")
+                model_manager = _server_instance.model_manager
+            except (ImportError, AttributeError):
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
+
+            response, model_used = session_manager.send_message(session_id, message, model_manager)
+
+            turn_count = len(session.turns) // 2
+            result = (
+                f"**Turn {turn_count}** (Session: `{session_id}`)\n\n"
+                f"**You:** {message}\n\n"
+                f"**{session.model}:** {response}\n\n"
+                f"[Model: {model_used}]"
+            )
+
+            return ToolOutput(success=True, result=result)
+
+        except ValueError as e:
+            return ToolOutput(success=False, error=str(e))
+        except Exception as e:
+            logger.error(f"Error in conversation: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+class ListConversationsTool(MCPTool):
+    """Tool to list active conversation sessions."""
+
+    @property
+    def name(self) -> str:
+        return "list_conversations"
+
+    @property
+    def description(self) -> str:
+        return "List all active conversation sessions with their status and preview."
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """List active conversations."""
+        try:
+            session_manager = get_session_manager()
+            sessions = session_manager.list_sessions()
+            stats = session_manager.get_stats()
+
+            if not sessions:
+                return ToolOutput(
+                    success=True,
+                    result=(
+                        "📭 **No active conversations**\n\n"
+                        "Use `start_conversation` to begin a new session."
+                    ),
+                )
+
+            result_lines = [
+                f"📋 **Active Conversations** ({stats['active_sessions']}/{stats['max_sessions']})",
+                "",
+            ]
+
+            for s in sessions:
+                result_lines.extend(
+                    [
+                        f"### `{s['session_id']}`",
+                        f"- **Model:** {s['model']}",
+                        f"- **Turns:** {s['turns']}",
+                        f"- **Last Activity:** {s['last_activity']}",
+                        f"- **Preview:** _{s['preview']}_...",
+                        "",
+                    ]
+                )
+
+            result_lines.append("💡 Use `continue_conversation` with a session_id to resume.")
+
+            return ToolOutput(success=True, result="\n".join(result_lines))
+
+        except Exception as e:
+            logger.error(f"Error listing conversations: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+class EndConversationTool(MCPTool):
+    """Tool to end a conversation session."""
+
+    @property
+    def name(self) -> str:
+        return "end_conversation"
+
+    @property
+    def description(self) -> str:
+        return "End a conversation session. Optionally get a summary of the conversation."
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID to end",
+                },
+                "summarize": {
+                    "type": "boolean",
+                    "description": "Whether to return a summary of the conversation",
+                    "default": True,
+                },
+            },
+            "required": ["session_id"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """End a conversation session."""
+        try:
+            session_id = parameters.get("session_id")
+            summarize = parameters.get("summarize", True)
+
+            if not session_id:
+                return ToolOutput(success=False, error="session_id is required")
+
+            session_manager = get_session_manager()
+            summary = session_manager.end_session(session_id, summarize=summarize)
+
+            return ToolOutput(
+                success=True,
+                result=f"✅ **Conversation Ended**\n\n{summary}",
+            )
+
+        except ValueError as e:
+            return ToolOutput(success=False, error=str(e))
+        except Exception as e:
+            logger.error(f"Error ending conversation: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+class GetConversationHistoryTool(MCPTool):
+    """Tool to get the history of a conversation."""
+
+    @property
+    def name(self) -> str:
+        return "get_conversation_history"
+
+    @property
+    def description(self) -> str:
+        return "Get the full message history of a conversation session."
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "The session ID",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Limit to last N turns (optional)",
+                },
+            },
+            "required": ["session_id"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Get conversation history."""
+        try:
+            session_id = parameters.get("session_id")
+            limit = parameters.get("limit")
+
+            if not session_id:
+                return ToolOutput(success=False, error="session_id is required")
+
+            session_manager = get_session_manager()
+            session = session_manager.get_session(session_id)
+
+            if not session:
+                return ToolOutput(success=False, error=f"Session {session_id} not found")
+
+            history = session_manager.get_history(session_id, limit=limit)
+
+            result_lines = [
+                f"📜 **Conversation History** (`{session_id}`)",
+                f"**Model:** {session.model}",
+                "",
+            ]
+
+            if session.system_prompt:
+                result_lines.extend(
+                    [
+                        f"**System:** {session.system_prompt}",
+                        "",
+                        "---",
+                        "",
+                    ]
+                )
+
+            for i, turn in enumerate(history):
+                role = "You" if turn["role"] == "user" else session.model
+                result_lines.append(f"**{role}:** {turn['content']}")
+                result_lines.append("")
+
+            return ToolOutput(success=True, result="\n".join(result_lines))
+
+        except ValueError as e:
+            return ToolOutput(success=False, error=str(e))
+        except Exception as e:
+            logger.error(f"Error getting history: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+# ========== Debug tool for structured debugging with hypothesis tracking. ==========
+
+
+from typing import Any, Dict, List, Optional
+
+
+class DebugTool(MCPTool):
+    """Tool for structured debugging with hypothesis ranking and verification guidance."""
+
+    @property
+    def name(self) -> str:
+        return "debug"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Analyze an error or bug with structured hypothesis generation. "
+            "Provides ranked probable causes, verification steps, and recommended next actions. "
+            "Tracks previous attempts to prevent circular debugging."
+        )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "error_message": {
+                    "type": "string",
+                    "description": "The error message or symptom description",
+                },
+                "code_context": {
+                    "type": "string",
+                    "description": "Relevant code where the error occurs",
+                },
+                "stack_trace": {
+                    "type": "string",
+                    "description": "Stack trace if available",
+                },
+                "previous_attempts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of fixes already tried that didn't work",
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "Runtime environment (e.g., 'Python 3.13', 'Node 20')",
+                    "default": "Python 3.x",
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional session ID from start_conversation to track "
+                        "debugging history across multiple debug calls"
+                    ),
+                },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
+            },
+            "required": ["error_message", "code_context"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute structured debugging analysis."""
+        try:
+            error_message = parameters.get("error_message")
+            code_context = parameters.get("code_context")
+
+            if not error_message:
+                return ToolOutput(success=False, error="error_message is required")
+            if not code_context:
+                return ToolOutput(success=False, error="code_context is required")
+
+            stack_trace = parameters.get("stack_trace", "")
+            previous_attempts = parameters.get("previous_attempts", [])
+            environment = parameters.get("environment", "Python 3.x")
+            session_id = parameters.get("session_id")
+            model_override = parameters.get("model")
+
+            # Get debugging history from session if available
+            session_context = ""
+            if session_id:
+                session_context = self._get_session_context(session_id)
+
+            # Build the prompt
+            prompt = self._build_prompt(
+                error_message=error_message,
+                code_context=code_context,
+                stack_trace=stack_trace,
+                previous_attempts=previous_attempts,
+                environment=environment,
+                session_context=session_context,
+            )
+
+            # Get model manager
+            try:
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
+
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
+
+            # Format response
+            formatted_response = self._format_response(
+                response_text,
+                model_used,
+                session_id,
+                len(previous_attempts),
+            )
+
+            return ToolOutput(success=True, result=formatted_response)
+
+        except Exception as e:
+            logger.error(f"Debug tool error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+    def _get_session_context(self, session_id: str) -> str:
+        """Get previous debugging context from session if available."""
+        try:
+
+            session_manager = get_session_manager()
+            session = session_manager.get_session(session_id)
+
+            if session and session.turns:
+                # Extract recent debugging history
+                recent_turns = session.turns[-6:]  # Last 3 exchanges
+                context_parts = ["## Previous Debugging Context"]
+                for turn in recent_turns:
+                    role = "User" if turn.role == "user" else "Assistant"
+                    # Truncate long content
+                    content = (
+                        turn.content[:500] + "..." if len(turn.content) > 500 else turn.content
+                    )
+                    context_parts.append(f"**{role}:** {content}")
+                return "\n\n".join(context_parts)
+        except Exception as e:
+            logger.debug(f"Could not get session context: {e}")
+
+        return ""
+
+    def _build_prompt(
+        self,
+        error_message: str,
+        code_context: str,
+        stack_trace: str,
+        previous_attempts: List[str],
+        environment: str,
+        session_context: str,
+    ) -> str:
+        """Build the structured debugging prompt."""
+        parts = [
+            "You are a senior debugging expert. Analyze the following error and provide "
+            "a structured debugging analysis with ranked hypotheses.",
+            "",
+            "## Environment",
+            environment,
+            "",
+            "## Error Message",
+            "```",
+            error_message,
+            "```",
+            "",
+            "## Code Context",
+            "```",
+            code_context,
+            "```",
+        ]
+
+        if stack_trace:
+            parts.extend(
+                [
+                    "",
+                    "## Stack Trace",
+                    "```",
+                    f"{stack_trace}",
+                    "```",
+                ]
+            )
+
+        if previous_attempts:
+            parts.extend(
+                [
+                    "",
+                    "## Previous Attempts (Already Tried)",
+                    "The following fixes have been attempted but DID NOT solve the issue:",
+                ]
+            )
+            for i, attempt in enumerate(previous_attempts, 1):
+                parts.append(f"{i}. {attempt}")
+            parts.append("")
+            parts.append("**Important:** Do NOT suggest these approaches again.")
+
+        if session_context:
+            parts.extend(
+                [
+                    "",
+                    session_context,
+                ]
+            )
+
+        parts.extend(
+            [
+                "",
+                "## Required Output Format",
+                "",
+                "Provide your analysis in this exact structure:",
+                "",
+                "### Root Cause Analysis",
+                "[Explain the most likely root cause based on the evidence. "
+                "Be specific about what's happening and why.]",
+                "",
+                "### Hypotheses (Ranked by Probability)",
+                "",
+                "**1. [Most Likely Cause]** (Confidence: High/Medium/Low)",
+                "- Evidence: [What points to this being the issue]",
+                "- Verification: [Concrete step to confirm this is the cause]",
+                "- Fix Strategy: [High-level approach, not full implementation yet]",
+                "",
+                "**2. [Second Most Likely]** (Confidence: High/Medium/Low)",
+                "[Same structure...]",
+                "",
+                "(Provide 2-4 hypotheses)",
+                "",
+                "### Recommended Next Step",
+                "[Single, concrete action to take RIGHT NOW to make progress. "
+                "Focus on verification before fix.]",
+                "",
+                "### What NOT to Try",
+                "[Anti-patterns or approaches that won't work for this specific issue, "
+                "especially based on previous attempts]",
+            ]
+        )
+
+        return "\n".join(parts)
+
+    def _format_response(
+        self,
+        response_text: str,
+        model_used: str,
+        session_id: Optional[str],
+        attempt_count: int,
+    ) -> str:
+        """Format the debugging response."""
+        header_parts = ["# Debugging Analysis"]
+
+        if attempt_count > 0:
+            header_parts.append(f"*Attempt #{attempt_count + 1}*")
+
+        if session_id:
+            header_parts.append(f"*Session: `{session_id}`*")
+
+        header = " | ".join(header_parts)
+
+        return f"{header}\n\n{response_text}\n\n[Model: {model_used}]"
+
+
 # ========== Explanation tool for understanding complex code or concepts. ==========
 
 
@@ -3273,6 +4161,250 @@ class RecommendModelTool(MCPTool):
         except Exception as e:
             logger.error(f"Error recommending model: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+# ========== Refactor tool for atomic refactoring plans with before/after examples. ==========
+
+
+from typing import Any, Dict
+
+
+class RefactorTool(MCPTool):
+    """Tool for generating safe, atomic refactoring plans with before/after code examples."""
+
+    REFACTORING_GOALS = [
+        "extract_method",
+        "simplify_logic",
+        "improve_naming",
+        "reduce_complexity",
+        "modernize_syntax",
+        "remove_duplication",
+        "improve_error_handling",
+    ]
+
+    @property
+    def name(self) -> str:
+        return "refactor"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Generate a safe, step-by-step refactoring plan with before/after code examples. "
+            "Provides atomic refactoring steps that preserve behavior while improving "
+            "code quality. Supports: extract_method, simplify_logic, improve_naming, "
+            "reduce_complexity, modernize_syntax, remove_duplication, improve_error_handling."
+        )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The code to refactor",
+                },
+                "goal": {
+                    "type": "string",
+                    "enum": self.REFACTORING_GOALS,
+                    "description": (
+                        "The refactoring goal: extract_method, simplify_logic, "
+                        "improve_naming, reduce_complexity, modernize_syntax, "
+                        "remove_duplication, or improve_error_handling"
+                    ),
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Programming language (e.g., python, javascript, typescript)",
+                    "default": "python",
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Optional context about how the code is used, "
+                        "constraints, or additional requirements"
+                    ),
+                },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Use list_models to see available options."
+                    ),
+                },
+            },
+            "required": ["code", "goal"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the refactoring analysis."""
+        try:
+            code = parameters.get("code")
+            goal = parameters.get("goal")
+
+            if not code:
+                return ToolOutput(success=False, error="code is required")
+            if not goal:
+                return ToolOutput(success=False, error="goal is required")
+            if goal not in self.REFACTORING_GOALS:
+                return ToolOutput(
+                    success=False,
+                    error=f"Invalid goal. Must be one of: {', '.join(self.REFACTORING_GOALS)}",
+                )
+
+            language = parameters.get("language", "python")
+            context = parameters.get("context", "")
+            model_override = parameters.get("model")
+
+            # Build the prompt
+            prompt = self._build_prompt(code, goal, language, context)
+
+            # Get model manager
+            try:
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
+
+            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
+
+            # Format response
+            formatted_response = self._format_response(response_text, model_used, goal)
+
+            return ToolOutput(success=True, result=formatted_response)
+
+        except Exception as e:
+            logger.error(f"Refactor tool error: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+    def _build_prompt(
+        self,
+        code: str,
+        goal: str,
+        language: str,
+        context: str,
+    ) -> str:
+        """Build the refactoring prompt."""
+        goal_descriptions = {
+            "extract_method": (
+                "Extract cohesive code blocks into well-named methods/functions. "
+                "Identify logical groupings, determine parameters and return values, "
+                "and create clear function signatures."
+            ),
+            "simplify_logic": (
+                "Simplify complex conditional logic, reduce nesting, "
+                "apply early returns, and make the control flow clearer."
+            ),
+            "improve_naming": (
+                "Improve variable, function, and class names to better express intent. "
+                "Apply consistent naming conventions appropriate for the language."
+            ),
+            "reduce_complexity": (
+                "Reduce cyclomatic complexity by breaking down large functions, "
+                "simplifying conditions, and improving code structure."
+            ),
+            "modernize_syntax": (
+                f"Update the code to use modern {language} syntax and idioms. "
+                "Apply current best practices and language features."
+            ),
+            "remove_duplication": (
+                "Identify and remove duplicate code by extracting common patterns "
+                "into reusable functions, classes, or utilities."
+            ),
+            "improve_error_handling": (
+                "Improve error handling with proper exception types, "
+                "meaningful error messages, and appropriate recovery strategies."
+            ),
+        }
+
+        goal_description = goal_descriptions.get(goal, "Improve the code quality.")
+
+        parts = [
+            "You are an expert software engineer specializing in code refactoring.",
+            f"Your task is to provide a **{goal.replace('_', ' ')}** refactoring plan.",
+            "",
+            f"## Goal: {goal.replace('_', ' ').title()}",
+            goal_description,
+            "",
+            f"## Language: {language}",
+            "",
+            "## Code to Refactor",
+            f"```{language}",
+            code,
+            "```",
+        ]
+
+        if context:
+            parts.extend(
+                [
+                    "",
+                    "## Additional Context",
+                    context,
+                ]
+            )
+
+        parts.extend(
+            [
+                "",
+                "## Required Output Format",
+                "",
+                "Provide your refactoring plan in this exact structure:",
+                "",
+                "### Analysis",
+                "[Explain what's problematic about the current code and why refactoring helps]",
+                "",
+                "### Refactoring Plan",
+                "",
+                "**Step 1: [Action Name]**",
+                "- What: [Specific change to make]",
+                "- Why: [Benefit of this change]",
+                "- Risk: Low/Medium/High",
+                "",
+                "[Add more steps as needed...]",
+                "",
+                "### Before",
+                f"```{language}",
+                "[Original code - copy the exact code provided]",
+                "```",
+                "",
+                "### After",
+                f"```{language}",
+                "[Fully refactored code - complete, runnable implementation]",
+                "```",
+                "",
+                "### Verification Steps",
+                "1. [How to verify the refactor didn't break functionality]",
+                "2. [Tests to run or behavior to check]",
+                "",
+                "### Notes",
+                "[Any caveats, edge cases to watch, or follow-up improvements to consider]",
+                "",
+                "**Important Guidelines:**",
+                "- The refactored code MUST be functionally equivalent to the original",
+                "- Each step should be atomic and independently verifiable",
+                "- Provide complete, copy-pasteable code in the After section",
+                "- Highlight any behavioral changes (even if improvements)",
+            ]
+        )
+
+        return "\n".join(parts)
+
+    def _format_response(
+        self,
+        response_text: str,
+        model_used: str,
+        goal: str,
+    ) -> str:
+        """Format the refactoring response."""
+        goal_title = goal.replace("_", " ").title()
+        header = f"# Refactoring Plan: {goal_title}"
+
+        return f"{header}\n\n{response_text}\n\n[Model: {model_used}]"
 
 
 # ========== Server information tool for checking status and configuration. ==========
@@ -3714,9 +4846,16 @@ BUNDLED_TOOL_CLASSES = [
     AskTool,
     BrainstormTool,
     CodeReviewTool,
+    StartConversationTool,
+    ContinueConversationTool,
+    ListConversationsTool,
+    EndConversationTool,
+    GetConversationHistoryTool,
+    DebugTool,
     ExplainTool,
     ListModelsTool,
     RecommendModelTool,
+    RefactorTool,
     ServerInfoTool,
     SetModelTool,
     SynthesizeTool,

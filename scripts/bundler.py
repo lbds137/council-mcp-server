@@ -45,6 +45,7 @@ class Bundler:
             "models/memory.py",  # Memory models (ConversationTurn, MemoryEntry)
             "services/cache.py",  # Cache service
             "services/memory.py",  # Memory service
+            "services/session_manager.py",  # Session manager for conversations
             "tools/base.py",  # Tool base class must come before tool implementations
             "core/registry.py",  # Registry needs tool base
             "core/orchestrator.py",  # Orchestrator uses registry
