@@ -75,7 +75,11 @@ class ServerInfoTool(MCPTool):
                 if server.orchestrator:
                     info["execution_stats"] = server.orchestrator.get_execution_stats()
 
-            result = f"Council MCP Server v{__version__}\n\n{json.dumps(info, indent=2)}"
+            # Add quick reference guide
+            quick_guide = self._get_quick_guide()
+
+            json_info = json.dumps(info, indent=2)
+            result = f"Council MCP Server v{__version__}\n\n{json_info}\n\n{quick_guide}"
             return ToolOutput(success=True, result=result)
 
         except Exception as e:
@@ -109,3 +113,27 @@ class ServerInfoTool(MCPTool):
             pass
 
         return info
+
+    def _get_quick_guide(self) -> str:
+        """Generate a quick model selection guide."""
+        return """## Quick Model Selection Guide
+
+**By Task Type:**
+• Coding/Code Review → Claude Sonnet 4, Claude 3.5 Sonnet
+• Reasoning/Math → DeepSeek R1, Gemini 3 Pro
+• Vision/Images → Gemini 2.5 Flash, Gemini 2.5 Pro
+• Web Development → Gemini 2.5 Pro (leads WebDev Arena)
+• Long Documents → Gemini (1M tokens), Llama 4 Scout (10M)
+• General/Creative → Claude 3.5 Sonnet, GPT-4o
+
+**Model Classes:**
+• FLASH: Fast & cheap (Haiku, GPT-4o-mini, Gemini Flash)
+• PRO: Balanced quality/cost (Sonnet, GPT-4o, Gemini Pro)
+• DEEP: Maximum quality (Opus, o1, DeepSeek R1)
+
+**Free Tier Options:**
+• meta-llama/llama-3.3-70b-instruct:free
+• deepseek/deepseek-chat:free
+• qwen/qwen-2.5-72b-instruct:free
+
+💡 Use `recommend_model` tool for detailed task-specific recommendations."""

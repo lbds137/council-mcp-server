@@ -6,6 +6,7 @@ from .brainstorm import BrainstormTool
 from .code_review import CodeReviewTool
 from .explain import ExplainTool
 from .list_models import ListModelsTool
+from .recommend_model import RecommendModelTool
 from .set_model import SetModelTool
 from .synthesize import SynthesizeTool
 from .test_cases import TestCasesTool
@@ -19,6 +20,7 @@ __all__ = [
     "CodeReviewTool",
     "ExplainTool",
     "ListModelsTool",
+    "RecommendModelTool",
     "SetModelTool",
     "SynthesizeTool",
     "TestCasesTool",

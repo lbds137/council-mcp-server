@@ -113,6 +113,15 @@ class ListModelsTool(MCPTool):
                     result="No models found matching the criteria.",
                 )
 
+            # Import model registry for enhanced metadata
+            has_registry = False
+            try:
+                from ..discovery.model_registry import get_model_metadata
+
+                has_registry = True
+            except ImportError:
+                pass
+
             result_lines = [f"📋 Found {len(filtered)} models:\n"]
 
             for model in filtered:
@@ -127,6 +136,13 @@ class ListModelsTool(MCPTool):
 
                 # Build model line
                 line = f"• {model.id}"
+
+                # Add model class from registry if available
+                if has_registry:
+                    metadata = get_model_metadata(model.id)
+                    if metadata:
+                        line += f" [{metadata.model_class.value.upper()}]"
+
                 if model.is_free:
                     line += " [FREE]"
                 line += f" - {ctx_str} context"
@@ -136,6 +152,15 @@ class ListModelsTool(MCPTool):
                     line += f" ({caps})"
 
                 result_lines.append(line)
+
+            # Add legend
+            result_lines.extend(
+                [
+                    "",
+                    "Legend: [FLASH] Fast/cheap | [PRO] Balanced | [DEEP] Max quality",
+                    "Use `recommend_model` for task-specific guidance.",
+                ]
+            )
 
             return ToolOutput(success=True, result="\n".join(result_lines))
 

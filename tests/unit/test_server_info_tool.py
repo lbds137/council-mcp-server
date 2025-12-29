@@ -8,6 +8,39 @@ import pytest
 from council.tools.server_info import ServerInfoTool
 
 
+def extract_json_from_result(result_str: str) -> dict:
+    """Extract and parse JSON from server_info result.
+
+    The result format is:
+    Council MCP Server v4.0.0
+
+    {JSON}
+
+    ## Quick Guide...
+
+    This function extracts just the JSON portion.
+    """
+    # Split by double newline and get the JSON block
+    parts = result_str.split("\n\n")
+    for part in parts:
+        part = part.strip()
+        if part.startswith("{") and "}" in part:
+            # Find the end of the JSON object
+            brace_count = 0
+            end_idx = 0
+            for i, char in enumerate(part):
+                if char == "{":
+                    brace_count += 1
+                elif char == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_idx = i + 1
+                        break
+            json_str = part[:end_idx]
+            return json.loads(json_str)
+    raise ValueError("No JSON found in result")
+
+
 class TestServerInfoTool:
     """Test cases for ServerInfoTool."""
 
@@ -45,14 +78,16 @@ class TestServerInfoTool:
         assert "Council MCP Server v4.0.0" in result.result
 
         # Parse JSON from result
-        json_str = result.result.split("\n\n", 1)[1]
-        info = json.loads(json_str)
+        info = extract_json_from_result(result.result)
 
         assert info["version"] == "4.0.0"
         assert info["architecture"] == "modular"
         assert info["backend"] == "OpenRouter"
         assert info["status"] == "running"
         assert "Full stats unavailable" in info["note"]
+
+        # Verify quick guide is included
+        assert "## Quick Model Selection Guide" in result.result
 
     @pytest.mark.asyncio
     async def test_execute_with_full_server_instance(self, tool):
@@ -111,8 +146,7 @@ class TestServerInfoTool:
         assert "Council MCP Server v4.0.0" in result.result
 
         # Parse JSON from result
-        json_str = result.result.split("\n\n", 1)[1]
-        info = json.loads(json_str)
+        info = extract_json_from_result(result.result)
 
         assert info["version"] == "4.0.0"
         assert info["architecture"] == "modular"
@@ -124,6 +158,9 @@ class TestServerInfoTool:
         assert info["models"]["active_model"] == "google/gemini-3-pro-preview"
         assert info["models"]["stats"]["total_calls"] == 25
         assert info["execution_stats"]["total_executions"] == 15
+
+        # Verify quick guide is included
+        assert "## Quick Model Selection Guide" in result.result
 
     @pytest.mark.asyncio
     async def test_execute_with_partial_server_instance(self, tool):
@@ -149,11 +186,13 @@ class TestServerInfoTool:
         assert result.success is True
 
         # Parse JSON from result
-        json_str = result.result.split("\n\n", 1)[1]
-        info = json.loads(json_str)
+        info = extract_json_from_result(result.result)
 
         assert info["models"]["initialized"] is False
         assert "execution_stats" not in info
+
+        # Verify quick guide is included
+        assert "## Quick Model Selection Guide" in result.result
 
     @pytest.mark.asyncio
     async def test_execute_with_model_stats_exception(self, tool):
@@ -182,11 +221,13 @@ class TestServerInfoTool:
 
         # Should still succeed but stats should not be present
         assert result.success is True
-        json_str = result.result.split("\n\n", 1)[1]
-        info = json.loads(json_str)
+        info = extract_json_from_result(result.result)
         assert info["models"]["initialized"] is True
         # Stats key may not be present if exception occurred
         assert "stats" not in info["models"] or info["models"]["stats"] is None
+
+        # Verify quick guide is included
+        assert "## Quick Model Selection Guide" in result.result
 
     @pytest.mark.asyncio
     async def test_execute_with_exception(self, tool):
