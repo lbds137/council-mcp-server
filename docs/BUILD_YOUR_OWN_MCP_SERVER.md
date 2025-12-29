@@ -680,28 +680,28 @@ Here's a complete working example that enables Claude Code to collaborate with G
 
 ```bash
 # 1. Create permanent directory
-mkdir -p ~/.claude-mcp-servers/gemini-collab
+mkdir -p ~/.claude-mcp-servers/council
 
-# 2. Install Gemini SDK
-pip install google-generativeai
+# 2. Install dependencies
+pip install httpx python-dotenv
 
 # 3. Download server (simplified version)
-curl -o ~/.claude-mcp-servers/gemini-collab/server.py https://your-repo/server.py
+curl -o ~/.claude-mcp-servers/council/server.py https://your-repo/server.py
 
 # 4. Add to Claude with USER SCOPE (crucial!)
-claude mcp add --scope user gemini-collab python3 ~/.claude-mcp-servers/gemini-collab/server.py
+claude mcp add --scope user council python3 ~/.claude-mcp-servers/council/server.py
 
 # 5. Test from any directory
 claude
-/mcp  # Should show gemini-collab connected
+/mcp  # Should show council connected
 ```
 
 ### Available Tools
 
 Once installed, you'll have these tools globally:
-- `mcp__gemini-collab__ask_gemini` - Ask Gemini questions
-- `mcp__gemini-collab__gemini_code_review` - Code reviews
-- `mcp__gemini-collab__gemini_brainstorm` - Collaborative brainstorming
+- `mcp__council__ask` - Ask any model questions
+- `mcp__council__code_review` - Code reviews
+- `mcp__council__brainstorm` - Collaborative brainstorming
 
 ### Usage Example
 
@@ -709,12 +709,12 @@ Once installed, you'll have these tools globally:
 # In any directory, start Claude Code:
 claude
 
-# Use Gemini for code review:
-mcp__gemini-collab__gemini_code_review
+# Use Council for code review:
+mcp__council__code_review
   code: "function authenticate(user) { return user.password === 'admin'; }"
   focus: "security"
 
-# Gemini's response appears directly in Claude's context!
+# The response appears directly in Claude's context!
 ```
 
 ### Key Learnings from This Setup

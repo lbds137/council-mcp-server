@@ -96,18 +96,18 @@ class TestCouncilMCPServer:
         """Test .env loading from launcher directory at startup."""
         # Mock path resolution
         mock_abspath.side_effect = lambda x: {
-            "launcher.py": "/home/user/.claude-mcp-servers/gemini-collab/launcher.py",
-            __file__: "/home/user/.claude-mcp-servers/gemini-collab/main.py",
+            "launcher.py": "/home/user/.claude-mcp-servers/council/launcher.py",
+            __file__: "/home/user/.claude-mcp-servers/council/main.py",
         }.get(x, x)
         mock_dirname.side_effect = [
-            "/home/user/.claude-mcp-servers/gemini-collab",  # main_dir
+            "/home/user/.claude-mcp-servers/council",  # main_dir
             "/home/user/.claude-mcp-servers",  # parent_dir
-            "/home/user/.claude-mcp-servers/gemini-collab",  # script_dir
+            "/home/user/.claude-mcp-servers/council",  # script_dir
         ]
 
         # Mock that .env exists in the launcher directory
         def exists_side_effect(path):
-            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+            return path == "/home/user/.claude-mcp-servers/council/.env"
 
         mock_exists.side_effect = exists_side_effect
 
@@ -116,7 +116,7 @@ class TestCouncilMCPServer:
         server._load_env_file()
 
         # Verify .env was loaded from the launcher directory
-        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
+        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/council/.env")
 
     @patch("council.main.HAS_DOTENV", True)
     @patch("council.main.load_dotenv")
@@ -168,18 +168,18 @@ class TestCouncilMCPServer:
         # Mock Claude's typical launch scenario
         mock_abspath.side_effect = lambda x: {
             "/usr/bin/python3": "/usr/bin/python3",
-            __file__: "/home/user/.claude-mcp-servers/gemini-collab/main.py",
+            __file__: "/home/user/.claude-mcp-servers/council/main.py",
         }.get(x, x)
         mock_dirname.side_effect = [
             "/usr/bin",
             "/usr",
-            "/home/user/.claude-mcp-servers/gemini-collab",
+            "/home/user/.claude-mcp-servers/council",
         ]
-        mock_getcwd.return_value = "/home/user/.claude-mcp-servers/gemini-collab"
+        mock_getcwd.return_value = "/home/user/.claude-mcp-servers/council"
 
         # .env exists only in cwd (the MCP installation directory)
         def exists_side_effect(path):
-            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+            return path == "/home/user/.claude-mcp-servers/council/.env"
 
         mock_exists.side_effect = exists_side_effect
 
@@ -188,7 +188,7 @@ class TestCouncilMCPServer:
         server._load_env_file()
 
         # Verify .env was loaded from cwd (installation directory)
-        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
+        mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/council/.env")
 
     @patch("council.main.HAS_DOTENV", False)
     @patch("council.main.os.path.exists")
@@ -200,19 +200,19 @@ class TestCouncilMCPServer:
         """Test manual .env loading when python-dotenv is not available."""
         # Mock path resolution
         mock_abspath.side_effect = lambda x: {
-            "launcher.py": "/home/user/.claude-mcp-servers/gemini-collab/launcher.py",
-            __file__: "/home/user/.claude-mcp-servers/gemini-collab/server.py",
+            "launcher.py": "/home/user/.claude-mcp-servers/council/launcher.py",
+            __file__: "/home/user/.claude-mcp-servers/council/server.py",
         }.get(x, x)
 
         mock_dirname.side_effect = [
-            "/home/user/.claude-mcp-servers/gemini-collab",  # main_dir
+            "/home/user/.claude-mcp-servers/council",  # main_dir
             "/home/user/.claude-mcp-servers",  # parent_dir
-            "/home/user/.claude-mcp-servers/gemini-collab",  # script_dir
+            "/home/user/.claude-mcp-servers/council",  # script_dir
         ]
 
         # Mock that .env exists in the launcher directory
         def exists_side_effect(path):
-            return path == "/home/user/.claude-mcp-servers/gemini-collab/.env"
+            return path == "/home/user/.claude-mcp-servers/council/.env"
 
         mock_exists.side_effect = exists_side_effect
 
@@ -550,7 +550,7 @@ class TestMainFunction:
         mock_server_class.return_value = mock_server_instance
 
         # Mock expanduser to return a test path
-        mock_expanduser.return_value = "/test/home/.claude-mcp-servers/gemini-collab/logs"
+        mock_expanduser.return_value = "/test/home/.claude-mcp-servers/council/logs"
 
         # Mock file handler instance
         mock_file_handler_instance = MagicMock()
@@ -564,15 +564,14 @@ class TestMainFunction:
 
         # Verify log directory was created
         mock_makedirs.assert_called_once_with(
-            "/test/home/.claude-mcp-servers/gemini-collab/logs", exist_ok=True
+            "/test/home/.claude-mcp-servers/council/logs", exist_ok=True
         )
 
         # Verify RotatingFileHandler was created with correct parameters
         mock_file_handler.assert_called_once()
         call_args = mock_file_handler.call_args
         assert (
-            call_args[0][0]
-            == "/test/home/.claude-mcp-servers/gemini-collab/logs/council-mcp-server.log"
+            call_args[0][0] == "/test/home/.claude-mcp-servers/council/logs/council-mcp-server.log"
         )
         assert call_args[1]["mode"] == "a"
         assert call_args[1]["encoding"] == "utf-8"
