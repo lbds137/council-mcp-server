@@ -19,12 +19,10 @@ fi
 echo "   Source: $PROJECT_ROOT/server.py"
 echo "   Target: $MCP_DIR"
 
-# Check if bundled server exists, if not create it
-if [ ! -f "$PROJECT_ROOT/server.py" ]; then
-    echo "🔨 Bundled server not found, creating from modular source..."
-    cd "$PROJECT_ROOT"
-    python3 scripts/bundler.py
-fi
+# Always rebuild from modular source to ensure latest code
+echo "🔨 Building server from modular source..."
+cd "$PROJECT_ROOT"
+python3 scripts/bundler.py
 
 # Create MCP directory if needed
 if [ ! -d "$MCP_DIR" ]; then
