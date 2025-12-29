@@ -437,6 +437,7 @@ def _apply_tool_registry_override():
         seen_code = False
         in_module_docstring = False
         docstring_delimiter = None
+        in_multiline_import = False  # Track multi-line imports
 
         for i, line in enumerate(lines):
             stripped = line.strip()
@@ -469,16 +470,27 @@ def _apply_tool_registry_override():
                     docstring_delimiter = None
                 continue
 
-            # Skip imports
-            if stripped.startswith("from .") or stripped.startswith("from .."):
+            # Handle multi-line imports we're skipping
+            if in_multiline_import:
+                # Check if this line ends the multi-line import
+                if ")" in stripped:
+                    in_multiline_import = False
                 continue
-            if "from council" in line or "from src.council" in line:
+
+            # Skip imports - check for multi-line imports
+            is_relative_import = stripped.startswith("from .") or stripped.startswith("from ..")
+            is_council_import = "from council" in line or "from src.council" in line
+            is_gemini_import = "from gemini_mcp" in line or "from src.gemini_mcp" in line
+
+            if is_relative_import or is_council_import or is_gemini_import:
+                # Check if this is a multi-line import (has opening paren but no closing)
+                if "(" in stripped and ")" not in stripped:
+                    in_multiline_import = True
                 continue
+
             if stripped.startswith("import council") or stripped.startswith("import src.council"):
                 continue
             # Skip old gemini_mcp imports
-            if "from gemini_mcp" in line or "from src.gemini_mcp" in line:
-                continue
             if stripped.startswith("import gemini_mcp") or stripped.startswith(
                 "import src.gemini_mcp"
             ):
