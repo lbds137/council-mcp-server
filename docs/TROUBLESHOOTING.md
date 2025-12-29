@@ -17,12 +17,12 @@ When the `.env` file fails to load properly (e.g., during initial setup or if th
    ```
 
 2. **Ensure .env is loaded**: The server looks for `.env` in these locations:
-   - First: `~/.claude-mcp-servers/gemini-collab/.env` (MCP installation directory)
+   - First: `~/.claude-mcp-servers/council/.env` (MCP installation directory)
    - Fallback: Current working directory
 
 3. **Verify configuration**: Use the `server_info` tool to check which models are actually loaded:
    ```
-   mcp__gemini-collab__server_info
+   mcp__council__server_info
    ```
 
 ### Prevention
@@ -37,8 +37,8 @@ When the `.env` file fails to load properly (e.g., during initial setup or if th
 
 **Solutions**:
 1. Ensure `.env` file exists in the correct location
-2. Check file permissions: `chmod 644 ~/.claude-mcp-servers/gemini-collab/.env`
-3. Verify the key format in `.env`: `GEMINI_API_KEY="your-key-here"`
+2. Check file permissions: `chmod 644 ~/.claude-mcp-servers/council/.env`
+3. Verify the key format in `.env`: `OPENROUTER_API_KEY="your-key-here"`
 4. Restart Claude Desktop after updating `.env`
 
 ### Model Initialization Failures
@@ -79,12 +79,12 @@ When the `.env` file fails to load properly (e.g., during initial setup or if th
 
 1. **Enable debug logging**:
    ```bash
-   echo "GEMINI_DEBUG=1" >> ~/.claude-mcp-servers/gemini-collab/.env
+   echo "COUNCIL_DEBUG=1" >> ~/.claude-mcp-servers/council/.env
    ```
 
 2. **Check logs**:
    ```bash
-   tail -f ~/.claude-mcp-servers/gemini-collab/logs/gemini-mcp-server.log
+   tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
    ```
 
 3. **Verify environment**:
@@ -94,7 +94,7 @@ When the `.env` file fails to load properly (e.g., during initial setup or if th
 
 4. **Test with simple request**:
    ```
-   mcp__gemini-collab__ask_gemini
+   mcp__council__ask
    # Question: "What model are you?"
    ```
    The response footer shows which model actually responded.

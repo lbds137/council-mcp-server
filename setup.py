@@ -1,4 +1,4 @@
-"""Setup configuration for Gemini MCP Server"""
+"""Setup configuration for Council MCP Server"""
 
 from setuptools import find_packages, setup
 
@@ -6,14 +6,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="gemini-mcp-server",
-    version="3.0.0",
+    name="council-mcp-server",
+    version="4.0.0",
     author="lbds137",
     author_email="",
-    description="MCP server for Claude-Gemini collaboration",
+    description="MCP server for multi-model AI collaboration via OpenRouter",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/lbds137/gemini-mcp-server",
+    url="https://github.com/lbds137/council-mcp-server",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[
@@ -48,7 +48,6 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "gemini-mcp-server=gemini_mcp.main:main",
             "council-mcp-server=council.main:main",
         ],
     },

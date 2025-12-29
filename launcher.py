@@ -19,8 +19,8 @@ VENV_PATHS = [
     os.path.join(LAUNCHER_DIR, ".venv", "lib", "python3.13", "site-packages"),
     os.path.join(LAUNCHER_DIR, ".venv", "lib", "python3.12", "site-packages"),
     os.path.join(LAUNCHER_DIR, ".venv", "lib", "python3.11", "site-packages"),
-    # Hardcoded fallback for gemini-mcp-server project
-    "/home/deck/PycharmProjects/gemini-mcp-server/.venv/lib/python3.13/site-packages",
+    # Hardcoded fallback for council-mcp-server project
+    "/home/deck/PycharmProjects/council-mcp-server/.venv/lib/python3.13/site-packages",
 ]
 
 # Add the first existing venv path to sys.path

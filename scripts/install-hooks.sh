@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Install git hooks for council-mcp (gemini-mcp-server)
+# Install git hooks for council-mcp-server
 #
 # Usage: ./scripts/install-hooks.sh
 #

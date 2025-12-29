@@ -22,8 +22,8 @@ A Model Context Protocol (MCP) server that enables Claude to collaborate with mu
 
 ```bash
 # Clone the repository
-git clone https://github.com/lbds137/gemini-mcp-server.git
-cd gemini-mcp-server
+git clone https://github.com/lbds137/council-mcp-server.git
+cd council-mcp-server
 
 # Install dependencies
 pip install -r requirements.txt
@@ -123,7 +123,7 @@ COUNCIL_DEFAULT_MODEL=meta-llama/llama-3.3-70b-instruct:free
 
 ### Project Structure
 ```
-gemini-mcp-server/
+council-mcp-server/
 ├── src/council/           # Main source code
 │   ├── main.py           # CouncilMCPServer entry point
 │   ├── manager.py        # ModelManager (OpenRouter)

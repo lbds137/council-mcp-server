@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Pre-push hook for council-mcp (gemini-mcp-server)
+# Pre-push hook for council-mcp-server
 # Runs comprehensive checks before allowing push to remote
 #
 # Install with: ./scripts/install-hooks.sh

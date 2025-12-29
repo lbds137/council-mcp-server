@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Gemini MCP Server will be documented in this file.
+All notable changes to the Council MCP Server will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -60,6 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Environment variable configuration
 - Comprehensive test suite
 
-[Unreleased]: https://github.com/lbds137/gemini-mcp-server/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/lbds137/gemini-mcp-server/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/lbds137/gemini-mcp-server/releases/tag/v1.0.0
+[Unreleased]: https://github.com/lbds137/council-mcp-server/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/lbds137/council-mcp-server/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/lbds137/council-mcp-server/releases/tag/v1.0.0

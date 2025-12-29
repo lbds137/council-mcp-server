@@ -1,13 +1,13 @@
 # Development Guide
 
-This guide covers the development setup and workflow for the Gemini MCP Server project.
+This guide covers the development setup and workflow for the Council MCP Server project.
 
 ## Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/lbds137/gemini-mcp-server.git
-cd gemini-mcp-server
+git clone https://github.com/lbds137/council-mcp-server.git
+cd council-mcp-server
 
 # Create virtual environment
 python -m venv venv
@@ -149,7 +149,7 @@ GitHub Actions runs on all pushes and pull requests:
 2. **Make changes and test**
    ```bash
    # Make your changes
-   vim src/gemini_mcp/server.py
+   vim src/council/main.py
 
    # Run tests
    make test
@@ -216,7 +216,7 @@ GitHub Actions runs on all pushes and pull requests:
 
 2. **Test MCP server directly**:
    ```bash
-   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python src/gemini_mcp/server.py
+   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python -m council.main
    ```
 
 3. **Check pre-commit issues**:
@@ -227,7 +227,7 @@ GitHub Actions runs on all pushes and pull requests:
 ### Release Process
 
 1. **Update version** in:
-   - `src/gemini_mcp/server.py`
+   - `src/council/main.py`
    - `setup.py`
    - `CHANGELOG.md`
 

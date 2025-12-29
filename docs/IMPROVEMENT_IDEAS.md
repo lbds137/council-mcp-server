@@ -1,4 +1,4 @@
-# Gemini MCP Server - Improvement Ideas
+# Council MCP Server - Improvement Ideas
 
 This document captures improvement ideas from AI brainstorming sessions to guide future development.
 
@@ -335,7 +335,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gemini-mcp-server"
+name = "council-mcp-server"
 version = "3.0.0"
 dependencies = [
     "pydantic>=2.0",
@@ -363,7 +363,7 @@ COPY pyproject.toml .
 RUN pip install -e .
 
 COPY src/ src/
-CMD ["python", "-m", "gemini_mcp.main"]
+CMD ["python", "-m", "council.main"]
 ```
 
 ## 7. Practical Implementation Roadmap (Gemini's Recommendations)
