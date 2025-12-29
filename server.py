@@ -2846,6 +2846,14 @@ class ListModelsTool(MCPTool):
                     result="No models found matching the criteria.",
                 )
 
+            # Import model registry for enhanced metadata
+            has_registry = False
+            try:
+
+                has_registry = True
+            except ImportError:
+                pass
+
             result_lines = [f"📋 Found {len(filtered)} models:\n"]
 
             for model in filtered:
@@ -2860,6 +2868,13 @@ class ListModelsTool(MCPTool):
 
                 # Build model line
                 line = f"• {model.id}"
+
+                # Add model class from registry if available
+                if has_registry:
+                    metadata = get_model_metadata(model.id)
+                    if metadata:
+                        line += f" [{metadata.model_class.value.upper()}]"
+
                 if model.is_free:
                     line += " [FREE]"
                 line += f" - {ctx_str} context"
@@ -2870,10 +2885,176 @@ class ListModelsTool(MCPTool):
 
                 result_lines.append(line)
 
+            # Add legend
+            result_lines.extend(
+                [
+                    "",
+                    "Legend: [FLASH] Fast/cheap | [PRO] Balanced | [DEEP] Max quality",
+                    "Use `recommend_model` for task-specific guidance.",
+                ]
+            )
+
             return ToolOutput(success=True, result="\n".join(result_lines))
 
         except Exception as e:
             logger.error(f"Error listing models: {e}")
+            return ToolOutput(success=False, error=f"Error: {str(e)}")
+
+
+# ========== Tool for recommending models based on task type. ==========
+
+
+from typing import Any, Dict
+
+
+class RecommendModelTool(MCPTool):
+    """Tool for recommending the best model for a specific task."""
+
+    @property
+    def name(self) -> str:
+        return "recommend_model"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Recommend the best AI model for a specific task. "
+            "Provides curated recommendations based on benchmarks and usage data. "
+            "Task types: coding, code_review, reasoning, creative, vision, long_context, general."
+        )
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "Type of task: 'coding', 'code_review', 'reasoning', "
+                        "'creative', 'vision', 'long_context', or 'general'"
+                    ),
+                    "enum": [
+                        "coding",
+                        "code_review",
+                        "reasoning",
+                        "creative",
+                        "vision",
+                        "long_context",
+                        "general",
+                    ],
+                },
+                "prefer_free": {
+                    "type": "boolean",
+                    "description": "Prefer free tier models if available",
+                    "default": False,
+                },
+                "prefer_fast": {
+                    "type": "boolean",
+                    "description": "Prefer faster (flash-class) models over quality",
+                    "default": False,
+                },
+                "min_context": {
+                    "type": "integer",
+                    "description": "Minimum context length needed (in tokens)",
+                },
+            },
+            "required": ["task"],
+        }
+
+    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+        """Execute the tool."""
+        try:
+
+            task_str = parameters.get("task", "general")
+            prefer_free = parameters.get("prefer_free", False)
+            # TODO: Implement prefer_fast and min_context filtering
+            _ = parameters.get("prefer_fast", False)
+            _ = parameters.get("min_context")
+
+            # Parse task type
+            try:
+                task = TaskType(task_str)
+            except ValueError:
+                task = TaskType.GENERAL
+
+            # Get recommendations
+            recommendations = get_recommendations_for_task(task, limit=5)
+
+            # Build response
+            result_lines = [
+                f"🎯 **Model Recommendations for {task.value.replace('_', ' ').title()}**",
+                "",
+            ]
+
+            # If prefer_free, show free options first
+            if prefer_free:
+                result_lines.append("### Free Tier Options")
+                for model_id in FREE_TIER_MODELS:
+                    result_lines.append(f"• {model_id}")
+                result_lines.append("")
+
+            # Main recommendations
+            result_lines.append("### Top Recommendations")
+
+            for i, model_id in enumerate(recommendations, 1):
+                metadata = get_model_metadata(model_id)
+                if metadata:
+                    # Get strength for this task
+                    strength = metadata.strengths.get(task, "B")
+
+                    # Build model line
+                    model_name = model_id.split("/")[1]
+                    class_badge = f"[{metadata.model_class.value.upper()}]"
+
+                    line = f"{i}. **{model_name}** {class_badge} (Rating: {strength})"
+                    if metadata.description:
+                        line += f"\n   _{metadata.description}_"
+                    result_lines.append(line)
+                else:
+                    # Fallback for models not in registry
+                    result_lines.append(f"{i}. {model_id}")
+
+            # Add class guide
+            result_lines.extend(
+                [
+                    "",
+                    "### Model Classes",
+                    f"• **Flash**: {get_model_class_description(ModelClass.FLASH)}",
+                    f"• **Pro**: {get_model_class_description(ModelClass.PRO)}",
+                    f"• **Deep**: {get_model_class_description(ModelClass.DEEP)}",
+                    "",
+                    "### Rating Scale",
+                    "S = Best in class | A = Excellent | B = Good | C = Adequate",
+                ]
+            )
+
+            # Add notes for specific tasks
+            task_notes = {
+                TaskType.CODING: (
+                    "\n💡 **Tip**: Claude Sonnet 4 leads SWE-bench (77-82%). "
+                    "For web dev, Gemini 2.5 Pro leads WebDev Arena."
+                ),
+                TaskType.REASONING: (
+                    "\n💡 **Tip**: DeepSeek R1 uses reinforcement learning for "
+                    "step-by-step reasoning. Gemini 3 Pro scores 86.4 on GPQA."
+                ),
+                TaskType.VISION: (
+                    "\n💡 **Tip**: Gemini Flash handles 50%+ of vision workloads on OpenRouter. "
+                    "Great balance of speed and quality for image tasks."
+                ),
+                TaskType.LONG_CONTEXT: (
+                    "\n💡 **Tip**: Gemini models support up to 1M tokens. "
+                    "Llama 4 Scout handles up to 10M tokens for extreme cases."
+                ),
+            }
+
+            if task in task_notes:
+                result_lines.append(task_notes[task])
+
+            return ToolOutput(success=True, result="\n".join(result_lines))
+
+        except Exception as e:
+            logger.error(f"Error recommending model: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
 
@@ -2950,7 +3131,11 @@ class ServerInfoTool(MCPTool):
                 if server.orchestrator:
                     info["execution_stats"] = server.orchestrator.get_execution_stats()
 
-            result = f"Council MCP Server v{__version__}\n\n{json.dumps(info, indent=2)}"
+            # Add quick reference guide
+            quick_guide = self._get_quick_guide()
+
+            json_info = json.dumps(info, indent=2)
+            result = f"Council MCP Server v{__version__}\n\n{json_info}\n\n{quick_guide}"
             return ToolOutput(success=True, result=result)
 
         except Exception as e:
@@ -2984,6 +3169,30 @@ class ServerInfoTool(MCPTool):
             pass
 
         return info
+
+    def _get_quick_guide(self) -> str:
+        """Generate a quick model selection guide."""
+        return """## Quick Model Selection Guide
+
+**By Task Type:**
+• Coding/Code Review → Claude Sonnet 4, Claude 3.5 Sonnet
+• Reasoning/Math → DeepSeek R1, Gemini 3 Pro
+• Vision/Images → Gemini 2.5 Flash, Gemini 2.5 Pro
+• Web Development → Gemini 2.5 Pro (leads WebDev Arena)
+• Long Documents → Gemini (1M tokens), Llama 4 Scout (10M)
+• General/Creative → Claude 3.5 Sonnet, GPT-4o
+
+**Model Classes:**
+• FLASH: Fast & cheap (Haiku, GPT-4o-mini, Gemini Flash)
+• PRO: Balanced quality/cost (Sonnet, GPT-4o, Gemini Pro)
+• DEEP: Maximum quality (Opus, o1, DeepSeek R1)
+
+**Free Tier Options:**
+• meta-llama/llama-3.3-70b-instruct:free
+• deepseek/deepseek-chat:free
+• qwen/qwen-2.5-72b-instruct:free
+
+💡 Use `recommend_model` tool for detailed task-specific recommendations."""
 
 
 # ========== Tool for setting the active LLM model. ==========
@@ -3290,6 +3499,7 @@ BUNDLED_TOOL_CLASSES = [
     CodeReviewTool,
     ExplainTool,
     ListModelsTool,
+    RecommendModelTool,
     ServerInfoTool,
     SetModelTool,
     SynthesizeTool,
