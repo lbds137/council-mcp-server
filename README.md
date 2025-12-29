@@ -1,22 +1,22 @@
-# Gemini MCP Server
+# Council MCP Server
 
-A Model Context Protocol (MCP) server that enables Claude to collaborate with Google's Gemini AI models.
+A Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. Access 100+ models from Google, Anthropic, OpenAI, Meta, Mistral, and more.
 
 ## Features
 
-- 🤖 **Multiple Gemini Tools**: Ask questions, review code, brainstorm ideas, generate tests, and get explanations
-- 🔄 **Dual-Model Support**: Automatic fallback from experimental to stable models
-- ⚡ **Configurable Models**: Easy switching between different Gemini variants
-- 🛡️ **Reliable**: Never lose functionality with automatic model fallback
-- 📊 **Transparent**: Shows which model was used for each response
+- **Multi-Model Support**: Access 100+ models via OpenRouter (Gemini, GPT, Claude, Llama, Mistral, etc.)
+- **Dynamic Model Discovery**: List and filter available models by provider, capability, or pricing
+- **Per-Request Model Override**: Use different models for different tasks
+- **Multiple Collaboration Tools**: Code review, brainstorming, test generation, explanations
+- **Response Caching**: Automatic caching for repeated queries
 
 ## Quick Start
 
 ### 1. Prerequisites
 
 - Python 3.9+
-- [Claude Desktop](https://claude.ai/download)
-- [Google AI API Key](https://makersuite.google.com/app/apikey)
+- [Claude Desktop](https://claude.ai/download) or [Claude Code](https://claude.ai/code)
+- [OpenRouter API Key](https://openrouter.ai/keys)
 
 ### 2. Installation
 
@@ -30,87 +30,93 @@ pip install -r requirements.txt
 
 # Copy and configure environment
 cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY
+# Edit .env and add your OPENROUTER_API_KEY
 ```
 
 ### 3. Configuration
 
-Edit `.env` to configure your models:
+Edit `.env` to configure:
 
 ```bash
-# Your Gemini API key (required)
-GEMINI_API_KEY=your_api_key_here
+# Your OpenRouter API key (required)
+OPENROUTER_API_KEY=sk-or-...
 
 # Model configuration (optional - defaults shown)
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro
-GEMINI_MODEL_FALLBACK=gemini-1.5-pro
-GEMINI_MODEL_TIMEOUT=10000
+COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview
+COUNCIL_CACHE_TTL=3600
+COUNCIL_TIMEOUT=600000
 ```
 
-### 4. Development Setup
-
-For development with PyCharm or other IDEs:
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install in development mode
-pip install -e .
-
-# Run tests
-python -m pytest
-```
-
-### 5. Register with Claude
+### 4. Register with Claude
 
 ```bash
 # Install to MCP location
 ./scripts/install.sh
 
 # Or manually register
-claude mcp add gemini-collab python3 ~/.claude-mcp-servers/gemini-collab/server.py
+claude mcp add council python3 ~/.claude-mcp-servers/council/launcher.py
 ```
 
 ## Available Tools
 
-### `ask_gemini`
-General questions and problem-solving assistance.
+### Core Tools
 
-### `gemini_code_review`
-Get code review feedback focusing on security, performance, and best practices.
+| Tool | Description |
+|------|-------------|
+| `ask` | General questions and problem-solving assistance |
+| `code_review` | Code review feedback (security, performance, best practices) |
+| `brainstorm` | Collaborative brainstorming for architecture and design |
+| `test_cases` | Generate comprehensive test scenarios |
+| `explain` | Clear explanations of complex code or concepts |
+| `synthesize_perspectives` | Combine multiple viewpoints into a coherent summary |
 
-### `gemini_brainstorm`
-Collaborative brainstorming for architecture and design decisions.
+### Model Management
 
-### `gemini_test_cases`
-Generate comprehensive test scenarios for your code.
+| Tool | Description |
+|------|-------------|
+| `server_info` | Check server status and current model |
+| `list_models` | List available models with filtering |
+| `set_model` | Change the active model for subsequent requests |
 
-### `gemini_explain`
-Get clear explanations of complex code or concepts.
+### Model Override
 
-### `server_info`
-Check server status and model configuration.
+All tools support an optional `model` parameter to use a specific model:
 
-## Model Configurations
+```python
+# Use Claude for code review
+mcp__council__code_review(
+    code="def hello(): print('world')",
+    focus="security",
+    model="anthropic/claude-3-opus"
+)
 
-### Best Quality (Default)
-```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-pro
-GEMINI_MODEL_FALLBACK=gemini-2.5-flash
+# Use GPT-4 for brainstorming
+mcp__council__brainstorm(
+    topic="API design patterns",
+    model="openai/gpt-4-turbo"
+)
 ```
 
-### Best Performance
+## Popular Model Configurations
+
+### Google Gemini (Default)
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.5-flash
-GEMINI_MODEL_FALLBACK=gemini-2.0-flash
+COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview
 ```
 
-### Most Cost-Effective
+### Anthropic Claude
 ```bash
-GEMINI_MODEL_PRIMARY=gemini-2.0-flash
-GEMINI_MODEL_FALLBACK=gemini-2.0-flash-lite
+COUNCIL_DEFAULT_MODEL=anthropic/claude-3.5-sonnet
+```
+
+### OpenAI GPT-4
+```bash
+COUNCIL_DEFAULT_MODEL=openai/gpt-4-turbo
+```
+
+### Meta Llama (Free)
+```bash
+COUNCIL_DEFAULT_MODEL=meta-llama/llama-3.3-70b-instruct:free
 ```
 
 ## Development
@@ -118,49 +124,43 @@ GEMINI_MODEL_FALLBACK=gemini-2.0-flash-lite
 ### Project Structure
 ```
 gemini-mcp-server/
-├── src/
-│   └── gemini_mcp/
-│       ├── __init__.py
-│       └── server.py      # Main server with DualModelManager
-├── tests/
-│   └── test_server.py
-├── scripts/
-│   ├── install.sh       # Quick installation script
-│   ├── install.sh       # Install/update deployment script
-│   └── dev-link.sh      # Development symlink script
-├── docs/
-│   └── BUILD_YOUR_OWN_MCP_SERVER.md
-├── .claude/
-│   └── settings.json    # Claude Code permissions
-├── .env                 # Your configuration (git-ignored)
-├── .env.example         # Example configuration
-├── .gitignore
-├── CLAUDE.md           # Instructions for Claude Code
-├── LICENSE
-├── README.md           # This file
-├── docs/
-│   ├── BUILD_YOUR_OWN_MCP_SERVER.md
-│   ├── DUAL_MODEL_CONFIGURATION.md # Dual-model setup guide
-│   ├── PYCHARM_SETUP.md
-│   └── TESTING.md
-├── requirements.txt
-├── setup.py
-├── package.json        # MCP registration metadata
-└── package-lock.json
+├── src/council/           # Main source code
+│   ├── main.py           # CouncilMCPServer entry point
+│   ├── manager.py        # ModelManager (OpenRouter)
+│   ├── providers/        # LLM provider implementations
+│   ├── discovery/        # Model discovery and filtering
+│   ├── tools/            # MCP tool implementations
+│   ├── core/             # Registry and orchestrator
+│   └── services/         # Cache and memory
+├── tests/                # Test suite
+├── scripts/              # Installation scripts
+├── server.py             # Bundled single-file server
+├── launcher.py           # Launcher with venv support
+├── CLAUDE.md            # Claude Code instructions
+└── README.md            # This file
 ```
 
 ### Running Tests
 ```bash
-python -m pytest tests/ -v
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests
+pytest tests/ -v
 ```
 
-### Contributing
+### Building the Bundle
+```bash
+# Generate single-file server.py
+python scripts/bundler.py
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+# Deploy to MCP location
+./scripts/install.sh
+```
 
 ## Updating
 
@@ -170,7 +170,7 @@ To update your local MCP installation after making changes:
 ./scripts/install.sh
 ```
 
-This script intelligently handles both installation and updates.
+Then restart Claude Desktop/Code.
 
 ## Troubleshooting
 
@@ -186,14 +186,24 @@ claude mcp list
 ### API Key Issues
 ```bash
 # Verify environment variable
-echo $GEMINI_API_KEY
+echo $OPENROUTER_API_KEY
 
-# Test directly
-python -c "import google.generativeai as genai; genai.configure(api_key='$GEMINI_API_KEY'); print('✅ API key works')"
+# Test with list_models tool
+mcp__council__list_models(limit=5)
 ```
 
-### Model Availability
-Some models may not be available in all regions. Check the fallback model in logs if primary fails consistently.
+### Model Not Available
+Use `list_models` to find available models:
+```python
+mcp__council__list_models(provider="google")
+```
+
+## Version History
+
+- **v4.0.0**: Council - Multi-model support via OpenRouter
+- **v3.0.0**: Modular architecture with bundler
+- **v2.0.0**: Dual-model support with fallback
+- **v1.0.0**: Initial Gemini integration
 
 ## License
 
@@ -202,4 +212,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## Acknowledgments
 
 - Built for [Claude](https://claude.ai) using the Model Context Protocol
-- Powered by [Google's Gemini AI](https://deepmind.google/technologies/gemini/)
+- Powered by [OpenRouter](https://openrouter.ai/) for multi-model access
