@@ -268,7 +268,7 @@ class ConversationOrchestrator:
         bundle = bundler.create_bundle()
 
         # Check bundle contains expected sections
-        assert "Gemini MCP Server - Single File Bundle" in bundle
+        assert "Council MCP Server - Single File Bundle" in bundle
         assert "import asyncio" in bundle
         assert "class MCPTool" in bundle
         assert "class SampleTool" in bundle
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         # Should still create bundle, skipping the problematic file
         bundle = bundler.create_bundle()
 
-        assert "Gemini MCP Server - Single File Bundle" in bundle
+        assert "Council MCP Server - Single File Bundle" in bundle
         assert "class SampleTool" in bundle  # Other files should still be processed
 
         # Restore permissions

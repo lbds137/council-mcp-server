@@ -1,18 +1,18 @@
 #!/bin/bash
-# Smart install/update script for Gemini MCP Server v3
+# Smart install/update script for Council MCP Server v4
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-MCP_DIR="$HOME/.claude-mcp-servers/gemini-collab"
+MCP_DIR="$HOME/.claude-mcp-servers/council"
 
 # Determine if this is first install or update
 if [ -d "$MCP_DIR" ]; then
-    echo "🔄 Updating Gemini MCP Server v3"
+    echo "🔄 Updating Council MCP Server v4"
     IS_UPDATE=true
 else
-    echo "🚀 Installing Gemini MCP Server v3"
+    echo "🚀 Installing Council MCP Server v4"
     IS_UPDATE=false
 fi
 
@@ -57,7 +57,7 @@ cp "$PROJECT_ROOT/requirements.txt" "$MCP_DIR/"
 if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
     echo "📝 Creating .env file from template..."
     cp "$PROJECT_ROOT/.env.example" "$MCP_DIR/.env"
-    echo "   ⚠️  Remember to add your GEMINI_API_KEY to $MCP_DIR/.env"
+    echo "   ⚠️  Remember to add your OPENROUTER_API_KEY to $MCP_DIR/.env"
 fi
 
 echo ""
@@ -70,11 +70,18 @@ if [ "$IS_UPDATE" = true ]; then
 else
     echo "✅ Installation complete!"
     echo ""
-    echo "🎉 Gemini MCP Server v3 is ready to use!"
+    echo "🎉 Council MCP Server v4 is ready to use!"
 fi
 
 echo ""
 echo "📋 Next steps:"
-echo "   1. Ensure GEMINI_API_KEY is set in $MCP_DIR/.env"
-echo "   2. Restart Claude Desktop"
-echo "   3. Test with: mcp__gemini-collab__server_info"
+echo "   1. Ensure OPENROUTER_API_KEY is set in $MCP_DIR/.env"
+echo "   2. Update Claude Desktop config to point to council server"
+echo "   3. Restart Claude Desktop"
+echo "   4. Test with: mcp__council__server_info"
+echo ""
+echo "📝 Claude Desktop config example:"
+echo "   \"council\": {"
+echo "     \"command\": \"python3\","
+echo "     \"args\": [\"$MCP_DIR/server.py\"]"
+echo "   }"

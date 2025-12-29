@@ -12,7 +12,7 @@ from typing import IO, Any, Dict, Optional, Union
 from .core.orchestrator import ConversationOrchestrator
 from .core.registry import ToolRegistry
 from .json_rpc import JsonRpcServer, create_result_response
-from .models.manager import DualModelManager
+from .manager import ModelManager
 from .services.cache import ResponseCache
 from .services.memory import ConversationMemory
 
@@ -38,10 +38,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 
-class GeminiMCPServer:
+class CouncilMCPServer:
     """Main MCP Server that integrates all modular components."""
 
     def __init__(self):
@@ -49,14 +49,14 @@ class GeminiMCPServer:
         # Load environment variables at startup
         self._load_env_file()
 
-        self.model_manager: Optional[DualModelManager] = None
+        self.model_manager: Optional[ModelManager] = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
         self.memory = ConversationMemory(max_turns=50, max_entries=100)
         self.orchestrator: Optional[ConversationOrchestrator] = None
 
         # Create JSON-RPC server
-        self.server = JsonRpcServer("gemini-mcp-server")
+        self.server = JsonRpcServer("council-mcp-server")
         self._setup_handlers()
 
         # Make server instance available globally for tools
@@ -120,9 +120,9 @@ class GeminiMCPServer:
                                     ):
                                         value = value[1:-1]
                                     os.environ[key] = value
-                                    if key == "GEMINI_API_KEY":
+                                    if key == "OPENROUTER_API_KEY":
                                         logger.info(
-                                            f"Set GEMINI_API_KEY from .env file "
+                                            f"Set OPENROUTER_API_KEY from .env file "
                                             f"(length: {len(value)})"
                                         )
                         break
@@ -131,20 +131,24 @@ class GeminiMCPServer:
 
     def _initialize_model_manager(self) -> bool:
         """Initialize the model manager with API key."""
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            logger.error("No GEMINI_API_KEY found in environment. Please check your .env file.")
-            # Log all env vars starting with GEMINI for debugging
-            gemini_vars = {k: v for k, v in os.environ.items() if k.startswith("GEMINI")}
-            if gemini_vars:
-                logger.info(f"Found GEMINI env vars: {list(gemini_vars.keys())}")
+            logger.error("No OPENROUTER_API_KEY found in environment. Please check your .env file.")
+            # Log all env vars starting with OPENROUTER or COUNCIL for debugging
+            relevant_vars = {
+                k: v
+                for k, v in os.environ.items()
+                if k.startswith("OPENROUTER") or k.startswith("COUNCIL")
+            }
+            if relevant_vars:
+                logger.info(f"Found relevant env vars: {list(relevant_vars.keys())}")
             else:
-                logger.warning("No GEMINI environment variables found at all")
+                logger.warning("No OPENROUTER or COUNCIL environment variables found at all")
             return False
 
         try:
-            logger.info(f"Initializing DualModelManager with API key (length: {len(api_key)})")
-            self.model_manager = DualModelManager(api_key)
+            logger.info(f"Initializing ModelManager with API key (length: {len(api_key)})")
+            self.model_manager = ModelManager(api_key)
 
             # Create orchestrator with all components
             logger.info("Creating conversation orchestrator...")
@@ -174,11 +178,11 @@ class GeminiMCPServer:
         self._load_env_file()
 
         # Log the API key status
-        api_key = os.environ.get("GEMINI_API_KEY")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
         if api_key:
-            logger.info(f"GEMINI_API_KEY found (length: {len(api_key)})")
+            logger.info(f"OPENROUTER_API_KEY found (length: {len(api_key)})")
         else:
-            logger.warning("GEMINI_API_KEY not found in environment")
+            logger.warning("OPENROUTER_API_KEY not found in environment")
 
         # Discover and register all tools FIRST
         self.tool_registry.discover_tools()
@@ -192,7 +196,7 @@ class GeminiMCPServer:
             {
                 "protocolVersion": "2024-11-05",
                 "serverInfo": {
-                    "name": "gemini-mcp-server",
+                    "name": "council-mcp-server",
                     "version": __version__,
                     "modelsAvailable": model_initialized,
                 },
@@ -229,14 +233,14 @@ class GeminiMCPServer:
         if not tool_name:
             return create_result_response(
                 request_id,
-                {"content": [{"type": "text", "text": "❌ Error: Tool name is required"}]},
+                {"content": [{"type": "text", "text": "Error: Tool name is required"}]},
             )
 
         # Check if models are initialized
         if not self.orchestrator:
             result = (
-                "❌ Gemini models not initialized. "
-                "Please set GEMINI_API_KEY environment variable."
+                "Error: Models not initialized. "
+                "Please set OPENROUTER_API_KEY environment variable."
             )
             return create_result_response(
                 request_id, {"content": [{"type": "text", "text": result}]}
@@ -264,7 +268,7 @@ class GeminiMCPServer:
                 if output.success:
                     result = output.result or ""
                 else:
-                    result = f"❌ Error: {output.error or 'Unknown error'}"
+                    result = f"Error: {output.error or 'Unknown error'}"
 
             finally:
                 # Clean up loop if we created it
@@ -273,7 +277,7 @@ class GeminiMCPServer:
 
         except Exception as e:
             logger.error(f"Error executing tool {tool_name}: {e}")
-            result = f"❌ Error executing tool: {str(e)}"
+            result = f"Error executing tool: {str(e)}"
 
         return create_result_response(request_id, {"content": [{"type": "text", "text": result}]})
 
@@ -289,14 +293,18 @@ class GeminiMCPServer:
         self.server.run()
 
 
+# Keep GeminiMCPServer as alias for backwards compatibility
+GeminiMCPServer = CouncilMCPServer
+
+
 def main():
     """Main entry point."""
     # Create logs directory if it doesn't exist
-    log_dir = os.path.expanduser("~/.claude-mcp-servers/gemini-collab/logs")
+    log_dir = os.path.expanduser("~/.claude-mcp-servers/council/logs")
     os.makedirs(log_dir, exist_ok=True)
 
     # Configure logging with both stderr and file output
-    log_file = os.path.join(log_dir, "gemini-mcp-server.log")
+    log_file = os.path.join(log_dir, "council-mcp-server.log")
 
     # Create handlers
     handlers: list[logging.Handler] = [
@@ -311,8 +319,8 @@ def main():
     ]
 
     # Configure logging
-    # Use DEBUG level if GEMINI_DEBUG env var is set, otherwise INFO
-    log_level = logging.DEBUG if os.getenv("GEMINI_DEBUG") else logging.INFO
+    # Use DEBUG level if COUNCIL_DEBUG env var is set, otherwise INFO
+    log_level = logging.DEBUG if os.getenv("COUNCIL_DEBUG") else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -323,7 +331,7 @@ def main():
     logger.info(f"Logging to file: {log_file}")
 
     try:
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         server.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
