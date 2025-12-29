@@ -42,9 +42,7 @@ class Bundler:
             "discovery/model_filter.py",  # Model filtering (new in v4)
             "discovery/model_registry.py",  # Curated model recommendations (new in v4)
             "manager.py",  # New OpenRouter-based ModelManager (v4)
-            "models/base.py",  # Legacy models base (for backwards compat)
-            "models/manager.py",  # Legacy DualModelManager (for backwards compat)
-            "models/memory.py",  # Memory models
+            "models/memory.py",  # Memory models (ConversationTurn, MemoryEntry)
             "services/cache.py",  # Cache service
             "services/memory.py",  # Memory service
             "tools/base.py",  # Tool base class must come before tool implementations
@@ -60,9 +58,7 @@ class Bundler:
             if file_path.exists():
                 self._process_file(file_path, is_tool=False)
             else:
-                # Skip warning for optional legacy files
-                if rel_path not in ["models/base.py", "models/manager.py", "models/memory.py"]:
-                    logger.warning(f"Core component not found: {file_path}")
+                logger.warning(f"Core component not found: {file_path}")
 
         # Then discover and process tools
         tools_dir = SRC_DIR / "tools"

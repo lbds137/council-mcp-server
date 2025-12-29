@@ -38,13 +38,14 @@ class JSONRPCHandler:
         )
 
         (src_dir / "models").mkdir()
-        (src_dir / "models" / "base.py").write_text(
-            '''"""Base models."""
+        (src_dir / "models" / "memory.py").write_text(
+            '''"""Memory models."""
 from dataclasses import dataclass
 
 @dataclass
-class BaseModel:
-    pass
+class ConversationTurn:
+    role: str
+    content: str
 '''
         )
 
@@ -108,7 +109,7 @@ if __name__ == "__main__":
         # Check components were discovered
         component_paths = [comp[0] for comp in bundler.discovered_components]
         assert "json_rpc.py" in component_paths
-        assert "models/base.py" in component_paths
+        assert "models/memory.py" in component_paths
         assert "tools/base.py" in component_paths
         assert "tools/sample.py" in component_paths
         assert "main.py" in component_paths
@@ -328,7 +329,7 @@ if __name__ == "__main__":
         monkeypatch.setattr("bundler.SRC_DIR", mock_src_dir)
 
         # Make one file unreadable
-        bad_file = mock_src_dir / "models" / "base.py"
+        bad_file = mock_src_dir / "models" / "memory.py"
         bad_file.chmod(0o000)
 
         # Should still create bundle, skipping the problematic file

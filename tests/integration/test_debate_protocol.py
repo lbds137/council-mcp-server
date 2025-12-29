@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from council.core.orchestrator import ConversationOrchestrator
-from council.models.base import ToolOutput
 from council.protocols.debate import DebatePosition, DebateProtocol, DebateRound
+from council.tools.base import ToolOutput
 
 
 class TestDebateProtocol:
@@ -30,15 +30,14 @@ class TestDebateProtocol:
                 else:
                     result_text = "Generic response"
 
-                return ToolOutput(tool_name=tool_name, result=result_text, success=True)
+                return ToolOutput(success=True, result=result_text)
             elif tool_name == "synthesize_perspectives":
                 return ToolOutput(
-                    tool_name=tool_name,
-                    result="Synthesis: Both sides have valid points...",
                     success=True,
+                    result="Synthesis: Both sides have valid points...",
                 )
 
-            return ToolOutput(tool_name=tool_name, result="Mock result", success=True)
+            return ToolOutput(success=True, result="Mock result")
 
         orchestrator.execute_tool = AsyncMock(side_effect=mock_execute_tool)
 
@@ -167,11 +166,9 @@ class TestDebateProtocol:
             nonlocal fail_count
             if fail_count == 0 and tool_name == "ask_gemini":
                 fail_count += 1
-                return ToolOutput(
-                    tool_name=tool_name, result=None, success=False, error="Mock failure"
-                )
+                return ToolOutput(success=False, result=None, error="Mock failure")
             # Default successful response
-            return ToolOutput(tool_name=tool_name, result="Mock success", success=True)
+            return ToolOutput(success=True, result="Mock success")
 
         orchestrator.execute_tool = AsyncMock(side_effect=mock_execute_with_failure)
 

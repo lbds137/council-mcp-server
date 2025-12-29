@@ -1,8 +1,18 @@
-"""Test fixtures for the Gemini MCP server tests."""
+"""Test fixtures for the Council MCP server tests."""
 
+from dataclasses import dataclass, field
+from typing import List
 from unittest.mock import Mock
 
-from council.models.base import ToolMetadata
+
+@dataclass
+class ToolMetadata:
+    """Test-only tool metadata."""
+
+    name: str
+    description: str
+    version: str = "1.0.0"
+    tags: List[str] = field(default_factory=list)
 
 
 def create_mock_model_manager():
