@@ -31,6 +31,8 @@ setup(
     install_requires=[
         "google-generativeai>=0.3.0",
         "python-dotenv>=0.19.0",
+        "openai>=1.0.0",
+        "httpx>=0.25.0",
     ],
     extras_require={
         "dev": [
