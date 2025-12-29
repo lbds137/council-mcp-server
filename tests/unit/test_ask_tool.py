@@ -1,20 +1,20 @@
-"""Unit tests for the ask_gemini tool."""
+"""Unit tests for the ask tool."""
 
 import sys
 from unittest.mock import Mock, patch
 
 import pytest
 
-from gemini_mcp.tools.ask_gemini import AskGeminiTool
+from council.tools.ask import AskTool
 
 
-class TestAskGeminiTool:
-    """Test suite for AskGeminiTool."""
+class TestAskTool:
+    """Test suite for AskTool."""
 
     @pytest.fixture
     def tool(self):
-        """Create an AskGeminiTool instance."""
-        return AskGeminiTool()
+        """Create an AskTool instance."""
+        return AskTool()
 
     @pytest.fixture
     def mock_model_manager(self):
@@ -26,7 +26,7 @@ class TestAskGeminiTool:
 
     def test_metadata(self, tool):
         """Test tool metadata."""
-        assert tool.name == "ask_gemini"
+        assert tool.name == "ask"
         assert "general question" in tool.description
 
     def test_input_schema(self, tool):
@@ -43,18 +43,18 @@ class TestAskGeminiTool:
     async def test_execute_with_question_only(self, tool, mock_model_manager, monkeypatch):
         """Test execution with just a question."""
         # Create a mock module with _server_instance instead of model_manager
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
         # Patch sys.modules to make the import work
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {"question": "What is AI?"}
             result = await tool.execute(parameters)
 
             assert result.success is True
-            assert "🤖 Gemini's Response:" in result.result
+            assert "🤖 Response:" in result.result
             assert "Test response" in result.result
 
             # Verify model was called correctly
@@ -66,17 +66,17 @@ class TestAskGeminiTool:
     @pytest.mark.asyncio
     async def test_execute_with_context(self, tool, mock_model_manager):
         """Test execution with question and context."""
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {"question": "What is AI?", "context": "We're discussing machine learning"}
             result = await tool.execute(parameters)
 
             assert result.success is True
-            assert "🤖 Gemini's Response:" in result.result
+            assert "🤖 Response:" in result.result
 
             # Verify prompt includes context
             call_args = mock_model_manager.generate_content.call_args[0][0]
@@ -86,12 +86,12 @@ class TestAskGeminiTool:
     @pytest.mark.asyncio
     async def test_execute_without_question(self, tool, mock_model_manager):
         """Test that execution fails without a question."""
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {}  # No question
             result = await tool.execute(parameters)
 
@@ -102,10 +102,10 @@ class TestAskGeminiTool:
     async def test_execute_without_model_manager(self, tool):
         """Test that execution fails without model manager."""
         # Create mock module without _server_instance
-        mock_gemini_mcp = Mock()
-        mock_gemini_mcp._server_instance = None  # No server instance
+        mock_council = Mock()
+        mock_council._server_instance = None  # No server instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {"question": "Test question"}
             result = await tool.execute(parameters)
 
@@ -113,59 +113,38 @@ class TestAskGeminiTool:
             assert "Model manager not available" in result.error  # Updated expected error
 
     @pytest.mark.asyncio
-    async def test_format_response_with_primary_model(self, tool, mock_model_manager):
-        """Test response formatting when primary model is used."""
-        mock_model_manager.primary_model_name = "primary-model"
-        mock_model_manager.generate_content.return_value = ("Response text", "primary-model")
+    async def test_format_response_includes_model(self, tool, mock_model_manager):
+        """Test response formatting includes model name."""
+        mock_model_manager.generate_content.return_value = ("Response text", "test-model")
 
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {"question": "Test"}
             result = await tool.execute(parameters)
 
             assert result.success is True
-            # Should not include model indicator for primary model
-            assert "[Model:" not in result.result
-            assert "Response text" in result.result
-
-    @pytest.mark.asyncio
-    async def test_format_response_with_fallback_model(self, tool, mock_model_manager):
-        """Test response formatting when fallback model is used."""
-        mock_model_manager.primary_model_name = "primary-model"
-        mock_model_manager.generate_content.return_value = ("Response text", "fallback-model")
-
-        mock_gemini_mcp = Mock()
-        mock_server_instance = Mock()
-        mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
-
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
-            parameters = {"question": "Test"}
-            result = await tool.execute(parameters)
-
-            assert result.success is True
-            # Should include model indicator for fallback model
-            assert "[Model: fallback-model]" in result.result
+            # Council tools always show the model used
+            assert "[Model: test-model]" in result.result
             assert "Response text" in result.result
 
     @pytest.mark.asyncio
     async def test_empty_context_parameter(self, tool, mock_model_manager):
         """Test that empty context parameter is handled correctly."""
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             parameters = {"question": "Test", "context": ""}  # Empty context
             result = await tool.execute(parameters)
 
             assert result.success is True
-            assert "🤖 Gemini's Response:" in result.result
+            assert "🤖 Response:" in result.result
 
             call_args = mock_model_manager.generate_content.call_args[0][0]
             assert call_args == "Question: Test"  # No context prefix

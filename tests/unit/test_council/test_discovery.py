@@ -69,7 +69,7 @@ class TestModelCache:
         """Test get_models fetches when cache is empty."""
         mock_response = Mock()
         mock_response.json.return_value = {
-            "data": [{"id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro"}]
+            "data": [{"id": "google/gemini-3-pro-preview", "name": "Gemini 2.5 Pro"}]
         }
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
@@ -78,7 +78,7 @@ class TestModelCache:
         models = cache.get_models()
 
         assert len(models) == 1
-        assert models[0].id == "google/gemini-2.5-pro"
+        assert models[0].id == "google/gemini-3-pro-preview"
         mock_get.assert_called_once()
 
     @patch("council.discovery.model_cache.httpx.get")
@@ -183,7 +183,7 @@ class TestModelFilter:
         """Create sample models for testing."""
         return [
             ModelInfo(
-                id="google/gemini-2.5-pro",
+                id="google/gemini-3-pro-preview",
                 name="Gemini 2.5 Pro",
                 provider="google",
                 context_length=1000000,
@@ -315,7 +315,7 @@ class TestModelFilter:
         first = filter.first()
 
         assert first is not None
-        assert first.id == "google/gemini-2.5-pro"
+        assert first.id == "google/gemini-3-pro-preview"
 
     def test_first_empty(self):
         """Test first on empty filter."""

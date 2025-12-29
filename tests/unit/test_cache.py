@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from gemini_mcp.services.cache import ResponseCache
+from council.services.cache import ResponseCache
 
 
 class TestResponseCache:

@@ -3,7 +3,7 @@
 from datetime import datetime
 from unittest.mock import patch
 
-from gemini_mcp.services.memory import ConversationMemory
+from council.services.memory import ConversationMemory
 
 
 class TestConversationMemory:
@@ -69,7 +69,7 @@ class TestConversationMemory:
         memory = ConversationMemory(max_entries=3)
 
         # Add entries with controlled timestamps
-        with patch("gemini_mcp.models.memory.datetime") as mock_dt:
+        with patch("council.models.memory.datetime") as mock_dt:
             base_time = datetime(2024, 1, 1, 12, 0, 0)
 
             # Add 4 entries with different timestamps
@@ -134,7 +134,7 @@ class TestConversationMemory:
         assert entry.access_count == 0
 
         # Access it
-        with patch("gemini_mcp.models.memory.datetime") as mock_dt:
+        with patch("council.models.memory.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2024, 1, 1, 13, 0, 0)
             memory.get("test_key")
 

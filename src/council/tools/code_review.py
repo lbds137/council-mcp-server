@@ -13,11 +13,11 @@ class CodeReviewTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_code_review"
+        return "code_review"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to review code for issues, improvements, or best practices"
+        return "Review code for issues, improvements, or best practices"
 
     @property
     def input_schema(self) -> Dict[str, Any]:

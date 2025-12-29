@@ -4,11 +4,11 @@ from typing import Any, Dict
 
 import pytest
 
-from gemini_mcp.core.orchestrator import ConversationOrchestrator
-from gemini_mcp.core.registry import ToolRegistry
-from gemini_mcp.services.cache import ResponseCache
-from gemini_mcp.services.memory import ConversationMemory
-from gemini_mcp.tools.base import MCPTool, ToolOutput
+from council.core.orchestrator import ConversationOrchestrator
+from council.core.registry import ToolRegistry
+from council.services.cache import ResponseCache
+from council.services.memory import ConversationMemory
+from council.tools.base import MCPTool, ToolOutput
 from tests.fixtures import create_mock_model_manager
 
 

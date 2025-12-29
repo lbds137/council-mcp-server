@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gemini_mcp.tools.brainstorm import BrainstormTool
+from council.tools.brainstorm import BrainstormTool
 
 
 @pytest.fixture
@@ -26,12 +26,12 @@ class TestBrainstormTool:
     def test_name(self):
         """Test tool name property."""
         tool = BrainstormTool()
-        assert tool.name == "gemini_brainstorm"
+        assert tool.name == "brainstorm"
 
     def test_description(self):
         """Test tool description property."""
         tool = BrainstormTool()
-        assert tool.description == "Brainstorm ideas or solutions with Gemini"
+        assert tool.description == "Brainstorm ideas or solutions"
 
     def test_input_schema(self):
         """Test input schema property."""
@@ -66,18 +66,18 @@ class TestBrainstormTool:
         )
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             result = await tool.execute({"topic": "AI applications in healthcare"})
 
         assert result.success is True
         assert "💡 Brainstorming Results:" in result.result
         assert "Here are some brainstorming ideas..." in result.result
-        assert "[Model:" not in result.result  # Primary model, no model note
+        assert "[Model: primary-model]" in result.result  # Council always shows model
 
         # Verify prompt was built correctly
         mock_model_manager.generate_content.assert_called_once()
@@ -97,12 +97,12 @@ class TestBrainstormTool:
         )
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             result = await tool.execute(
                 {
                     "topic": "Mobile app ideas",
@@ -131,12 +131,12 @@ class TestBrainstormTool:
         )
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             result = await tool.execute({"topic": "Test topic"})
 
         assert result.success is True
@@ -152,12 +152,12 @@ class TestBrainstormTool:
         mock_model_manager.generate_content.side_effect = Exception("API Error")
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             result = await tool.execute({"topic": "Test topic"})
 
         assert result.success is False
@@ -171,16 +171,16 @@ class TestBrainstormTool:
         mock_model_manager.generate_content.side_effect = Exception("Test error")
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             with caplog.at_level(logging.ERROR):
                 await tool.execute({"topic": "Test topic"})
 
-        assert "Gemini API error: Test error" in caplog.text
+        assert "API error: Test error" in caplog.text
 
     def test_build_prompt_with_topic_only(self):
         """Test prompt building with topic only."""
@@ -211,12 +211,12 @@ class TestBrainstormTool:
         mock_model_manager.generate_content.return_value = ("Response", "primary-model")
 
         # Mock the server instance
-        mock_gemini_mcp = Mock()
+        mock_council = Mock()
         mock_server_instance = Mock()
         mock_server_instance.model_manager = mock_model_manager
-        mock_gemini_mcp._server_instance = mock_server_instance
+        mock_council._server_instance = mock_server_instance
 
-        with patch.dict(sys.modules, {"gemini_mcp": mock_gemini_mcp}):
+        with patch.dict(sys.modules, {"council": mock_council}):
             # Reset the mock to track calls separately
             mock_model_manager.reset_mock()
 

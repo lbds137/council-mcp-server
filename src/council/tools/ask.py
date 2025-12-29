@@ -1,4 +1,4 @@
-"""Tool for asking Gemini general questions."""
+"""Tool for asking general questions via Council."""
 
 import logging
 from typing import Any, Dict
@@ -8,16 +8,16 @@ from .base import MCPTool, ToolOutput
 logger = logging.getLogger(__name__)
 
 
-class AskGeminiTool(MCPTool):
-    """Tool for Ask Gemini."""
+class AskTool(MCPTool):
+    """Tool for asking general questions."""
 
     @property
     def name(self) -> str:
-        return "ask_gemini"
+        return "ask"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini a general question or for help with a problem"
+        return "Ask a general question or for help with a problem"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -26,11 +26,11 @@ class AskGeminiTool(MCPTool):
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": "The question or problem to ask Gemini",
+                    "description": "The question or problem to ask",
                 },
                 "context": {
                     "type": "string",
-                    "description": "Optional context to help Gemini understand better",
+                    "description": "Optional context to help understand better",
                     "default": "",
                 },
                 "model": {

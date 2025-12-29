@@ -20,17 +20,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Since this MCP server is already running, you can use these tools directly:
 
 ### Core Tools
-- `mcp__gemini-collab__ask_gemini` - Ask any model general questions
-- `mcp__gemini-collab__gemini_code_review` - Get code review
-- `mcp__gemini-collab__gemini_brainstorm` - Brainstorm ideas with AI
-- `mcp__gemini-collab__gemini_test_cases` - Generate test cases
-- `mcp__gemini-collab__gemini_explain` - Get explanations
-- `mcp__gemini-collab__synthesize_perspectives` - Combine multiple viewpoints
+- `mcp__council__ask` - Ask any model general questions
+- `mcp__council__code_review` - Get code review
+- `mcp__council__brainstorm` - Brainstorm ideas with AI
+- `mcp__council__test_cases` - Generate test cases
+- `mcp__council__explain` - Get explanations
+- `mcp__council__synthesize_perspectives` - Combine multiple viewpoints
 
 ### Model Management
-- `mcp__gemini-collab__server_info` - Check server status and current model
-- (Coming soon) `list_models` - List available models with filtering
-- (Coming soon) `set_model` - Change the active model
+- `mcp__council__server_info` - Check server status and current model
+- `mcp__council__list_models` - List available models with filtering
+- `mcp__council__set_model` - Change the active model
 
 ### Using Model Override
 
@@ -38,16 +38,16 @@ All tools support an optional `model` parameter to override the default model:
 
 ```python
 # Use a specific model for a code review
-mcp__gemini-collab__gemini_code_review(
+mcp__council__code_review(
     code="def hello(): print('world')",
     focus="security",
     model="anthropic/claude-3-opus"  # Override default model
 )
 
-# Ask Gemini specifically
-mcp__gemini-collab__ask_gemini(
+# Ask a specific model
+mcp__council__ask(
     question="Explain quantum computing",
-    model="google/gemini-2.5-pro"
+    model="google/gemini-3-pro-preview"
 )
 ```
 
@@ -68,8 +68,8 @@ mcp__gemini-collab__ask_gemini(
 ```
 
 ### 3. Testing Changes
-1. After deploying, restart Claude Desktop
-2. Test with: `mcp__gemini-collab__server_info`
+1. After deploying, restart Claude Desktop/Code
+2. Test with: `mcp__council__server_info`
 3. Verify the server is running and models are available
 4. Test each tool to ensure functionality
 
@@ -179,14 +179,14 @@ Then export it in `src/council/tools/__init__.py`.
 OPENROUTER_API_KEY=sk-or-...
 
 # Optional
-COUNCIL_DEFAULT_MODEL=google/gemini-2.5-pro   # Default model
-COUNCIL_CACHE_TTL=3600                         # Model cache TTL (1 hour)
-COUNCIL_TIMEOUT=600000                         # Request timeout (10 min)
-COUNCIL_DEBUG=1                                # Enable debug logging
+COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview  # Default model
+COUNCIL_CACHE_TTL=3600                              # Model cache TTL (1 hour)
+COUNCIL_TIMEOUT=600000                              # Request timeout (10 min)
+COUNCIL_DEBUG=1                                     # Enable debug logging
 ```
 
 ### Model Selection
-1. Default model: `google/gemini-2.5-pro`
+1. Default model: `google/gemini-3-pro-preview`
 2. Can be changed with `set_model` tool
 3. Can be overridden per-request with `model` parameter
 
@@ -214,7 +214,7 @@ pytest tests/unit/test_council/test_manager.py -v
 ### Check Server Status
 ```bash
 # From Claude
-mcp__gemini-collab__server_info
+mcp__council__server_info
 
 # Check logs
 tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
@@ -236,12 +236,14 @@ pytest tests/ -v             # Run tests
 python scripts/bundler.py    # Create single-file bundle
 
 # Testing MCP Tools (from Claude)
-mcp__gemini-collab__server_info              # Check status
-mcp__gemini-collab__ask_gemini               # General query
-mcp__gemini-collab__gemini_code_review       # Review code
-mcp__gemini-collab__gemini_brainstorm        # Generate ideas
-mcp__gemini-collab__gemini_test_cases        # Create tests
-mcp__gemini-collab__gemini_explain           # Get explanation
+mcp__council__server_info          # Check status
+mcp__council__ask                  # General query
+mcp__council__code_review          # Review code
+mcp__council__brainstorm           # Generate ideas
+mcp__council__test_cases           # Create tests
+mcp__council__explain              # Get explanation
+mcp__council__list_models          # List available models
+mcp__council__set_model            # Change active model
 
 # Configuration
 cp .env.example .env         # Create config
@@ -260,6 +262,6 @@ vim .env                     # Add OPENROUTER_API_KEY
 1. **Multi-model collaboration** - Use different models for different tasks
 2. **Model override** - All tools support optional `model` parameter
 3. **OpenRouter pricing** - Some models are free, others are paid
-4. **Updates require restart** - Restart Claude Desktop after changes
+4. **Updates require restart** - Restart Claude Desktop/Code after changes
 
 Remember: Council enhances Claude's capabilities through collaboration with any AI model. Use the right model for each task!

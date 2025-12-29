@@ -29,7 +29,7 @@ class OpenRouterProvider(LLMProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        default_model: str = "google/gemini-2.5-pro",
+        default_model: str = "google/gemini-3-pro-preview",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
     ):

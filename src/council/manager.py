@@ -29,7 +29,7 @@ class ModelManager:
         Args:
             api_key: OpenRouter API key. If None, reads from OPENROUTER_API_KEY.
             default_model: Default model to use. If None, reads from COUNCIL_DEFAULT_MODEL
-                          or defaults to "google/gemini-2.5-pro".
+                          or defaults to "google/gemini-3-pro-preview".
             timeout: Request timeout in seconds. If None, reads from COUNCIL_TIMEOUT
                     or defaults to 600.0 (10 minutes).
         """
@@ -37,8 +37,8 @@ class ModelManager:
         # default_model always has a value due to the fallback
         self.default_model: str = (
             default_model
-            or os.getenv("COUNCIL_DEFAULT_MODEL", "google/gemini-2.5-pro")
-            or "google/gemini-2.5-pro"
+            or os.getenv("COUNCIL_DEFAULT_MODEL", "google/gemini-3-pro-preview")
+            or "google/gemini-3-pro-preview"
         )
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
@@ -75,7 +75,7 @@ class ModelManager:
         """Set the active model for subsequent requests.
 
         Args:
-            model_id: The model ID to use (e.g., "google/gemini-2.5-pro").
+            model_id: The model ID to use (e.g., "google/gemini-3-pro-preview").
 
         Returns:
             True if the model was set successfully.

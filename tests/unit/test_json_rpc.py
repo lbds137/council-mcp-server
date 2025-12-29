@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gemini_mcp.json_rpc import (
+from council.json_rpc import (
     ERROR_INTERNAL,
     ERROR_INVALID_REQUEST,
     ERROR_METHOD_NOT_FOUND,

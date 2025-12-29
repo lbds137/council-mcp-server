@@ -2,7 +2,7 @@
 
 from unittest.mock import Mock
 
-from gemini_mcp.models.base import ToolMetadata
+from council.models.base import ToolMetadata
 
 
 def create_mock_model_manager():

@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from gemini_mcp.core.orchestrator import ConversationOrchestrator
-from gemini_mcp.models.base import ToolOutput
-from gemini_mcp.protocols.debate import DebatePosition, DebateProtocol, DebateRound
+from council.core.orchestrator import ConversationOrchestrator
+from council.models.base import ToolOutput
+from council.protocols.debate import DebatePosition, DebateProtocol, DebateRound
 
 
 class TestDebateProtocol:

@@ -1,6 +1,6 @@
 """Tools for the Council MCP server."""
 
-from .ask import AskGeminiTool
+from .ask import AskTool
 from .base import BaseTool, MCPTool, ToolOutput
 from .brainstorm import BrainstormTool
 from .code_review import CodeReviewTool
@@ -14,7 +14,7 @@ __all__ = [
     "BaseTool",
     "MCPTool",
     "ToolOutput",
-    "AskGeminiTool",
+    "AskTool",
     "BrainstormTool",
     "CodeReviewTool",
     "ExplainTool",

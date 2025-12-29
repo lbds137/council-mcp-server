@@ -13,11 +13,11 @@ class BrainstormTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_brainstorm"
+        return "brainstorm"
 
     @property
     def description(self) -> str:
-        return "Brainstorm ideas or solutions with Gemini"
+        return "Brainstorm ideas or solutions"
 
     @property
     def input_schema(self) -> Dict[str, Any]:

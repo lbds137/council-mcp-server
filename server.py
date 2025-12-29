@@ -315,7 +315,7 @@ class ModelInfo:
     def from_openrouter(cls, data: dict[str, Any]) -> "ModelInfo":
         """Create ModelInfo from OpenRouter API response."""
         model_id = data.get("id", "")
-        # Extract provider from model ID (e.g., "google/gemini-2.5-pro" -> "google")
+        # Extract provider from model ID (e.g., "google/gemini-3-pro-preview" -> "google")
         provider = model_id.split("/")[0] if "/" in model_id else "unknown"
 
         # Check if it's a free model (ends with ":free")
@@ -455,7 +455,7 @@ class OpenRouterProvider(LLMProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        default_model: str = "google/gemini-2.5-pro",
+        default_model: str = "google/gemini-3-pro-preview",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
     ):
@@ -994,7 +994,7 @@ class ModelManager:
         Args:
             api_key: OpenRouter API key. If None, reads from OPENROUTER_API_KEY.
             default_model: Default model to use. If None, reads from COUNCIL_DEFAULT_MODEL
-                          or defaults to "google/gemini-2.5-pro".
+                          or defaults to "google/gemini-3-pro-preview".
             timeout: Request timeout in seconds. If None, reads from COUNCIL_TIMEOUT
                     or defaults to 600.0 (10 minutes).
         """
@@ -1002,8 +1002,8 @@ class ModelManager:
         # default_model always has a value due to the fallback
         self.default_model: str = (
             default_model
-            or os.getenv("COUNCIL_DEFAULT_MODEL", "google/gemini-2.5-pro")
-            or "google/gemini-2.5-pro"
+            or os.getenv("COUNCIL_DEFAULT_MODEL", "google/gemini-3-pro-preview")
+            or "google/gemini-3-pro-preview"
         )
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
@@ -1040,7 +1040,7 @@ class ModelManager:
         """Set the active model for subsequent requests.
 
         Args:
-            model_id: The model ID to use (e.g., "google/gemini-2.5-pro").
+            model_id: The model ID to use (e.g., "google/gemini-3-pro-preview").
 
         Returns:
             True if the model was set successfully.
@@ -2388,22 +2388,22 @@ def main():
         sys.exit(1)
 
 
-# ========== Tool for asking Gemini general questions. ==========
+# ========== Tool for asking general questions via Council. ==========
 
 
 from typing import Any, Dict
 
 
-class AskGeminiTool(MCPTool):
-    """Tool for Ask Gemini."""
+class AskTool(MCPTool):
+    """Tool for asking general questions."""
 
     @property
     def name(self) -> str:
-        return "ask_gemini"
+        return "ask"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini a general question or for help with a problem"
+        return "Ask a general question or for help with a problem"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -2412,11 +2412,11 @@ class AskGeminiTool(MCPTool):
             "properties": {
                 "question": {
                     "type": "string",
-                    "description": "The question or problem to ask Gemini",
+                    "description": "The question or problem to ask",
                 },
                 "context": {
                     "type": "string",
-                    "description": "Optional context to help Gemini understand better",
+                    "description": "Optional context to help understand better",
                     "default": "",
                 },
                 "model": {
@@ -2468,11 +2468,11 @@ class BrainstormTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_brainstorm"
+        return "brainstorm"
 
     @property
     def description(self) -> str:
-        return "Brainstorm ideas or solutions with Gemini"
+        return "Brainstorm ideas or solutions"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -2549,11 +2549,11 @@ class CodeReviewTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_code_review"
+        return "code_review"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to review code for issues, improvements, or best practices"
+        return "Review code for issues, improvements, or best practices"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -2650,11 +2650,11 @@ class ExplainTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_explain"
+        return "explain"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to explain complex code or concepts"
+        return "Explain complex code or concepts"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -3014,7 +3014,7 @@ class SetModelTool(MCPTool):
                 "model": {
                     "type": "string",
                     "description": (
-                        "The model ID to use (e.g., 'google/gemini-2.5-pro', "
+                        "The model ID to use (e.g., 'google/gemini-3-pro-preview', "
                         "'anthropic/claude-3-opus')"
                     ),
                 },
@@ -3191,11 +3191,11 @@ class TestCasesTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_test_cases"
+        return "test_cases"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to suggest test cases for code or features"
+        return "Suggest test cases for code or features"
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -3285,7 +3285,7 @@ Include both positive (happy path) and negative (error) test cases."""
 
 # Store the bundled tool classes globally
 BUNDLED_TOOL_CLASSES = [
-    AskGeminiTool,
+    AskTool,
     BrainstormTool,
     CodeReviewTool,
     ExplainTool,

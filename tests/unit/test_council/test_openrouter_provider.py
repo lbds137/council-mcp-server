@@ -22,14 +22,14 @@ class TestModelInfo:
     def test_from_openrouter_basic(self):
         """Test creating ModelInfo from OpenRouter API response."""
         data = {
-            "id": "google/gemini-2.5-pro",
+            "id": "google/gemini-3-pro-preview",
             "name": "Gemini 2.5 Pro",
             "context_length": 1000000,
             "pricing": {"prompt": 0.001, "completion": 0.002},
         }
         info = ModelInfo.from_openrouter(data)
 
-        assert info.id == "google/gemini-2.5-pro"
+        assert info.id == "google/gemini-3-pro-preview"
         assert info.name == "Gemini 2.5 Pro"
         assert info.provider == "google"
         assert info.context_length == 1000000
@@ -88,7 +88,7 @@ class TestOpenRouterProviderInit:
         provider = OpenRouterProvider(api_key="test-key")
 
         assert provider.api_key == "test-key"
-        assert provider.default_model == "google/gemini-2.5-pro"
+        assert provider.default_model == "google/gemini-3-pro-preview"
         assert provider.timeout == 600.0
         assert provider.name == "openrouter"
 
@@ -199,7 +199,7 @@ class TestOpenRouterProviderGenerate:
 
         assert isinstance(response, LLMResponse)
         assert response.content == "Test response"
-        assert response.model == "google/gemini-2.5-pro"
+        assert response.model == "google/gemini-3-pro-preview"
         assert response.usage == {
             "prompt_tokens": 10,
             "completion_tokens": 20,
@@ -333,7 +333,7 @@ class TestOpenRouterProviderListModels:
         return {
             "data": [
                 {
-                    "id": "google/gemini-2.5-pro",
+                    "id": "google/gemini-3-pro-preview",
                     "name": "Gemini 2.5 Pro",
                     "context_length": 1000000,
                     "pricing": {"prompt": 0.001, "completion": 0.002},
@@ -359,7 +359,7 @@ class TestOpenRouterProviderListModels:
         models = provider.list_models()
 
         assert len(models) == 2
-        assert models[0].id == "google/gemini-2.5-pro"
+        assert models[0].id == "google/gemini-3-pro-preview"
         assert models[1].id == "anthropic/claude-3-opus"
 
     @patch("council.providers.openrouter.httpx.get")
@@ -439,7 +439,7 @@ class TestOpenRouterProviderGetModelInfo:
         mock_response = Mock()
         mock_response.json.return_value = {
             "data": [
-                {"id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
+                {"id": "google/gemini-3-pro-preview", "name": "Gemini 2.5 Pro"},
                 {"id": "anthropic/claude-3-opus", "name": "Claude 3 Opus"},
             ]
         }
@@ -447,10 +447,10 @@ class TestOpenRouterProviderGetModelInfo:
         mock_get.return_value = mock_response
 
         provider = OpenRouterProvider(api_key="test-key")
-        info = provider.get_model_info("google/gemini-2.5-pro")
+        info = provider.get_model_info("google/gemini-3-pro-preview")
 
         assert info is not None
-        assert info.id == "google/gemini-2.5-pro"
+        assert info.id == "google/gemini-3-pro-preview"
         assert info.name == "Gemini 2.5 Pro"
 
     @patch("council.providers.openrouter.httpx.get")

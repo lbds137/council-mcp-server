@@ -24,7 +24,7 @@ class TestBundler:
     @pytest.fixture
     def mock_src_dir(self, tmp_path):
         """Create a mock source directory structure."""
-        src_dir = tmp_path / "src" / "gemini_mcp"
+        src_dir = tmp_path / "src" / "council"
         src_dir.mkdir(parents=True)
 
         # Create core files
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     def test_process_file_with_syntax_error(self, bundler, tmp_path, monkeypatch):
         """Test processing a file with syntax error."""
         # Create a mock src dir with bad file
-        src_dir = tmp_path / "src" / "gemini_mcp"
+        src_dir = tmp_path / "src" / "council"
         src_dir.mkdir(parents=True)
         bad_file = src_dir / "bad.py"
         bad_file.write_text("def bad_syntax(:\n    pass")
@@ -204,8 +204,8 @@ class TestTool(MCPTool):
 """Module docstring."""
 from .. import model_manager
 from .base import BaseTool
-from gemini_mcp.core import something
-import gemini_mcp
+from council.core import something
+import council
 import json
 import logging
 
@@ -219,8 +219,8 @@ class MyClass:
         assert '"""Module docstring."""' not in cleaned
         assert "from .." not in cleaned
         assert "from ." not in cleaned
-        assert "from gemini_mcp" not in cleaned
-        assert "import gemini_mcp" not in cleaned
+        assert "from council" not in cleaned
+        assert "import council" not in cleaned
         assert "class MyClass:" in cleaned
 
     def test_fix_tool_imports(self, bundler):
@@ -232,8 +232,8 @@ class MyTool:
     def execute(self):
         # Get model manager from server instance
         try:
-            import gemini_mcp
-            model_manager = gemini_mcp._server_instance.model_manager
+            import council
+            model_manager = council._server_instance.model_manager
         except:
             pass
 
@@ -345,11 +345,11 @@ if __name__ == "__main__":
         # Mock paths
         mock_output = tmp_path / "server.py"
         monkeypatch.setattr("bundler.OUTPUT_FILE", mock_output)
-        monkeypatch.setattr("bundler.SRC_DIR", tmp_path / "src" / "gemini_mcp")
+        monkeypatch.setattr("bundler.SRC_DIR", tmp_path / "src" / "council")
 
         # Create minimal structure
-        (tmp_path / "src" / "gemini_mcp").mkdir(parents=True)
-        (tmp_path / "src" / "gemini_mcp" / "main.py").write_text("def main(): pass")
+        (tmp_path / "src" / "council").mkdir(parents=True)
+        (tmp_path / "src" / "council" / "main.py").write_text("def main(): pass")
 
         # Import and run main
         from bundler import main
@@ -371,7 +371,7 @@ class TestBundlerEdgeCases:
 
     def test_empty_source_directory(self, tmp_path, monkeypatch):
         """Test bundler with empty source directory."""
-        empty_src = tmp_path / "empty" / "src" / "gemini_mcp"
+        empty_src = tmp_path / "empty" / "src" / "council"
         empty_src.mkdir(parents=True)
 
         bundler = Bundler()
@@ -388,7 +388,7 @@ class TestBundlerEdgeCases:
         bundler = Bundler()
 
         # Create mock src dir
-        src_dir = tmp_path / "src" / "gemini_mcp"
+        src_dir = tmp_path / "src" / "council"
         src_dir.mkdir(parents=True)
 
         # Tool without name property
@@ -431,7 +431,7 @@ class MyClass:
     def test_unicode_handling(self, bundler, tmp_path, monkeypatch):
         """Test handling of unicode in source files."""
         # Create mock src dir
-        src_dir = tmp_path / "src" / "gemini_mcp"
+        src_dir = tmp_path / "src" / "council"
         src_dir.mkdir(parents=True)
 
         unicode_file = src_dir / "unicode.py"

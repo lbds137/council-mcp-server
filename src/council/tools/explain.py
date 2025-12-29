@@ -13,11 +13,11 @@ class ExplainTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_explain"
+        return "explain"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to explain complex code or concepts"
+        return "Explain complex code or concepts"
 
     @property
     def input_schema(self) -> Dict[str, Any]:

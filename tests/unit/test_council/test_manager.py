@@ -20,7 +20,7 @@ class TestModelManagerInit:
         manager = ModelManager(api_key="test-key")
 
         assert manager.api_key == "test-key"
-        assert manager.default_model == "google/gemini-2.5-pro"
+        assert manager.default_model == "google/gemini-3-pro-preview"
         assert manager.timeout == 600.0
         assert manager.total_calls == 0
         assert manager.successful_calls == 0
@@ -103,7 +103,7 @@ class TestModelManagerGenerateContent:
         """Create a mock LLM response."""
         return LLMResponse(
             content="Test response",
-            model="google/gemini-2.5-pro",
+            model="google/gemini-3-pro-preview",
             usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         )
 
@@ -118,7 +118,7 @@ class TestModelManagerGenerateContent:
         content, model = manager.generate_content("Hello")
 
         assert content == "Test response"
-        assert model == "google/gemini-2.5-pro"
+        assert model == "google/gemini-3-pro-preview"
         assert manager.total_calls == 1
         assert manager.successful_calls == 1
         assert manager.failed_calls == 0
@@ -178,7 +178,7 @@ class TestModelManagerGenerate:
         """Create a mock LLM response."""
         return LLMResponse(
             content="Test response",
-            model="google/gemini-2.5-pro",
+            model="google/gemini-3-pro-preview",
             usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
             metadata={"id": "test-123"},
         )
@@ -195,7 +195,7 @@ class TestModelManagerGenerate:
 
         assert isinstance(response, LLMResponse)
         assert response.content == "Test response"
-        assert response.model == "google/gemini-2.5-pro"
+        assert response.model == "google/gemini-3-pro-preview"
         assert response.usage["total_tokens"] == 30
         assert response.metadata["id"] == "test-123"
 
@@ -207,7 +207,7 @@ class TestModelManagerListModels:
     def test_list_models(self, mock_provider_class):
         """Test listing models."""
         mock_models = [
-            ModelInfo(id="google/gemini-2.5-pro", name="Gemini 2.5 Pro", provider="google"),
+            ModelInfo(id="google/gemini-3-pro-preview", name="Gemini 2.5 Pro", provider="google"),
             ModelInfo(id="anthropic/claude-3-opus", name="Claude 3 Opus", provider="anthropic"),
         ]
         mock_provider = Mock()
@@ -218,7 +218,7 @@ class TestModelManagerListModels:
         models = manager.list_models()
 
         assert len(models) == 2
-        assert models[0].id == "google/gemini-2.5-pro"
+        assert models[0].id == "google/gemini-3-pro-preview"
 
     @patch("council.manager.OpenRouterProvider")
     def test_list_models_force_refresh(self, mock_provider_class):
@@ -240,7 +240,7 @@ class TestModelManagerGetModelInfo:
     def test_get_model_info_found(self, mock_provider_class):
         """Test getting info for existing model."""
         mock_info = ModelInfo(
-            id="google/gemini-2.5-pro",
+            id="google/gemini-3-pro-preview",
             name="Gemini 2.5 Pro",
             provider="google",
         )
@@ -249,10 +249,10 @@ class TestModelManagerGetModelInfo:
         mock_provider_class.return_value = mock_provider
 
         manager = ModelManager(api_key="test-key")
-        info = manager.get_model_info("google/gemini-2.5-pro")
+        info = manager.get_model_info("google/gemini-3-pro-preview")
 
         assert info is not None
-        assert info.id == "google/gemini-2.5-pro"
+        assert info.id == "google/gemini-3-pro-preview"
 
     @patch("council.manager.OpenRouterProvider")
     def test_get_model_info_not_found(self, mock_provider_class):
@@ -301,8 +301,8 @@ class TestModelManagerStats:
         stats = manager.get_stats()
 
         assert stats["provider"] == "openrouter"
-        assert stats["active_model"] == "google/gemini-2.5-pro"
-        assert stats["default_model"] == "google/gemini-2.5-pro"
+        assert stats["active_model"] == "google/gemini-3-pro-preview"
+        assert stats["default_model"] == "google/gemini-3-pro-preview"
         assert stats["total_calls"] == 0
         assert stats["successful_calls"] == 0
         assert stats["failed_calls"] == 0

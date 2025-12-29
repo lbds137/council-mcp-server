@@ -13,11 +13,11 @@ class TestCasesTool(MCPTool):
 
     @property
     def name(self) -> str:
-        return "gemini_test_cases"
+        return "test_cases"
 
     @property
     def description(self) -> str:
-        return "Ask Gemini to suggest test cases for code or features"
+        return "Suggest test cases for code or features"
 
     @property
     def input_schema(self) -> Dict[str, Any]:

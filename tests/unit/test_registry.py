@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import Mock, patch
 
-from gemini_mcp.core.registry import ToolRegistry
-from gemini_mcp.tools.base import MCPTool, ToolOutput
+from council.core.registry import ToolRegistry
+from council.tools.base import MCPTool, ToolOutput
 
 
 class MockTool(MCPTool):
@@ -60,7 +60,7 @@ class TestToolRegistry:
         registry._tool_classes[tool.name] = MockTool
 
         # Try to register again with a mock logger to check warning
-        with patch("gemini_mcp.core.registry.logger") as mock_logger:
+        with patch("council.core.registry.logger") as mock_logger:
             # Simulate discover_tools finding the same tool again
             registry.discover_tools()
             # The warning should be logged when trying to register duplicate
@@ -129,7 +129,7 @@ class TestToolRegistry:
         assert definitions[0]["description"] == "Mock tool for testing"
         assert "inputSchema" in definitions[0]
 
-    @patch("gemini_mcp.core.registry.Path")
+    @patch("council.core.registry.Path")
     def test_discover_tools(self, mock_path_class):
         """Test tool discovery from directory."""
         # Create a temporary test module with our MockTool
@@ -164,7 +164,7 @@ class TestToolRegistry:
 
     def test_discover_tools_handles_errors(self):
         """Test that discovery handles import errors gracefully."""
-        with patch("gemini_mcp.core.registry.logger") as mock_logger:
+        with patch("council.core.registry.logger") as mock_logger:
             with patch("pathlib.Path.glob") as mock_glob:
                 with patch("importlib.import_module") as mock_import:
                     mock_glob.return_value = [Path("bad_tool.py")]

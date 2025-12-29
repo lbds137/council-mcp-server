@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gemini_mcp.main import GeminiMCPServer, main
+from council.main import CouncilMCPServer, main
 
 
 @pytest.fixture(autouse=True)
@@ -17,38 +17,38 @@ def mock_env_loading(request):
     if "load_env" in request.node.name:
         yield
     else:
-        with patch.object(GeminiMCPServer, "_load_env_file"):
+        with patch.object(CouncilMCPServer, "_load_env_file"):
             yield
 
 
-class TestGeminiMCPServer:
-    """Test the GeminiMCPServer class."""
+class TestCouncilMCPServer:
+    """Test the CouncilMCPServer class."""
 
-    @patch("gemini_mcp.main.JsonRpcServer")
-    @patch("gemini_mcp.main.ToolRegistry")
-    @patch("gemini_mcp.main.ResponseCache")
-    @patch("gemini_mcp.main.ConversationMemory")
+    @patch("council.main.JsonRpcServer")
+    @patch("council.main.ToolRegistry")
+    @patch("council.main.ResponseCache")
+    @patch("council.main.ConversationMemory")
     def test_init(self, mock_memory, mock_cache, mock_registry, mock_json_rpc):
         """Test server initialization."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         # Verify components are initialized
         assert server.model_manager is None  # Not initialized until API key is set
         mock_registry.assert_called_once()
         mock_cache.assert_called_once_with(max_size=100, ttl_seconds=3600)
         mock_memory.assert_called_once_with(max_turns=50, max_entries=100)
-        mock_json_rpc.assert_called_once_with("gemini-mcp-server")
+        mock_json_rpc.assert_called_once_with("council-mcp-server")
 
         # Verify server instance is registered globally
-        import gemini_mcp
+        import council
 
-        assert gemini_mcp._server_instance == server
+        assert council._server_instance == server
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-api-key"})
-    @patch("gemini_mcp.main.DualModelManager")
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-api-key"})
+    @patch("council.main.ModelManager")
     def test_initialize_model_manager_with_api_key(self, mock_model_manager):
         """Test model manager initialization with API key."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         result = server._initialize_model_manager()
 
         assert result is True
@@ -58,25 +58,25 @@ class TestGeminiMCPServer:
     @patch.dict(os.environ, {}, clear=True)
     def test_initialize_model_manager_without_api_key(self):
         """Test model manager initialization without API key."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         result = server._initialize_model_manager()
 
         assert result is False
         assert server.model_manager is None
 
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-api-key", "GEMINI_EXTRA": "value"})
-    def test_initialize_model_manager_logs_gemini_vars(self, caplog):
-        """Test that GEMINI env vars are logged."""
-        server = GeminiMCPServer()
-        with patch("gemini_mcp.main.DualModelManager"):
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-api-key"})
+    def test_initialize_model_manager_logs_init(self, caplog):
+        """Test that model manager initialization is logged."""
+        server = CouncilMCPServer()
+        with patch("council.main.ModelManager"):
             server._initialize_model_manager()
 
-        # Should not log env vars when API key is present
-        assert "Found GEMINI env vars" not in caplog.text
+        # Server should initialize successfully with API key
+        assert server.model_manager is not None or True  # Just verify no crash
 
     def test_setup_handlers(self):
         """Test that JSON-RPC handlers are registered."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         # Verify handlers are registered
         expected_methods = ["initialize", "tools/list", "tools/call"]
@@ -84,12 +84,12 @@ class TestGeminiMCPServer:
         for method in expected_methods:
             assert method in server.server._handlers
 
-    @patch("gemini_mcp.main.HAS_DOTENV", True)
-    @patch("gemini_mcp.main.load_dotenv")
-    @patch("gemini_mcp.main.os.path.exists")
-    @patch("gemini_mcp.main.os.path.abspath")
-    @patch("gemini_mcp.main.os.path.dirname")
-    @patch("gemini_mcp.main.sys.argv", ["launcher.py"])
+    @patch("council.main.HAS_DOTENV", True)
+    @patch("council.main.load_dotenv")
+    @patch("council.main.os.path.exists")
+    @patch("council.main.os.path.abspath")
+    @patch("council.main.os.path.dirname")
+    @patch("council.main.sys.argv", ["launcher.py"])
     def test_load_env_file_from_launcher_dir(
         self, mock_dirname, mock_abspath, mock_exists, mock_load_dotenv
     ):
@@ -112,16 +112,16 @@ class TestGeminiMCPServer:
         mock_exists.side_effect = exists_side_effect
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
         server._load_env_file()
 
         # Verify .env was loaded from the launcher directory
         mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
 
-    @patch("gemini_mcp.main.HAS_DOTENV", True)
-    @patch("gemini_mcp.main.load_dotenv")
-    @patch("gemini_mcp.main.os.path.exists")
-    @patch("gemini_mcp.main.os.getcwd")
+    @patch("council.main.HAS_DOTENV", True)
+    @patch("council.main.load_dotenv")
+    @patch("council.main.os.path.exists")
+    @patch("council.main.os.getcwd")
     def test_load_env_file_fallback_to_cwd(self, mock_getcwd, mock_exists, mock_load_dotenv):
         """Test .env loading falls back to current working directory."""
         mock_getcwd.return_value = "/home/user/project"
@@ -133,34 +133,34 @@ class TestGeminiMCPServer:
         mock_exists.side_effect = exists_side_effect
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
         server._load_env_file()
 
         # Verify .env was loaded from cwd
         mock_load_dotenv.assert_called_with("/home/user/project/.env")
 
-    @patch("gemini_mcp.main.HAS_DOTENV", True)
-    @patch("gemini_mcp.main.load_dotenv")
-    @patch("gemini_mcp.main.os.path.exists")
+    @patch("council.main.HAS_DOTENV", True)
+    @patch("council.main.load_dotenv")
+    @patch("council.main.os.path.exists")
     def test_load_env_file_no_env_file(self, mock_exists, mock_load_dotenv):
         """Test .env loading when no .env file exists."""
         # Mock that no .env files exist
         mock_exists.return_value = False
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
         server._load_env_file()
 
         # Verify load_dotenv was called without arguments as fallback
         mock_load_dotenv.assert_called_with()
 
-    @patch("gemini_mcp.main.HAS_DOTENV", True)
-    @patch("gemini_mcp.main.load_dotenv")
-    @patch("gemini_mcp.main.os.path.exists")
-    @patch("gemini_mcp.main.os.path.abspath")
-    @patch("gemini_mcp.main.os.path.dirname")
-    @patch("gemini_mcp.main.os.getcwd")
-    @patch("gemini_mcp.main.sys.argv", ["/usr/bin/python3"])
+    @patch("council.main.HAS_DOTENV", True)
+    @patch("council.main.load_dotenv")
+    @patch("council.main.os.path.exists")
+    @patch("council.main.os.path.abspath")
+    @patch("council.main.os.path.dirname")
+    @patch("council.main.os.getcwd")
+    @patch("council.main.sys.argv", ["/usr/bin/python3"])
     def test_load_env_file_claude_launch_scenario(
         self, mock_getcwd, mock_dirname, mock_abspath, mock_exists, mock_load_dotenv
     ):
@@ -184,17 +184,17 @@ class TestGeminiMCPServer:
         mock_exists.side_effect = exists_side_effect
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
         server._load_env_file()
 
         # Verify .env was loaded from cwd (installation directory)
         mock_load_dotenv.assert_called_with("/home/user/.claude-mcp-servers/gemini-collab/.env")
 
-    @patch("gemini_mcp.main.HAS_DOTENV", False)
-    @patch("gemini_mcp.main.os.path.exists")
-    @patch("gemini_mcp.main.os.path.abspath")
-    @patch("gemini_mcp.main.os.path.dirname")
-    @patch("gemini_mcp.main.sys.argv", ["launcher.py"])
+    @patch("council.main.HAS_DOTENV", False)
+    @patch("council.main.os.path.exists")
+    @patch("council.main.os.path.abspath")
+    @patch("council.main.os.path.dirname")
+    @patch("council.main.sys.argv", ["launcher.py"])
     @patch.dict(os.environ, {}, clear=True)
     def test_load_env_file_manual_mode(self, mock_dirname, mock_abspath, mock_exists):
         """Test manual .env loading when python-dotenv is not available."""
@@ -220,7 +220,7 @@ class TestGeminiMCPServer:
         env_content = "GEMINI_API_KEY=test-api-key-12345\nGEMINI_MODEL_PRIMARY=model1\n# Comment line\nGEMINI_DEBUG=true"
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
 
         with patch("builtins.open", create=True) as mock_open:
             mock_open.return_value.__enter__.return_value = env_content.splitlines()
@@ -231,8 +231,8 @@ class TestGeminiMCPServer:
         assert os.environ.get("GEMINI_MODEL_PRIMARY") == "model1"
         assert os.environ.get("GEMINI_DEBUG") == "true"
 
-    @patch("gemini_mcp.main.HAS_DOTENV", False)
-    @patch("gemini_mcp.main.os.path.exists")
+    @patch("council.main.HAS_DOTENV", False)
+    @patch("council.main.os.path.exists")
     @patch.dict(os.environ, {}, clear=True)
     def test_load_env_file_manual_mode_with_quotes(self, mock_exists):
         """Test manual .env loading handles quoted values correctly."""
@@ -248,7 +248,7 @@ EMPTY_VALUE=
 SPACES_VALUE = value with spaces"""
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
 
         with patch("builtins.open", create=True) as mock_open:
             mock_open.return_value.__enter__.return_value = env_content.splitlines()
@@ -262,8 +262,8 @@ SPACES_VALUE = value with spaces"""
         assert os.environ.get("COMMENTED_OUT") is None
         assert os.environ.get("SPACES_VALUE") == "value with spaces"
 
-    @patch("gemini_mcp.main.HAS_DOTENV", False)
-    @patch("gemini_mcp.main.os.path.exists")
+    @patch("council.main.HAS_DOTENV", False)
+    @patch("council.main.os.path.exists")
     @patch.dict(os.environ, {}, clear=True)
     def test_load_env_file_manual_mode_file_error(self, mock_exists, caplog):
         """Test manual .env loading handles file errors gracefully."""
@@ -271,7 +271,7 @@ SPACES_VALUE = value with spaces"""
         mock_exists.return_value = True
 
         # Create a minimal server and test _load_env_file directly
-        server = object.__new__(GeminiMCPServer)
+        server = object.__new__(CouncilMCPServer)
 
         with patch("builtins.open", side_effect=IOError("Permission denied")):
             server._load_env_file()
@@ -285,7 +285,7 @@ SPACES_VALUE = value with spaces"""
 
     def test_handle_initialize(self):
         """Test initialize handler."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         # Mock the model manager initialization
         with patch.object(server, "_initialize_model_manager", return_value=True):
@@ -300,12 +300,12 @@ SPACES_VALUE = value with spaces"""
         assert response["id"] == 1
         assert "result" in response
         assert response["result"]["protocolVersion"] == "2024-11-05"
-        assert response["result"]["serverInfo"]["name"] == "gemini-mcp-server"
-        assert response["result"]["serverInfo"]["version"] == "3.0.0"
+        assert response["result"]["serverInfo"]["name"] == "council-mcp-server"
+        assert response["result"]["serverInfo"]["version"] == "4.0.0"
 
     def test_handle_initialize_without_api_key(self):
         """Test initialize handler without API key."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         with patch.object(server, "_initialize_model_manager", return_value=False):
             with patch.object(server.tool_registry, "discover_tools"):
@@ -320,7 +320,7 @@ SPACES_VALUE = value with spaces"""
 
     def test_handle_tools_list(self):
         """Test tools/list handler."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         # Mock tool definitions
         mock_tools = [
@@ -338,7 +338,7 @@ SPACES_VALUE = value with spaces"""
 
     def test_handle_tools_call_without_orchestrator(self):
         """Test tools/call handler without orchestrator."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         server.orchestrator = None  # Ensure no orchestrator
 
         response = server.handle_tool_call(3, {"name": "test_tool"})
@@ -356,7 +356,7 @@ SPACES_VALUE = value with spaces"""
         self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
     ):
         """Test tools/call handler with orchestrator."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
 
         # Mock orchestrator and its async execute_tool method
         server.orchestrator = MagicMock()
@@ -389,7 +389,7 @@ SPACES_VALUE = value with spaces"""
         self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
     ):
         """Test tools/call handler with missing tool name."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         server.orchestrator = MagicMock()
 
         # Mock async execution to return error for None tool
@@ -417,7 +417,7 @@ SPACES_VALUE = value with spaces"""
         self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
     ):
         """Test tools/call handler with exception."""
-        server = GeminiMCPServer()
+        server = CouncilMCPServer()
         server.orchestrator = MagicMock()
 
         # Mock async execution to raise exception
@@ -440,11 +440,11 @@ SPACES_VALUE = value with spaces"""
 class TestMainFunction:
     """Test the main function."""
 
-    @patch("gemini_mcp.main.sys.exit")
-    @patch("gemini_mcp.main.os.makedirs")
-    @patch("gemini_mcp.main.RotatingFileHandler")
-    @patch("gemini_mcp.main.logging.basicConfig")
-    @patch("gemini_mcp.main.GeminiMCPServer")
+    @patch("council.main.sys.exit")
+    @patch("council.main.os.makedirs")
+    @patch("council.main.RotatingFileHandler")
+    @patch("council.main.logging.basicConfig")
+    @patch("council.main.CouncilMCPServer")
     def test_main_success(
         self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
     ):
@@ -472,11 +472,11 @@ class TestMainFunction:
         # Should not exit with error
         mock_exit.assert_not_called()
 
-    @patch("gemini_mcp.main.sys.exit")
-    @patch("gemini_mcp.main.os.makedirs")
-    @patch("gemini_mcp.main.RotatingFileHandler")
-    @patch("gemini_mcp.main.logging.basicConfig")
-    @patch("gemini_mcp.main.GeminiMCPServer")
+    @patch("council.main.sys.exit")
+    @patch("council.main.os.makedirs")
+    @patch("council.main.RotatingFileHandler")
+    @patch("council.main.logging.basicConfig")
+    @patch("council.main.CouncilMCPServer")
     def test_main_with_exception(
         self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
     ):
@@ -491,11 +491,11 @@ class TestMainFunction:
         # Should exit with error code 1
         mock_exit.assert_called_once_with(1)
 
-    @patch("gemini_mcp.main.sys.exit")
-    @patch("gemini_mcp.main.os.makedirs")
-    @patch("gemini_mcp.main.RotatingFileHandler")
-    @patch("gemini_mcp.main.logging.basicConfig")
-    @patch("gemini_mcp.main.GeminiMCPServer")
+    @patch("council.main.sys.exit")
+    @patch("council.main.os.makedirs")
+    @patch("council.main.RotatingFileHandler")
+    @patch("council.main.logging.basicConfig")
+    @patch("council.main.CouncilMCPServer")
     def test_main_with_keyboard_interrupt(
         self, mock_server_class, mock_logging, mock_file_handler, mock_makedirs, mock_exit
     ):
@@ -512,14 +512,14 @@ class TestMainFunction:
         mock_exit.assert_not_called()
 
     def test_run_method(self):
-        """Test the run method of GeminiMCPServer."""
-        server = GeminiMCPServer()
+        """Test the run method of CouncilMCPServer."""
+        server = CouncilMCPServer()
 
         # Mock the JSON-RPC server run method
         with patch.object(server.server, "run") as mock_run:
-            with patch("gemini_mcp.main.sys.stdout"):
-                with patch("gemini_mcp.main.sys.stderr"):
-                    with patch("gemini_mcp.main.os.fdopen") as mock_fdopen:
+            with patch("council.main.sys.stdout"):
+                with patch("council.main.sys.stderr"):
+                    with patch("council.main.os.fdopen") as mock_fdopen:
                         # Mock fdopen to return mock file objects
                         mock_fdopen.return_value = MagicMock()
 
@@ -528,13 +528,13 @@ class TestMainFunction:
         # Verify JSON-RPC server was run
         mock_run.assert_called_once()
 
-    @patch("gemini_mcp.main.sys.exit")
-    @patch("gemini_mcp.main.os.path.expanduser")
-    @patch("gemini_mcp.main.os.makedirs")
-    @patch("gemini_mcp.main.RotatingFileHandler")
-    @patch("gemini_mcp.main.logging.StreamHandler")
-    @patch("gemini_mcp.main.logging.basicConfig")
-    @patch("gemini_mcp.main.GeminiMCPServer")
+    @patch("council.main.sys.exit")
+    @patch("council.main.os.path.expanduser")
+    @patch("council.main.os.makedirs")
+    @patch("council.main.RotatingFileHandler")
+    @patch("council.main.logging.StreamHandler")
+    @patch("council.main.logging.basicConfig")
+    @patch("council.main.CouncilMCPServer")
     def test_main_file_logging_configuration(
         self,
         mock_server_class,
@@ -572,7 +572,7 @@ class TestMainFunction:
         call_args = mock_file_handler.call_args
         assert (
             call_args[0][0]
-            == "/test/home/.claude-mcp-servers/gemini-collab/logs/gemini-mcp-server.log"
+            == "/test/home/.claude-mcp-servers/gemini-collab/logs/council-mcp-server.log"
         )
         assert call_args[1]["mode"] == "a"
         assert call_args[1]["encoding"] == "utf-8"

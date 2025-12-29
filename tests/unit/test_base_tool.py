@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 import pytest
 
-from gemini_mcp.tools.base import MCPTool, ToolOutput
+from council.tools.base import MCPTool, ToolOutput
 
 
 class ConcreteTestTool(MCPTool):
