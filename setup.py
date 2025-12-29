@@ -47,6 +47,7 @@ setup(
     entry_points={
         "console_scripts": [
             "gemini-mcp-server=gemini_mcp.main:main",
+            "council-mcp-server=council.main:main",
         ],
     },
 )
