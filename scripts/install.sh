@@ -6,6 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MCP_DIR="$HOME/.claude-mcp-servers/council"
+VENV_DIR="$MCP_DIR/.venv"
 
 # Determine if this is first install or update
 if [ -d "$MCP_DIR" ]; then
@@ -53,6 +54,17 @@ chmod +x "$MCP_DIR/launcher.py"
 echo "📋 Copying requirements..."
 cp "$PROJECT_ROOT/requirements.txt" "$MCP_DIR/"
 
+# Create/update virtual environment
+if [ ! -d "$VENV_DIR" ]; then
+    echo "🐍 Creating virtual environment..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+# Install/update dependencies
+echo "📦 Installing dependencies..."
+"$VENV_DIR/bin/pip" install --quiet --upgrade pip
+"$VENV_DIR/bin/pip" install --quiet -r "$MCP_DIR/requirements.txt"
+
 # Copy .env.example if .env doesn't exist
 if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
     echo "📝 Creating .env file from template..."
@@ -66,6 +78,7 @@ if [ "$IS_UPDATE" = true ]; then
     echo ""
     echo "📊 Changes:"
     echo "   - Server rebuilt from modular source"
+    echo "   - Dependencies updated"
     echo "   - Previous version backed up"
 else
     echo "✅ Installation complete!"
@@ -85,6 +98,3 @@ echo "   \"council\": {"
 echo "     \"command\": \"python3\","
 echo "     \"args\": [\"$MCP_DIR/launcher.py\"]"
 echo "   }"
-echo ""
-echo "💡 Note: Use launcher.py instead of server.py to ensure"
-echo "   dependencies are loaded from the project venv."
