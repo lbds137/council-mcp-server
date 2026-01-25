@@ -37,7 +37,7 @@ setup(
             "pytest>=7.0",
             "pytest-asyncio>=0.21.0",
             "pytest-cov>=4.0",
-            "black>=23.0",
+            "black>=25.0",
             "flake8>=6.0",
             "mypy>=1.0",
             "isort>=5.12.0",
