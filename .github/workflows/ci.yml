@@ -45,7 +45,8 @@ jobs:
 
     - name: Check formatting with black
       run: |
-        black --check src/ tests/
+        black --version
+        black --check --diff src/ tests/
 
     - name: Check import order with isort
       run: |
