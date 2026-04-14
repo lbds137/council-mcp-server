@@ -16,6 +16,10 @@ from .manager import ModelManager
 from .services.cache import ResponseCache
 from .services.memory import ConversationMemory
 
+# Protocol versions this server implements. The first entry is the default
+# returned when the client requests an unknown version (spec-compliant fallback).
+SUPPORTED_PROTOCOL_VERSIONS = ("2024-11-05",)
+
 # Try to import dotenv if available
 try:
     from dotenv import load_dotenv
@@ -39,6 +43,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 __version__ = "4.0.0"
+
+
+def _tool_error(request_id: Any, message: str) -> Dict[str, Any]:
+    """Build a tools/call result that signals a tool-level failure.
+
+    MCP spec: a tool failure is conveyed inside ``result`` with ``isError: true``
+    and the error text as content. It is NOT a JSON-RPC error — those are
+    reserved for protocol-level failures.
+    """
+    return create_result_response(
+        request_id,
+        {"content": [{"type": "text", "text": f"Error: {message}"}], "isError": True},
+    )
 
 
 class CouncilMCPServer:
@@ -167,42 +184,56 @@ class CouncilMCPServer:
 
     def _setup_handlers(self):
         """Set up JSON-RPC handlers."""
-        # Register handlers
         self.server.register_handler("initialize", self.handle_initialize)
         self.server.register_handler("tools/list", self.handle_tools_list)
         self.server.register_handler("tools/call", self.handle_tool_call)
+        self.server.register_handler("ping", self.handle_ping)
 
     def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle initialization request."""
-        # Reload environment variables in case they changed
         self._load_env_file()
 
-        # Log the API key status
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if api_key:
             logger.info(f"OPENROUTER_API_KEY found (length: {len(api_key)})")
         else:
             logger.warning("OPENROUTER_API_KEY not found in environment")
 
-        # Discover and register all tools FIRST
         self.tool_registry.discover_tools()
         logger.info(f"Registered {len(self.tool_registry.list_tools())} tools")
 
-        # Initialize model manager AFTER tools are registered
         model_initialized = self._initialize_model_manager()
+        if not model_initialized:
+            logger.warning("Model manager not initialized; tool calls will return errors")
+
+        # Negotiate protocol version: echo the client's version if we support
+        # it, otherwise fall back to our latest supported version.
+        client_version = params.get("protocolVersion", "")
+        if client_version in SUPPORTED_PROTOCOL_VERSIONS:
+            protocol_version = client_version
+        else:
+            protocol_version = SUPPORTED_PROTOCOL_VERSIONS[0]
+            if client_version:
+                logger.info(
+                    f"Client requested protocolVersion={client_version!r}; "
+                    f"responding with supported version {protocol_version!r}"
+                )
 
         return create_result_response(
             request_id,
             {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_version,
                 "serverInfo": {
                     "name": "council-mcp-server",
                     "version": __version__,
-                    "modelsAvailable": model_initialized,
                 },
                 "capabilities": {"tools": {}},
             },
         )
+
+    def handle_ping(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle liveness ping (MCP spec: empty-object result)."""
+        return create_result_response(request_id, {})
 
     def handle_tools_list(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle tool list request."""
@@ -223,63 +254,49 @@ class CouncilMCPServer:
         return create_result_response(request_id, {"tools": tools})
 
     def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle tool execution request."""
+        """Handle tool execution request.
+
+        Returns a result with ``isError: true`` on any failure, per MCP spec.
+        Without that flag, clients treat failed tool runs as successful.
+        """
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
 
         logger.info(f"Executing tool: {tool_name}")
 
-        # Validate tool name
         if not tool_name:
+            return _tool_error(request_id, "Tool name is required")
+
+        if not self.orchestrator:
+            return _tool_error(
+                request_id,
+                "Models not initialized. Please set OPENROUTER_API_KEY environment variable.",
+            )
+
+        import asyncio
+
+        # Always create a fresh event loop for the sync bridge. Relying on
+        # asyncio.get_event_loop() is unsafe on Python 3.12+ where it may
+        # raise DeprecationWarning or return an unrelated loop.
+        loop = asyncio.new_event_loop()
+        try:
+            output = loop.run_until_complete(
+                self.orchestrator.execute_tool(
+                    tool_name=tool_name, parameters=arguments, request_id=request_id
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+            return _tool_error(request_id, f"Error executing tool: {e}")
+        finally:
+            loop.close()
+
+        if output.success:
             return create_result_response(
                 request_id,
-                {"content": [{"type": "text", "text": "Error: Tool name is required"}]},
+                {"content": [{"type": "text", "text": output.result or ""}], "isError": False},
             )
-
-        # Check if models are initialized
-        if not self.orchestrator:
-            result = (
-                "Error: Models not initialized. "
-                "Please set OPENROUTER_API_KEY environment variable."
-            )
-            return create_result_response(
-                request_id, {"content": [{"type": "text", "text": result}]}
-            )
-
-        # Execute tool through orchestrator
-        try:
-            # Use orchestrator to execute tool (async converted to sync)
-            import asyncio
-
-            # Create event loop if needed
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            try:
-                output = loop.run_until_complete(
-                    self.orchestrator.execute_tool(
-                        tool_name=tool_name, parameters=arguments, request_id=request_id
-                    )
-                )
-
-                if output.success:
-                    result = output.result or ""
-                else:
-                    result = f"Error: {output.error or 'Unknown error'}"
-
-            finally:
-                # Clean up loop if we created it
-                if asyncio.get_event_loop() is loop:
-                    loop.close()
-
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}")
-            result = f"Error executing tool: {str(e)}"
-
-        return create_result_response(request_id, {"content": [{"type": "text", "text": result}]})
+        return _tool_error(request_id, output.error or "Unknown error")
 
     def run(self):
         """Run the MCP server."""

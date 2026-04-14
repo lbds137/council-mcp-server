@@ -213,18 +213,56 @@ class TestJsonRpcServer:
         assert "Handler error" in result["error"]["message"]
         assert result["id"] == 1
 
-    def test_process_request_notification(self):
-        """Test processing notification (no id)."""
+    def test_process_request_notification_runs_handler_without_response(self):
+        """Notifications (no id) invoke the handler but never get a response."""
         server = JsonRpcServer("test-server")
-        handler_result = {"jsonrpc": "2.0", "result": "ok"}
-        handler = MagicMock(return_value=handler_result)
+        handler = MagicMock(return_value={"jsonrpc": "2.0", "result": "ok"})
         server.register_handler("notify", handler)
 
         request = {"jsonrpc": "2.0", "method": "notify", "params": {}}
         result = server._process_request(json.dumps(request))
 
         handler.assert_called_once_with(None, {})
-        assert result == handler_result
+        assert result is None
+
+    def test_process_request_notification_unknown_method(self):
+        """Unknown notifications must be silently ignored (no error response)."""
+        server = JsonRpcServer("test-server")
+        request = {"jsonrpc": "2.0", "method": "does/not/exist"}
+        result = server._process_request(json.dumps(request))
+        assert result is None
+
+    def test_process_request_notifications_initialized_silent(self):
+        """MCP handshake: notifications/initialized must not receive a response."""
+        server = JsonRpcServer("test-server")
+        request = {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
+        result = server._process_request(json.dumps(request))
+        assert result is None
+
+    def test_process_request_notification_handler_exception_silent(self):
+        """If a notification handler raises, server must still not respond."""
+        server = JsonRpcServer("test-server")
+        handler = MagicMock(side_effect=Exception("boom"))
+        server.register_handler("notify", handler)
+
+        request = {"jsonrpc": "2.0", "method": "notify"}
+        result = server._process_request(json.dumps(request))
+        assert result is None
+
+    def test_process_request_notification_missing_method_silent(self):
+        """Malformed notification (missing method) must not receive a response."""
+        server = JsonRpcServer("test-server")
+        # No id, no method — still a notification
+        result = server._process_request('{"jsonrpc": "2.0"}')
+        assert result is None
+
+    def test_process_request_null_id_still_gets_response(self):
+        """id == null is NOT a notification per spec; client gets an error response."""
+        server = JsonRpcServer("test-server")
+        request = {"jsonrpc": "2.0", "method": "unknown", "id": None}
+        result = server._process_request(json.dumps(request))
+        assert result is not None
+        assert result["error"]["code"] == ERROR_METHOD_NOT_FOUND
 
     @patch("sys.stdin")
     @patch("builtins.print")
@@ -246,6 +284,48 @@ class TestJsonRpcServer:
         handler.assert_called_once()
         # Verify response was written
         mock_print.assert_called_with('{"jsonrpc": "2.0", "result": "ok", "id": 1}', flush=True)
+
+    @patch("sys.stdin")
+    @patch("builtins.print")
+    def test_run_does_not_write_for_notification(self, mock_print, mock_stdin):
+        """End-to-end: notification arrives, nothing is written to stdout."""
+        server = JsonRpcServer("test-server")
+        mock_stdin.readline.side_effect = [
+            '{"jsonrpc": "2.0", "method": "notifications/initialized"}\n',
+            "",  # EOF
+        ]
+        server.run()
+        mock_print.assert_not_called()
+
+    @patch("sys.stdin")
+    @patch("builtins.print")
+    def test_run_full_mcp_handshake(self, mock_print, mock_stdin):
+        """End-to-end: initialize → notifications/initialized → tools/list.
+
+        Writes exactly two responses (for initialize and tools/list), none
+        for the notification. Regression test for the bug that caused
+        Claude Code to drop council tools after a stricter MCP client update.
+        """
+        server = JsonRpcServer("test-server")
+        server.register_handler(
+            "initialize",
+            lambda rid, _p: {"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "x"}},
+        )
+        server.register_handler(
+            "tools/list",
+            lambda rid, _p: {"jsonrpc": "2.0", "id": rid, "result": {"tools": []}},
+        )
+        mock_stdin.readline.side_effect = [
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}\n',
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n',
+            "",
+        ]
+        server.run()
+        assert mock_print.call_count == 2
+        written = [call.args[0] for call in mock_print.call_args_list]
+        assert '"id": 1' in written[0]
+        assert '"id": 2' in written[1]
 
     def test_stop(self):
         """Test stopping the server."""

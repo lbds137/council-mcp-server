@@ -105,23 +105,37 @@ class JsonRpcServer:
             logger.error(f"Error writing to stdout: {e}")
 
     def _process_request(self, request_str: str) -> Optional[dict]:
-        """Process a single JSON-RPC request."""
+        """Process a single JSON-RPC message. Returns None for notifications.
+
+        Per JSON-RPC 2.0 §4.1, a message lacking the "id" member is a
+        notification and the server MUST NOT reply to it. Handlers are still
+        invoked for side effects; their return value is discarded.
+        """
         request_id = None
+        is_notification = False
 
         try:
             # Parse JSON
             try:
                 request_data = json.loads(request_str)
             except json.JSONDecodeError as e:
+                # Can't determine notification status on unparseable input;
+                # spec permits an error response with null id for parse errors.
                 return JsonRpcResponse(
                     error=JsonRpcError(ERROR_PARSE, f"Parse error: {e}").to_dict()
                 ).to_dict()
+
+            # A notification has no "id" member (distinct from id == null)
+            is_notification = isinstance(request_data, dict) and "id" not in request_data
 
             # Parse request
             try:
                 request = JsonRpcRequest(request_data)
                 request_id = request.id
             except ValueError as e:
+                if is_notification:
+                    logger.debug(f"Ignoring malformed notification: {e}")
+                    return None
                 return JsonRpcResponse(
                     error=JsonRpcError(ERROR_INVALID_REQUEST, str(e)).to_dict(), id=request_id
                 ).to_dict()
@@ -129,6 +143,9 @@ class JsonRpcServer:
             # Find handler
             handler = self._handlers.get(request.method) if request.method else None
             if not handler:
+                if is_notification:
+                    logger.debug(f"Ignoring unhandled notification: {request.method}")
+                    return None
                 return JsonRpcResponse(
                     error=JsonRpcError(
                         ERROR_METHOD_NOT_FOUND, f"Method not found: {request.method}"
@@ -139,17 +156,23 @@ class JsonRpcServer:
             # Execute handler
             try:
                 result = handler(request_id, request.params)
-                # Handler returns a complete response dict
-                return result
             except Exception as e:
                 logger.error(f"Handler error for {request.method}: {e}", exc_info=True)
+                if is_notification:
+                    return None
                 return JsonRpcResponse(
                     error=JsonRpcError(ERROR_INTERNAL, f"Internal error: {str(e)}").to_dict(),
                     id=request_id,
                 ).to_dict()
 
+            if is_notification:
+                return None
+            return result
+
         except Exception as e:
             logger.error(f"Unexpected error processing request: {e}", exc_info=True)
+            if is_notification:
+                return None
             return JsonRpcResponse(
                 error=JsonRpcError(ERROR_INTERNAL, f"Internal error: {str(e)}").to_dict(),
                 id=request_id,

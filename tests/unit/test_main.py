@@ -304,7 +304,7 @@ SPACES_VALUE = value with spaces"""
         assert response["result"]["serverInfo"]["version"] == "4.0.0"
 
     def test_handle_initialize_without_api_key(self):
-        """Test initialize handler without API key."""
+        """Initialize must still succeed without an API key; tool calls fail later."""
         server = CouncilMCPServer()
 
         with patch.object(server, "_initialize_model_manager", return_value=False):
@@ -315,8 +315,33 @@ SPACES_VALUE = value with spaces"""
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 1
         assert "result" in response
-        # When API key is missing, modelsAvailable should be False
-        assert response["result"]["serverInfo"]["modelsAvailable"] is False
+        server_info = response["result"]["serverInfo"]
+        # serverInfo must match the MCP schema (name + version only)
+        assert set(server_info.keys()) == {"name", "version"}
+
+    def test_handle_initialize_echoes_supported_protocol_version(self):
+        """Server must echo the client's protocolVersion when it supports it."""
+        server = CouncilMCPServer()
+        with patch.object(server, "_initialize_model_manager", return_value=True):
+            with patch.object(server.tool_registry, "discover_tools"):
+                with patch.object(server.tool_registry, "list_tools", return_value=[]):
+                    response = server.handle_initialize(1, {"protocolVersion": "2024-11-05"})
+        assert response["result"]["protocolVersion"] == "2024-11-05"
+
+    def test_handle_initialize_falls_back_for_unknown_protocol_version(self):
+        """Unknown versions must be downgraded to a supported one."""
+        server = CouncilMCPServer()
+        with patch.object(server, "_initialize_model_manager", return_value=True):
+            with patch.object(server.tool_registry, "discover_tools"):
+                with patch.object(server.tool_registry, "list_tools", return_value=[]):
+                    response = server.handle_initialize(1, {"protocolVersion": "9999-01-01"})
+        assert response["result"]["protocolVersion"] == "2024-11-05"
+
+    def test_handle_ping_returns_empty_result(self):
+        """Ping must return an empty-object result per MCP spec."""
+        server = CouncilMCPServer()
+        response = server.handle_ping(42, {})
+        assert response == {"jsonrpc": "2.0", "id": 42, "result": {}}
 
     def test_handle_tools_list(self):
         """Test tools/list handler."""
@@ -337,104 +362,85 @@ SPACES_VALUE = value with spaces"""
         assert response["result"]["tools"] == mock_tools
 
     def test_handle_tools_call_without_orchestrator(self):
-        """Test tools/call handler without orchestrator."""
+        """Tool calls before orchestrator is ready must return isError: true."""
         server = CouncilMCPServer()
-        server.orchestrator = None  # Ensure no orchestrator
+        server.orchestrator = None
 
         response = server.handle_tool_call(3, {"name": "test_tool"})
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 3
-        assert "result" in response
+        assert response["result"]["isError"] is True
         assert "not initialized" in response["result"]["content"][0]["text"]
 
-    @patch("asyncio.get_event_loop")
-    @patch("asyncio.set_event_loop")
-    @patch("asyncio.new_event_loop")
-    @patch("asyncio.get_running_loop")
-    def test_handle_tools_call_with_orchestrator(
-        self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
-    ):
-        """Test tools/call handler with orchestrator."""
+    def test_handle_tools_call_with_orchestrator(self):
+        """Successful tool calls must set isError: false."""
         server = CouncilMCPServer()
 
-        # Mock orchestrator and its async execute_tool method
         server.orchestrator = MagicMock()
         mock_output = MagicMock()
         mock_output.success = True
         mock_output.result = "Tool result"
 
-        # Mock the event loop and async execution
-        mock_loop = MagicMock()
-        mock_get_running.side_effect = RuntimeError()
-        mock_new_loop.return_value = mock_loop
-        mock_get_loop.return_value = mock_loop
-        mock_loop.run_until_complete.return_value = mock_output
+        async def _fake_exec(**_kw):
+            return mock_output
 
-        params = {"name": "test_tool", "arguments": {"arg1": "value1"}}
-        response = server.handle_tool_call(4, params)
+        server.orchestrator.execute_tool = _fake_exec
+
+        response = server.handle_tool_call(
+            4, {"name": "test_tool", "arguments": {"arg1": "value1"}}
+        )
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 4
         assert response["result"]["content"] == [{"type": "text", "text": "Tool result"}]
+        assert response["result"]["isError"] is False
 
-        # Verify async execution was called
-        mock_loop.run_until_complete.assert_called_once()
-
-    @patch("asyncio.get_event_loop")
-    @patch("asyncio.set_event_loop")
-    @patch("asyncio.new_event_loop")
-    @patch("asyncio.get_running_loop")
-    def test_handle_tools_call_missing_name(
-        self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
-    ):
-        """Test tools/call handler with missing tool name."""
+    def test_handle_tools_call_missing_name(self):
+        """Missing tool name must return isError: true without touching orchestrator."""
         server = CouncilMCPServer()
         server.orchestrator = MagicMock()
-
-        # Mock async execution to return error for None tool
-        mock_output = MagicMock()
-        mock_output.success = False
-        mock_output.error = "Tool 'None' not found"
-
-        mock_loop = MagicMock()
-        mock_get_running.side_effect = RuntimeError()
-        mock_new_loop.return_value = mock_loop
-        mock_get_loop.return_value = mock_loop
-        mock_loop.run_until_complete.return_value = mock_output
 
         response = server.handle_tool_call(5, {})
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 5
+        assert response["result"]["isError"] is True
         assert "Tool name is required" in response["result"]["content"][0]["text"]
 
-    @patch("asyncio.get_event_loop")
-    @patch("asyncio.set_event_loop")
-    @patch("asyncio.new_event_loop")
-    @patch("asyncio.get_running_loop")
-    def test_handle_tools_call_exception(
-        self, mock_get_running, mock_new_loop, mock_set_loop, mock_get_loop
-    ):
-        """Test tools/call handler with exception."""
+    def test_handle_tools_call_orchestrator_returns_failure(self):
+        """Orchestrator-reported failures must set isError: true."""
+        server = CouncilMCPServer()
+        server.orchestrator = MagicMock()
+        mock_output = MagicMock()
+        mock_output.success = False
+        mock_output.error = "boom"
+
+        async def _fake_exec(**_kw):
+            return mock_output
+
+        server.orchestrator.execute_tool = _fake_exec
+
+        response = server.handle_tool_call(6, {"name": "test_tool"})
+        assert response["result"]["isError"] is True
+        assert "boom" in response["result"]["content"][0]["text"]
+
+    def test_handle_tools_call_exception(self):
+        """Unexpected exceptions must set isError: true, not crash the server."""
         server = CouncilMCPServer()
         server.orchestrator = MagicMock()
 
-        # Mock async execution to raise exception
-        mock_loop = MagicMock()
-        mock_get_running.side_effect = RuntimeError()
-        mock_new_loop.return_value = mock_loop
-        mock_get_loop.return_value = mock_loop
-        mock_loop.run_until_complete.side_effect = Exception("Test error")
+        async def _raising(**_kw):
+            raise Exception("Test error")
 
-        params = {"name": "test_tool"}
-        response = server.handle_tool_call(6, params)
+        server.orchestrator.execute_tool = _raising
+
+        response = server.handle_tool_call(7, {"name": "test_tool"})
 
         assert response["jsonrpc"] == "2.0"
-        assert response["id"] == 6
+        assert response["id"] == 7
+        assert response["result"]["isError"] is True
         assert "Test error" in response["result"]["content"][0]["text"]
-
-    # Remove tests for handlers that don't exist in the current implementation
 
 
 class TestMainFunction:
