@@ -18,31 +18,9 @@
       "Search(*)",
       "WebSearch",
       "Skill(*)",
-
-      "Bash(python:*)",
-      "Bash(python3:*)",
-      "Bash(pytest:*)",
-      "Bash(pip:*)",
-      "Bash(pip3:*)",
-      "Bash(.venv/bin/*)",
-
-      "Bash(black:*)",
-      "Bash(flake8:*)",
-      "Bash(mypy:*)",
-      "Bash(ruff:*)",
-      "Bash(pylint:*)",
-      "Bash(isort:*)",
-      "Bash(coverage:*)",
-      "Bash(pre-commit:*)",
-
-      "Bash(git:*)",
-      "Bash(gh:*)",
-
-      "Bash(./scripts/*.sh:*)",
-
+      "Bash",
       "mcp__ide__getDiagnostics",
       "mcp__council__*",
-
       "WebFetch(domain:*)"
     ],
     "deny": [],
