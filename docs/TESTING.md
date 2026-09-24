@@ -20,10 +20,9 @@ PyCharm's built-in pytest runner works too; point it at `tests/`.
 - `tests/unit/`: one file per tool (`test_<tool>_tool.py`), plus JSON-RPC,
   `main.py`, the tool registry and which tools may be cached
 - `tests/integration/`: the orchestrator with real registry and cache objects
-- `tests/test_bundler.py`: the single-file bundle generator
 
 No test calls a real model: every provider call is mocked. To check the real
-thing end to end, build the bundle and drive it over stdio (see
+thing end to end, run the server from source and drive it over stdio (see
 `docs/DEVELOPMENT.md`, Debugging Tips).
 
 ## Gates
