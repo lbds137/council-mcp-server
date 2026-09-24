@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from ..tools.base import MCPTool, ToolOutput
+from .base import MCPTool, ToolOutput, get_server
 from .conversation import get_session_manager
 
 __version__ = "4.0.0"
@@ -27,22 +27,7 @@ class ServerInfoTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            # Access the server components through global context
-            # In modular mode, get from council module
-            # In bundled mode, will be set as global _server_instance
-            server = None
-
-            # Try modular approach first
-            try:
-                import council
-
-                server = getattr(council, "_server_instance", None)
-            except ImportError:
-                pass
-
-            # Fall back to global _server_instance (for bundled mode)
-            if not server:
-                server = globals().get("_server_instance", None)
+            server = get_server()
 
             # Declare info variable
             info: dict[str, Any]

@@ -99,7 +99,7 @@ class TestDebateValidation:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await DebateTool().execute({"topic": "x"})
         assert result.success is False

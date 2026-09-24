@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import council.tools.synthesize as synthesize_module
 from council.tools.synthesize import SynthesizeTool
 
 PERSPECTIVES = [
@@ -160,19 +159,8 @@ class TestSynthesizeToolExecute:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await SynthesizeTool().execute({"topic": "x", "perspectives": PERSPECTIVES})
         assert result.success is False
         assert result.error == "Model manager not available"
-
-    @pytest.mark.asyncio
-    async def test_bundled_global_fallback(self, manager):
-        """In bundled mode the module-global model_manager is used."""
-        with (
-            patch("council._server_instance", None),
-            patch.dict(synthesize_module.__dict__, {"model_manager": manager}),
-        ):
-            result = await SynthesizeTool().execute({"topic": "x", "perspectives": PERSPECTIVES})
-        assert result.success is True
-        manager.generate_content.assert_called_once()
