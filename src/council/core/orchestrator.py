@@ -1,6 +1,7 @@
 """Orchestrator for managing tool execution and conversation flow."""
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from ..protocols.debate import DebateProtocol
@@ -18,7 +19,7 @@ class ConversationOrchestrator:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        model_manager: Any,  # DualModelManager
+        model_manager: Any,
         memory: Optional[ConversationMemory] = None,
         cache: Optional[ResponseCache] = None,
     ):
@@ -26,54 +27,54 @@ class ConversationOrchestrator:
         self.model_manager = model_manager
         self.memory = memory or ConversationMemory()
         self.cache = cache or ResponseCache()
-        self.execution_history: List[ToolOutput] = []
+        self.total_executions = 0
+        self.successful_executions = 0
+        self.total_execution_ms = 0.0
 
     async def execute_tool(
         self, tool_name: str, parameters: Dict[str, Any], request_id: Optional[str] = None
     ) -> ToolOutput:
-        """Execute a single tool with proper context injection."""
-
-        # Check cache first
-        cache_key = self.cache.create_key(tool_name, parameters)
-        cached_result = self.cache.get(cache_key)
-        if cached_result:
-            logger.info(f"Cache hit for {tool_name}")
-            return cached_result
-
-        # Get the tool
+        """Execute a single tool, serving a cached result when the tool allows it."""
         tool = self.tool_registry.get_tool(tool_name)
         if not tool:
             output = ToolOutput(success=False, error=f"Unknown tool: {tool_name}")
             output.tool_name = tool_name
             return output
 
-        # Create tool input with context (kept for reference, though not used in new API)
-        # tool_input = ToolInput(
-        #     tool_name=tool_name,
-        #     parameters=parameters,
-        #     context={
-        #         "model_manager": self.model_manager,
-        #         "memory": self.memory,
-        #         "orchestrator": self,
-        #     },
-        #     request_id=request_id,
-        # )
+        cache_key = self._cache_key(tool, tool_name, parameters)
+        if cache_key:
+            cached_result = self.cache.get(cache_key)
+            if cached_result:
+                logger.info(f"Cache hit for {tool_name}")
+                return cached_result
 
-        # Execute the tool with just parameters (new API)
+        started = time.monotonic()
         output = await tool.execute(parameters)
+        output.execution_time_ms = (time.monotonic() - started) * 1000
 
-        # Cache successful results
-        if output.success:
+        if cache_key and output.success:
             self.cache.set(cache_key, output)
 
-        # Store in execution history
-        self.execution_history.append(output)
+        self.total_executions += 1
+        if output.success:
+            self.successful_executions += 1
+        self.total_execution_ms += output.execution_time_ms
 
-        # Update memory if needed
         if output.success and hasattr(tool, "update_memory"):
             tool.update_memory(self.memory, output)
 
         return output
+
+    def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
+        """The cache key for this call, or None when the result must not be cached.
+
+        The key names the model that will answer, so switching the active
+        model never serves the previous model's answer.
+        """
+        if not tool.is_cacheable(parameters):
+            return None
+        model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
+        return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
 
     async def execute_protocol(
         self, protocol_name: str, initial_input: Dict[str, Any]
@@ -131,14 +132,10 @@ class ConversationOrchestrator:
 
     def get_execution_stats(self) -> Dict[str, Any]:
         """Get statistics about tool executions."""
-        total = len(self.execution_history)
-        successful = sum(1 for output in self.execution_history if output.success)
+        total = self.total_executions
+        successful = self.successful_executions
         failed = total - successful
-
-        avg_time: float = 0
-        if total > 0:
-            times = [o.execution_time_ms for o in self.execution_history if o.execution_time_ms]
-            avg_time = sum(times) / len(times) if times else 0
+        avg_time = self.total_execution_ms / total if total else 0.0
 
         return {
             "total_executions": total,

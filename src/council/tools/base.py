@@ -49,6 +49,14 @@ class MCPTool(ABC):
         """Execute the tool."""
         pass
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """Whether a successful result may be served again for the same input.
+
+        Only tools whose answer depends on nothing but their input and the
+        model opt in. A tool that reads or changes server state must not.
+        """
+        return False
+
     def get_mcp_definition(self) -> Dict[str, Any]:
         """Get the MCP tool definition."""
         return {

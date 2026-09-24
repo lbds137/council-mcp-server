@@ -16,6 +16,14 @@ from council.providers.base import (
 from council.providers.openrouter import OPENROUTER_BASE_URL, OpenRouterProvider
 
 
+class FakeAPIError(Exception):
+    """Stands in for the OpenAI SDK's APIStatusError, which carries status_code."""
+
+    def __init__(self, message: str, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class TestModelInfo:
     """Tests for ModelInfo dataclass."""
 
@@ -265,8 +273,8 @@ class TestOpenRouterProviderGenerate:
     def test_generate_rate_limit_error(self, mock_openai_class):
         """Test rate limit error handling."""
         mock_client = Mock()
-        mock_client.chat.completions.create.side_effect = Exception(
-            "Error code: 429 - Rate limit exceeded"
+        mock_client.chat.completions.create.side_effect = FakeAPIError(
+            "Error code: 429 - Rate limit exceeded", 429
         )
         mock_openai_class.return_value = mock_client
 
@@ -282,8 +290,8 @@ class TestOpenRouterProviderGenerate:
     def test_generate_auth_error(self, mock_openai_class):
         """Test authentication error handling."""
         mock_client = Mock()
-        mock_client.chat.completions.create.side_effect = Exception(
-            "Error code: 401 - Invalid API key"
+        mock_client.chat.completions.create.side_effect = FakeAPIError(
+            "Error code: 401 - Invalid API key", 401
         )
         mock_openai_class.return_value = mock_client
 
@@ -299,8 +307,8 @@ class TestOpenRouterProviderGenerate:
     def test_generate_model_not_found_error(self, mock_openai_class):
         """Test model not found error handling."""
         mock_client = Mock()
-        mock_client.chat.completions.create.side_effect = Exception(
-            "Error code: 404 - Model not found"
+        mock_client.chat.completions.create.side_effect = FakeAPIError(
+            "Error code: 404 - Model not found", 404
         )
         mock_openai_class.return_value = mock_client
 
@@ -325,6 +333,31 @@ class TestOpenRouterProviderGenerate:
             provider.generate("Hello")
 
         assert exc_info.value.is_retryable is True
+
+    @patch("council.providers.openrouter.OpenAI")
+    def test_sdk_timeout_message_is_retryable(self, mock_openai_class):
+        """Test the SDK's "Request timed out." message counts as a timeout."""
+        mock_openai_class.return_value.chat.completions.create.side_effect = FakeAPIError(
+            "Request timed out."
+        )
+
+        with pytest.raises(LLMProviderError) as exc_info:
+            OpenRouterProvider(api_key="test-key").generate("Hello")
+
+        assert exc_info.value.is_retryable is True
+
+    @patch("council.providers.openrouter.OpenAI")
+    def test_words_in_a_400_message_do_not_pick_the_error_class(self, mock_openai_class):
+        """Test a 400 whose text mentions "moderate" or "not found" stays a plain error."""
+        mock_openai_class.return_value.chat.completions.create.side_effect = FakeAPIError(
+            "Error code: 400 - moderate the prompt; tool not found in request", 400
+        )
+
+        with pytest.raises(LLMProviderError) as exc_info:
+            OpenRouterProvider(api_key="test-key").generate("Hello")
+
+        assert type(exc_info.value) is LLMProviderError
+        assert exc_info.value.is_retryable is False
 
     @patch("council.providers.openrouter.OpenAI")
     def test_generate_empty_response(self, mock_openai_class):
@@ -420,14 +453,48 @@ class TestOpenRouterProviderListModels:
         assert mock_get.call_count == 2
 
     @patch("council.providers.openrouter.httpx.get")
-    def test_list_models_error_returns_empty(self, mock_get):
-        """Test that errors return empty list when no cache."""
+    def test_list_models_error_without_cache_raises(self, mock_get):
+        """Test a failed first fetch is an error, not an empty catalog."""
         mock_get.side_effect = httpx.HTTPError("Connection failed")
 
         provider = OpenRouterProvider(api_key="test-key")
-        models = provider.list_models()
+        with pytest.raises(LLMProviderError, match="Could not fetch the OpenRouter model list"):
+            provider.list_models()
 
-        assert models == []
+    @patch("council.providers.openrouter.time.time")
+    @patch("council.providers.openrouter.httpx.get")
+    def test_list_models_refreshes_after_ttl(self, mock_get, mock_time, mock_models_response):
+        """Test the list is refetched once the cache TTL has passed."""
+        mock_get.return_value = Mock(json=Mock(return_value=mock_models_response))
+        provider = OpenRouterProvider(api_key="test-key", cache_ttl=100)
+
+        mock_time.return_value = 1000.0
+        provider.list_models()
+        mock_time.return_value = 1099.0
+        provider.list_models()
+        assert mock_get.call_count == 1
+
+        mock_time.return_value = 1101.0
+        provider.list_models()
+        assert mock_get.call_count == 2
+
+    @patch("council.providers.openrouter.time.time")
+    @patch("council.providers.openrouter.httpx.get")
+    def test_failed_refresh_serves_old_list_and_backs_off(
+        self, mock_get, mock_time, mock_models_response
+    ):
+        """Test a failed refresh keeps the old list and waits before trying again."""
+        mock_get.return_value = Mock(json=Mock(return_value=mock_models_response))
+        provider = OpenRouterProvider(api_key="test-key", cache_ttl=100)
+        mock_time.return_value = 1000.0
+        first = provider.list_models()
+
+        mock_get.side_effect = httpx.HTTPError("Connection failed")
+        mock_time.return_value = 1200.0
+        assert provider.list_models() == first
+        mock_time.return_value = 1300.0
+        assert provider.list_models() == first
+        assert mock_get.call_count == 2
 
     @patch("council.providers.openrouter.httpx.get")
     def test_list_models_error_returns_cached(self, mock_get, mock_models_response):
@@ -474,6 +541,14 @@ class TestOpenRouterProviderGetModelInfo:
         assert info is not None
         assert info.id == "google/gemini-3-pro-preview"
         assert info.name == "Gemini 2.5 Pro"
+
+    @patch("council.providers.openrouter.httpx.get")
+    def test_get_model_info_with_list_unavailable_is_none(self, mock_get):
+        """Test a lookup while the model list can't be fetched returns None, not an error."""
+        mock_get.side_effect = httpx.HTTPError("Connection failed")
+
+        provider = OpenRouterProvider(api_key="test-key")
+        assert provider.get_model_info("openai/gpt-6-sol") is None
 
     @patch("council.providers.openrouter.httpx.get")
     def test_get_model_info_not_found(self, mock_get):

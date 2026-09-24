@@ -183,6 +183,8 @@ class CouncilMCPServer:
         try:
             logger.info(f"Initializing ModelManager with API key (length: {len(api_key)})")
             self.model_manager = ModelManager(api_key)
+            # Bundled tools read the manager as a module global
+            globals()["model_manager"] = self.model_manager
 
             # Create orchestrator with all components
             logger.info("Creating conversation orchestrator...")

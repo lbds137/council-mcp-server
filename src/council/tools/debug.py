@@ -68,6 +68,10 @@ class DebugTool(MCPTool):
             "required": ["error_message", "code_context"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """Cacheable unless it reads a conversation session, which keeps changing."""
+        return not parameters.get("session_id")
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute structured debugging analysis."""
         try:

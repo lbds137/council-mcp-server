@@ -6,7 +6,6 @@ Works with the modular architecture to combine all components into a single depl
 
 import ast
 import logging
-import re
 import sys
 import textwrap
 from pathlib import Path
@@ -374,60 +373,6 @@ def _apply_tool_registry_override():
 
         return content
 
-    def _fix_orchestrator_for_bundled(self, content: str) -> str:
-        """Fix orchestrator to work with bundled tools."""
-        if "class ConversationOrchestrator" not in content:
-            return content
-
-        # Replace the execute_tool method to handle bundled tools
-        new_execute_tool = '''
-    async def execute_tool(
-        self, tool_name: str, parameters: Dict[str, Any], request_id: Optional[str] = None
-    ) -> ToolOutput:
-        """Execute a single tool with proper context injection."""
-
-        # Check cache first
-        cache_key = self.cache.create_key(tool_name, parameters)
-        cached_result = self.cache.get(cache_key)
-        if cached_result:
-            logger.info(f"Cache hit for {tool_name}")
-            return cached_result
-
-        # Get the tool
-        tool = self.tool_registry.get_tool(tool_name)
-        if not tool:
-            return ToolOutput(
-                success=False, error=f"Unknown tool: {tool_name}"
-            )
-
-        # For bundled operation, set global model manager
-        global model_manager
-        model_manager = self.model_manager
-
-        # Execute the tool
-        try:
-            output = await tool.execute(parameters)
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}")
-            output = ToolOutput(success=False, error=str(e))
-
-        # Cache successful results
-        if output.success:
-            self.cache.set(cache_key, output)
-
-        # Store in execution history
-        self.execution_history.append(output)
-
-        return output'''
-
-        # Find and replace the execute_tool method
-        pattern = r"(async def execute_tool\(.*?\) -> ToolOutput:.*?)(return output)"
-        replacement = new_execute_tool.strip()
-
-        content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-
-        return content
-
     def _simple_clean_content(self, content: str):
         """Simple text-based content cleaning as fallback."""
         lines = content.split("\n")
@@ -558,10 +503,6 @@ def _apply_tool_registry_override():
                 # Fix tool imports if needed
                 is_tool = rel_path.startswith("tools/") and rel_path != "tools/base.py"
                 cleaned_content = self._fix_tool_imports(cleaned_content, is_tool)
-
-                # Fix orchestrator if needed
-                if "orchestrator.py" in rel_path:
-                    cleaned_content = self._fix_orchestrator_for_bundled(cleaned_content)
 
                 if not cleaned_content.strip():
                     continue

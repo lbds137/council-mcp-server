@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import httpx
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+FAILED_FETCH_RETRY_SECONDS = 300.0
 
 
 class OpenRouterProvider(LLMProvider):
@@ -32,6 +34,7 @@ class OpenRouterProvider(LLMProvider):
         default_model: str = "~openai/gpt-sol-latest",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
+        cache_ttl: Optional[float] = None,
     ):
         """Initialize the OpenRouter provider.
 
@@ -40,13 +43,19 @@ class OpenRouterProvider(LLMProvider):
             default_model: Default model to use for generation.
             timeout: Request timeout in seconds.
             app_name: Application name for OpenRouter headers.
+            cache_ttl: How long to trust the model list, in seconds. If None,
+                reads COUNCIL_CACHE_TTL (default 1 hour).
         """
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.default_model = default_model
         self.timeout = timeout
         self.app_name = app_name
         self._client: Optional[OpenAI] = None
+        self.cache_ttl = (
+            cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
+        )
         self._models_cache: Optional[list[ModelInfo]] = None
+        self._next_fetch: float = 0.0
 
     @property
     def name(self) -> str:
@@ -130,34 +139,42 @@ class OpenRouterProvider(LLMProvider):
             )
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"OpenRouter error: {error_msg}")
+            raise self._classify_error(e, model_id) from e
 
-            # Parse error type and raise appropriate exception
-            if "rate" in error_msg.lower() or "429" in error_msg:
-                raise RateLimitError(error_msg, provider=self.name, model=model_id)
-            elif "auth" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
-                raise AuthenticationError(error_msg, provider=self.name, model=model_id)
-            elif "not found" in error_msg.lower() or "404" in error_msg:
-                raise ModelNotFoundError(error_msg, provider=self.name, model=model_id)
-            else:
-                raise LLMProviderError(
-                    error_msg,
-                    provider=self.name,
-                    model=model_id,
-                    is_retryable="timeout" in error_msg.lower(),
-                )
+    def _classify_error(self, error: Exception, model_id: str) -> LLMProviderError:
+        """Map an API error to a provider error, by HTTP status when there is one."""
+        error_msg = str(error)
+        logger.error(f"OpenRouter error: {error_msg}")
+        status = getattr(error, "status_code", None)
+        lowered = error_msg.lower()
+
+        if status == 429 or (status is None and "rate limit" in lowered):
+            return RateLimitError(error_msg, provider=self.name, model=model_id)
+        if status in (401, 403):
+            return AuthenticationError(error_msg, provider=self.name, model=model_id)
+        if status == 404:
+            return ModelNotFoundError(error_msg, provider=self.name, model=model_id)
+        return LLMProviderError(
+            error_msg,
+            provider=self.name,
+            model=model_id,
+            is_retryable="timeout" in lowered or "timed out" in lowered,
+        )
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
-        """List available models from OpenRouter.
+        """List available models from OpenRouter, refreshed once per cache TTL.
 
         Args:
             force_refresh: If True, bypass the cache and fetch fresh data.
 
         Returns:
             List of ModelInfo objects describing available models.
+
+        Raises:
+            LLMProviderError: If the list can't be fetched and none was fetched
+                before. With an earlier list on hand, that list is returned.
         """
-        if self._models_cache is not None and not force_refresh:
+        if self._models_cache is not None and not force_refresh and time.time() < self._next_fetch:
             return self._models_cache
 
         logger.info("Fetching models from OpenRouter")
@@ -169,15 +186,21 @@ class OpenRouterProvider(LLMProvider):
             )
             response.raise_for_status()
             data = response.json()
-
             models = [ModelInfo.from_openrouter(m) for m in data.get("data", [])]
-            self._models_cache = models
-            logger.info(f"Fetched {len(models)} models from OpenRouter")
-            return models
-
         except Exception as e:
             logger.error(f"Failed to fetch models from OpenRouter: {e}")
-            return self._models_cache or []
+            if self._models_cache is None:
+                raise LLMProviderError(
+                    f"Could not fetch the OpenRouter model list: {e}", provider=self.name
+                ) from e
+            # Keep serving the last list, and try again in a few minutes
+            self._next_fetch = time.time() + FAILED_FETCH_RETRY_SECONDS
+            return self._models_cache
+
+        self._models_cache = models
+        self._next_fetch = time.time() + self.cache_ttl
+        logger.info(f"Fetched {len(models)} models from OpenRouter")
+        return models
 
     def is_available(self) -> bool:
         """Check if the OpenRouter provider is available.
@@ -194,9 +217,12 @@ class OpenRouterProvider(LLMProvider):
             model_id: The model ID to look up.
 
         Returns:
-            ModelInfo for the model, or None if not found.
+            ModelInfo for the model, or None if not found or the list is unavailable.
         """
-        models = self.list_models()
+        try:
+            models = self.list_models()
+        except LLMProviderError:
+            return None
         for model in models:
             if model.id == model_id:
                 return model

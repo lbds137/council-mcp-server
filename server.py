@@ -464,6 +464,7 @@ class ModelNotFoundError(LLMProviderError):
 
 
 import os
+import time
 from typing import Any, Optional
 
 import httpx
@@ -471,6 +472,7 @@ from openai import OpenAI
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+FAILED_FETCH_RETRY_SECONDS = 300.0
 
 
 class OpenRouterProvider(LLMProvider):
@@ -482,6 +484,7 @@ class OpenRouterProvider(LLMProvider):
         default_model: str = "~openai/gpt-sol-latest",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
+        cache_ttl: Optional[float] = None,
     ):
         """Initialize the OpenRouter provider.
 
@@ -490,13 +493,19 @@ class OpenRouterProvider(LLMProvider):
             default_model: Default model to use for generation.
             timeout: Request timeout in seconds.
             app_name: Application name for OpenRouter headers.
+            cache_ttl: How long to trust the model list, in seconds. If None,
+                reads COUNCIL_CACHE_TTL (default 1 hour).
         """
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.default_model = default_model
         self.timeout = timeout
         self.app_name = app_name
         self._client: Optional[OpenAI] = None
+        self.cache_ttl = (
+            cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
+        )
         self._models_cache: Optional[list[ModelInfo]] = None
+        self._next_fetch: float = 0.0
 
     @property
     def name(self) -> str:
@@ -580,34 +589,42 @@ class OpenRouterProvider(LLMProvider):
             )
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"OpenRouter error: {error_msg}")
+            raise self._classify_error(e, model_id) from e
 
-            # Parse error type and raise appropriate exception
-            if "rate" in error_msg.lower() or "429" in error_msg:
-                raise RateLimitError(error_msg, provider=self.name, model=model_id)
-            elif "auth" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
-                raise AuthenticationError(error_msg, provider=self.name, model=model_id)
-            elif "not found" in error_msg.lower() or "404" in error_msg:
-                raise ModelNotFoundError(error_msg, provider=self.name, model=model_id)
-            else:
-                raise LLMProviderError(
-                    error_msg,
-                    provider=self.name,
-                    model=model_id,
-                    is_retryable="timeout" in error_msg.lower(),
-                )
+    def _classify_error(self, error: Exception, model_id: str) -> LLMProviderError:
+        """Map an API error to a provider error, by HTTP status when there is one."""
+        error_msg = str(error)
+        logger.error(f"OpenRouter error: {error_msg}")
+        status = getattr(error, "status_code", None)
+        lowered = error_msg.lower()
+
+        if status == 429 or (status is None and "rate limit" in lowered):
+            return RateLimitError(error_msg, provider=self.name, model=model_id)
+        if status in (401, 403):
+            return AuthenticationError(error_msg, provider=self.name, model=model_id)
+        if status == 404:
+            return ModelNotFoundError(error_msg, provider=self.name, model=model_id)
+        return LLMProviderError(
+            error_msg,
+            provider=self.name,
+            model=model_id,
+            is_retryable="timeout" in lowered or "timed out" in lowered,
+        )
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
-        """List available models from OpenRouter.
+        """List available models from OpenRouter, refreshed once per cache TTL.
 
         Args:
             force_refresh: If True, bypass the cache and fetch fresh data.
 
         Returns:
             List of ModelInfo objects describing available models.
+
+        Raises:
+            LLMProviderError: If the list can't be fetched and none was fetched
+                before. With an earlier list on hand, that list is returned.
         """
-        if self._models_cache is not None and not force_refresh:
+        if self._models_cache is not None and not force_refresh and time.time() < self._next_fetch:
             return self._models_cache
 
         logger.info("Fetching models from OpenRouter")
@@ -619,15 +636,21 @@ class OpenRouterProvider(LLMProvider):
             )
             response.raise_for_status()
             data = response.json()
-
             models = [ModelInfo.from_openrouter(m) for m in data.get("data", [])]
-            self._models_cache = models
-            logger.info(f"Fetched {len(models)} models from OpenRouter")
-            return models
-
         except Exception as e:
             logger.error(f"Failed to fetch models from OpenRouter: {e}")
-            return self._models_cache or []
+            if self._models_cache is None:
+                raise LLMProviderError(
+                    f"Could not fetch the OpenRouter model list: {e}", provider=self.name
+                ) from e
+            # Keep serving the last list, and try again in a few minutes
+            self._next_fetch = time.time() + FAILED_FETCH_RETRY_SECONDS
+            return self._models_cache
+
+        self._models_cache = models
+        self._next_fetch = time.time() + self.cache_ttl
+        logger.info(f"Fetched {len(models)} models from OpenRouter")
+        return models
 
     def is_available(self) -> bool:
         """Check if the OpenRouter provider is available.
@@ -644,9 +667,12 @@ class OpenRouterProvider(LLMProvider):
             model_id: The model ID to look up.
 
         Returns:
-            ModelInfo for the model, or None if not found.
+            ModelInfo for the model, or None if not found or the list is unavailable.
         """
-        models = self.list_models()
+        try:
+            models = self.list_models()
+        except LLMProviderError:
+            return None
         for model in models:
             if model.id == model_id:
                 return model
@@ -2279,8 +2305,12 @@ class SessionManager:
         history = session.get_message_history()
         prompt = self._format_prompt_with_history(history)
 
-        # Generate response
-        response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+        try:
+            response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+        except Exception:
+            # Drop the unanswered message so a retry doesn't send it twice
+            session.turns.pop()
+            raise
 
         # Add assistant response
         session.add_turn("assistant", response_text)
@@ -2431,6 +2461,14 @@ class MCPTool(ABC):
         """Execute the tool."""
         pass
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """Whether a successful result may be served again for the same input.
+
+        Only tools whose answer depends on nothing but their input and the
+        model opt in. A tool that reads or changes server state must not.
+        """
+        return False
+
     def get_mcp_definition(self) -> Dict[str, Any]:
         """Get the MCP tool definition."""
         return {
@@ -2477,8 +2515,8 @@ class ToolRegistry:
     """Registry for discovering and managing tools."""
 
     def __init__(self):
-        self._tools: Dict[str, BaseTool] = {}
-        self._tool_classes: Dict[str, Type[BaseTool]] = {}
+        self._tools: Dict[str, MCPTool] = {}
+        self._tool_classes: Dict[str, Type[MCPTool]] = {}
 
     def discover_tools(self, tools_path: Optional[Path] = None) -> None:
         """Discover and register all tools in the tools directory."""
@@ -2517,16 +2555,20 @@ class ToolRegistry:
 
             try:
 
-                # Find all classes that inherit from BaseTool
+                # Concrete tools defined in this module, not ones it imports
                 for name, obj in inspect.getmembers(module, inspect.isclass):
-                    if issubclass(obj, BaseTool) and obj != BaseTool:
+                    if (
+                        issubclass(obj, MCPTool)
+                        and not inspect.isabstract(obj)
+                        and obj.__module__ == module.__name__
+                    ):
                         logger.debug(f"Found tool class: {name}")
                         self._register_tool_class(obj)
 
             except Exception as e:
                 logger.error(f"Failed to import tool from {tool_file}: {e}")
 
-    def _register_tool_class(self, tool_class: Type[BaseTool]) -> None:
+    def _register_tool_class(self, tool_class: Type[MCPTool]) -> None:
         """Register a tool class."""
         try:
             # Instantiate the tool to get its metadata
@@ -2545,11 +2587,11 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Failed to register tool {tool_class.__name__}: {e}")
 
-    def get_tool(self, name: str) -> Optional[BaseTool]:
+    def get_tool(self, name: str) -> Optional[MCPTool]:
         """Get a tool instance by name."""
         return self._tools.get(name)
 
-    def get_tool_class(self, name: str) -> Optional[Type[BaseTool]]:
+    def get_tool_class(self, name: str) -> Optional[Type[MCPTool]]:
         """Get a tool class by name."""
         return self._tool_classes.get(name)
 
@@ -2557,7 +2599,7 @@ class ToolRegistry:
         """List all registered tool names."""
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> Dict[str, BaseTool]:
+    def get_all_tools(self) -> Dict[str, MCPTool]:
         """Get all registered tools."""
         return self._tools.copy()
 
@@ -2577,6 +2619,7 @@ class ToolRegistry:
 # ========== Orchestrator for managing tool execution and conversation flow. ==========
 
 
+import time
 from typing import Any, Dict, List, Optional
 
 
@@ -2586,7 +2629,7 @@ class ConversationOrchestrator:
     def __init__(
         self,
         tool_registry: ToolRegistry,
-        model_manager: Any,  # DualModelManager
+        model_manager: Any,
         memory: Optional[ConversationMemory] = None,
         cache: Optional[ResponseCache] = None,
     ):
@@ -2594,72 +2637,54 @@ class ConversationOrchestrator:
         self.model_manager = model_manager
         self.memory = memory or ConversationMemory()
         self.cache = cache or ResponseCache()
-        self.execution_history: List[ToolOutput] = []
+        self.total_executions = 0
+        self.successful_executions = 0
+        self.total_execution_ms = 0.0
 
     async def execute_tool(
         self, tool_name: str, parameters: Dict[str, Any], request_id: Optional[str] = None
     ) -> ToolOutput:
-        """Execute a single tool with proper context injection."""
-
-        # Check cache first
-        cache_key = self.cache.create_key(tool_name, parameters)
-        cached_result = self.cache.get(cache_key)
-        if cached_result:
-            logger.info(f"Cache hit for {tool_name}")
-            return cached_result
-
-        # Get the tool
+        """Execute a single tool, serving a cached result when the tool allows it."""
         tool = self.tool_registry.get_tool(tool_name)
         if not tool:
-            return ToolOutput(success=False, error=f"Unknown tool: {tool_name}")
+            output = ToolOutput(success=False, error=f"Unknown tool: {tool_name}")
+            output.tool_name = tool_name
+            return output
 
-        # For bundled operation, set global model manager
-        global model_manager
-        model_manager = self.model_manager
+        cache_key = self._cache_key(tool, tool_name, parameters)
+        if cache_key:
+            cached_result = self.cache.get(cache_key)
+            if cached_result:
+                logger.info(f"Cache hit for {tool_name}")
+                return cached_result
 
-        # Execute the tool
-        try:
-            output = await tool.execute(parameters)
-        except Exception as e:
-            logger.error(f"Error executing tool {tool_name}: {e}")
-            output = ToolOutput(success=False, error=str(e))
-
-        # Cache successful results
-        if output.success:
-            self.cache.set(cache_key, output)
-
-        # Store in execution history
-        self.execution_history.append(output)
-
-        return output
-
-        # Create tool input with context (kept for reference, though not used in new API)
-        # tool_input = ToolInput(
-        #     tool_name=tool_name,
-        #     parameters=parameters,
-        #     context={
-        #         "model_manager": self.model_manager,
-        #         "memory": self.memory,
-        #         "orchestrator": self,
-        #     },
-        #     request_id=request_id,
-        # )
-
-        # Execute the tool with just parameters (new API)
+        started = time.monotonic()
         output = await tool.execute(parameters)
+        output.execution_time_ms = (time.monotonic() - started) * 1000
 
-        # Cache successful results
-        if output.success:
+        if cache_key and output.success:
             self.cache.set(cache_key, output)
 
-        # Store in execution history
-        self.execution_history.append(output)
+        self.total_executions += 1
+        if output.success:
+            self.successful_executions += 1
+        self.total_execution_ms += output.execution_time_ms
 
-        # Update memory if needed
         if output.success and hasattr(tool, "update_memory"):
             tool.update_memory(self.memory, output)
 
         return output
+
+    def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
+        """The cache key for this call, or None when the result must not be cached.
+
+        The key names the model that will answer, so switching the active
+        model never serves the previous model's answer.
+        """
+        if not tool.is_cacheable(parameters):
+            return None
+        model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
+        return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
 
     async def execute_protocol(
         self, protocol_name: str, initial_input: Dict[str, Any]
@@ -2717,14 +2742,10 @@ class ConversationOrchestrator:
 
     def get_execution_stats(self) -> Dict[str, Any]:
         """Get statistics about tool executions."""
-        total = len(self.execution_history)
-        successful = sum(1 for output in self.execution_history if output.success)
+        total = self.total_executions
+        successful = self.successful_executions
         failed = total - successful
-
-        avg_time: float = 0
-        if total > 0:
-            times = [o.execution_time_ms for o in self.execution_history if o.execution_time_ms]
-            avg_time = sum(times) / len(times) if times else 0
+        avg_time = self.total_execution_ms / total if total else 0.0
 
         return {
             "total_executions": total,
@@ -3138,6 +3159,8 @@ class CouncilMCPServer:
         try:
             logger.info(f"Initializing ModelManager with API key (length: {len(api_key)})")
             self.model_manager = ModelManager(api_key)
+            # Bundled tools read the manager as a module global
+            globals()["model_manager"] = self.model_manager
 
             # Create orchestrator with all components
             logger.info("Creating conversation orchestrator...")
@@ -3371,6 +3394,10 @@ class AskTool(MCPTool):
             "required": ["question"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
@@ -3439,6 +3466,10 @@ class BrainstormTool(MCPTool):
             },
             "required": ["topic"],
         }
+
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
 
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
@@ -3523,6 +3554,10 @@ class CodeReviewTool(MCPTool):
             },
             "required": ["code"],
         }
+
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
 
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
@@ -4037,6 +4072,10 @@ class DebugTool(MCPTool):
             "required": ["error_message", "code_context"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """Cacheable unless it reads a conversation session, which keeps changing."""
+        return not parameters.get("session_id")
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute structured debugging analysis."""
         try:
@@ -4275,6 +4314,10 @@ class ExplainTool(MCPTool):
             },
             "required": ["topic"],
         }
+
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
 
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
@@ -4736,6 +4779,10 @@ class RefactorTool(MCPTool):
             "required": ["code", "goal"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the refactoring analysis."""
         try:
@@ -5185,6 +5232,10 @@ class SynthesizeTool(MCPTool):
             "required": ["topic", "perspectives"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
@@ -5276,6 +5327,10 @@ class TestCasesTool(MCPTool):
             },
             "required": ["code_or_feature"],
         }
+
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
 
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
