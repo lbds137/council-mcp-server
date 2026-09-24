@@ -41,13 +41,13 @@ All tools support an optional `model` parameter to override the default model:
 mcp__council__code_review(
     code="def hello(): print('world')",
     focus="security",
-    model="anthropic/claude-3-opus"  # Override default model
+    model="~moonshotai/kimi-latest"  # Override default model
 )
 
 # Ask a specific model
 mcp__council__ask(
     question="Explain quantum computing",
-    model="google/gemini-3-pro-preview"
+    model="~z-ai/glm-latest"
 )
 ```
 
@@ -179,16 +179,20 @@ Then export it in `src/council/tools/__init__.py`.
 OPENROUTER_API_KEY=sk-or-...
 
 # Optional
-COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview  # Default model
+COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest       # Default model
 COUNCIL_CACHE_TTL=3600                              # Model cache TTL (1 hour)
 COUNCIL_TIMEOUT=600000                              # Request timeout (10 min)
 COUNCIL_DEBUG=1                                     # Enable debug logging
 ```
 
 ### Model Selection
-1. Default model: `google/gemini-3-pro-preview`
+1. Default model: `~openai/gpt-sol-latest` (a `~` ID is an OpenRouter alias for a family's newest model)
 2. Can be changed with `set_model` tool
 3. Can be overridden per-request with `model` parameter
+4. Recommendations (`recommend_model`, the `server_info` guide) come from
+   `src/council/discovery/model_registry.py`. It leaves out Anthropic models on purpose:
+   Claude Code can spawn its own Claude agents, so council is for other families.
+   `make check-models` lists registry IDs that OpenRouter has dropped.
 
 ## Testing Guidelines
 
@@ -233,6 +237,7 @@ tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
 ./scripts/install.sh         # Deploy to MCP location
 ./scripts/dev-link.sh        # Create development symlink
 pytest tests/ -v             # Run tests
+make check-models            # Find registry model IDs OpenRouter dropped
 python scripts/bundler.py    # Create single-file bundle
 
 # Testing MCP Tools (from Claude)

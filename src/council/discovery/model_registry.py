@@ -1,8 +1,12 @@
 """Curated model registry with task-specific recommendations.
 
 This module provides curated metadata about models to help users choose
-the right model for their task. Data is based on benchmarks and community
-feedback as of December 2025.
+the right model for their task. Data reflects benchmarks and OpenRouter
+listings as of September 2026.
+
+Anthropic models are deliberately absent: the caller is Claude Code, which
+can spawn its own Claude review agents, so council is for perspectives from
+other model families. They remain usable through an explicit `model` override.
 
 The registry uses a "T-shirt sizing" system:
 - flash: Fast, cost-effective, good for simple tasks
@@ -46,11 +50,41 @@ class ModelMetadata:
     recommended_for: list[str] = field(default_factory=list)
 
 
-# Curated model registry - updated December 2025
-# Based on benchmarks: SWE-bench, WebDev Arena, GPQA, and OpenRouter usage data
+# Curated model registry, refreshed 2026-09-23.
+#
+# Keys are OpenRouter's floating "~vendor/family-latest" aliases where one
+# exists, so a vendor's next release is picked up without editing this file.
+# The comment beside each alias names the model it resolved to on 2026-09-23,
+# and claims about a specific release name that release, so a claim that an
+# alias has moved past reads as dated rather than wrong. Prices stay out of
+# alias entries: list_models shows live pricing.
+# Families without an alias (Qwen, MiniMax, Mistral) are pinned and go stale,
+# as do the :free IDs; `python scripts/check_models.py` finds dead IDs.
+#
+# Ratings follow published benchmarks where they exist (sources are noted on
+# TASK_RECOMMENDATIONS). Most of these models are too new for independent
+# leaderboards, so the other ratings rest on what OpenRouter lists (context
+# window, input modalities) and on the vendor's own tiering. A model's headline
+# context_length on OpenRouter is the largest window any one provider serves
+# (GLM-5.3 shows 1.3M because of one host; Z.ai serves 1M), so windows here
+# come from the per-provider /endpoints listing.
 MODEL_REGISTRY: dict[str, ModelMetadata] = {
-    # === Anthropic Models ===
-    "anthropic/claude-3.5-sonnet": ModelMetadata(
+    # === OpenAI ===
+    "~openai/gpt-astra-latest": ModelMetadata(  # gpt-6-astra
+        model_class=ModelClass.DEEP,
+        strengths={
+            TaskType.CODING: "S",
+            TaskType.CODE_REVIEW: "A",
+            TaskType.REASONING: "S",
+            TaskType.VISION: "A",
+            TaskType.LONG_CONTEXT: "A",
+            TaskType.GENERAL: "A",
+        },
+        description="OpenAI flagship for long-horizon engineering and research",
+        notes="GPT-6 Astra's 96.1% GPQA Diamond is vendor-reported",
+        recommended_for=["complex_reasoning", "deep_research", "coding"],
+    ),
+    "~openai/gpt-sol-latest": ModelMetadata(  # gpt-6-sol
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
@@ -58,64 +92,39 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.REASONING: "A",
             TaskType.CREATIVE: "A",
             TaskType.VISION: "A",
+            TaskType.LONG_CONTEXT: "A",
             TaskType.GENERAL: "A",
         },
-        description="Excellent all-rounder with strong coding abilities",
-        recommended_for=["code_review", "refactoring", "general"],
+        description="OpenAI's cost-efficient high end",
+        notes="Council's default model; GPT-6 Sol scores 57 on the Coding Agent Index",
+        recommended_for=["code_review", "second_opinion", "general"],
     ),
-    "anthropic/claude-3.5-haiku": ModelMetadata(
+    "~openai/gpt-luna-latest": ModelMetadata(  # gpt-6-luna
         model_class=ModelClass.FLASH,
         strengths={
             TaskType.CODING: "B",
             TaskType.REASONING: "B",
             TaskType.GENERAL: "B",
         },
-        description="Fast and cost-effective for simpler tasks",
-        recommended_for=["quick_questions", "simple_code", "summaries"],
+        description="OpenAI's fast, low-cost tier",
+        recommended_for=["quick_tasks", "summaries", "classification"],
     ),
-    "anthropic/claude-sonnet-4": ModelMetadata(
-        model_class=ModelClass.PRO,
-        strengths={
-            TaskType.CODING: "S",
-            TaskType.CODE_REVIEW: "S",
-            TaskType.REASONING: "A",
-            TaskType.CREATIVE: "A",
-            TaskType.VISION: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="State-of-the-art coding (72.5% SWE-bench)",
-        notes="Leads coding benchmarks as of late 2025",
-        recommended_for=["coding", "code_review", "debugging", "refactoring"],
-    ),
-    "anthropic/claude-opus-4": ModelMetadata(
-        model_class=ModelClass.DEEP,
-        strengths={
-            TaskType.CODING: "S",
-            TaskType.CODE_REVIEW: "S",
-            TaskType.REASONING: "S",
-            TaskType.CREATIVE: "A",
-            TaskType.LONG_CONTEXT: "A",
-            TaskType.GENERAL: "S",
-        },
-        description="Most capable Claude, excellent for complex tasks",
-        recommended_for=["complex_reasoning", "architecture", "long_documents"],
-    ),
-    # === Google Models ===
-    "google/gemini-2.5-pro": ModelMetadata(
+    # === Google ===
+    "~google/gemini-pro-latest": ModelMetadata(  # gemini-3.1-pro-preview
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "S",
+            TaskType.CREATIVE: "A",
             TaskType.VISION: "S",
             TaskType.LONG_CONTEXT: "S",
-            TaskType.CREATIVE: "A",
             TaskType.GENERAL: "A",
         },
-        description="Excellent reasoning, 1M context, leads WebDev Arena",
-        notes="Best for web development and multimodal tasks",
-        recommended_for=["web_development", "vision", "long_context", "reasoning"],
+        description="Google flagship; takes text, image, video and audio",
+        notes="Gemini 3.1 Pro scores 95.5% GPQA Diamond; it dates from February 2026",
+        recommended_for=["vision", "long_context", "reasoning", "research"],
     ),
-    "google/gemini-2.5-flash": ModelMetadata(
+    "~google/gemini-flash-latest": ModelMetadata(  # gemini-3.8-flash
         model_class=ModelClass.FLASH,
         strengths={
             TaskType.CODING: "B",
@@ -123,47 +132,86 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.VISION: "A",
             TaskType.GENERAL: "B",
         },
-        description="Fast multimodal model, good for vision tasks",
-        recommended_for=["quick_vision", "image_analysis", "fast_responses"],
+        description="Google's fast multimodal tier; takes text, image, video and audio",
+        recommended_for=["quick_vision", "video", "fast_responses"],
     ),
-    "google/gemini-3-pro-preview": ModelMetadata(
+    # === DeepSeek ===
+    "~deepseek/deepseek-pro-latest": ModelMetadata(  # deepseek-v4-pro-0813
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
-            TaskType.REASONING: "S",
-            TaskType.VISION: "S",
-            TaskType.LONG_CONTEXT: "S",
-            TaskType.CREATIVE: "A",
+            TaskType.CODE_REVIEW: "A",
+            TaskType.REASONING: "A",
+            TaskType.LONG_CONTEXT: "A",
             TaskType.GENERAL: "A",
         },
-        description="Latest Gemini with enhanced reasoning (86.4 GPQA)",
-        notes="Strong multimodal and reasoning capabilities",
-        recommended_for=["reasoning", "vision", "research", "analysis"],
+        description="Open-weight DeepSeek flagship with a 1M context; text-only input",
+        notes="DeepSeek V4 Pro leads open models on SWE-bench Verified (80.6%)",
+        recommended_for=["coding", "code_review", "cost_effective"],
     ),
-    # === OpenAI Models ===
-    "openai/gpt-4o": ModelMetadata(
+    "~deepseek/deepseek-flash-latest": ModelMetadata(  # deepseek-v4.1-flash
+        model_class=ModelClass.FLASH,
+        strengths={
+            TaskType.CODING: "B",
+            TaskType.REASONING: "B",
+            TaskType.GENERAL: "B",
+        },
+        description="DeepSeek's sparse MoE fast tier",
+        recommended_for=["quick_tasks", "cost_effective"],
+    ),
+    # === Moonshot ===
+    "~moonshotai/kimi-latest": ModelMetadata(  # kimi-k3
+        model_class=ModelClass.PRO,
+        strengths={
+            TaskType.CODING: "A",
+            TaskType.CODE_REVIEW: "A",
+            TaskType.REASONING: "A",
+            TaskType.CREATIVE: "S",
+            TaskType.VISION: "A",
+            TaskType.LONG_CONTEXT: "A",
+            TaskType.GENERAL: "A",
+        },
+        description="Open-weight Moonshot flagship; takes text, image and video",
+        notes="Kimi K3 ranks #2 on EQ-Bench creative writing",
+        recommended_for=["creative", "frontend", "coding", "second_opinion"],
+    ),
+    # === Z.ai ===
+    "~z-ai/glm-latest": ModelMetadata(  # glm-5.3
+        model_class=ModelClass.PRO,
+        strengths={
+            TaskType.CODING: "A",
+            TaskType.CODE_REVIEW: "A",
+            TaskType.REASONING: "A",
+            TaskType.LONG_CONTEXT: "A",
+            TaskType.GENERAL: "A",
+        },
+        description="Open-weight Z.ai flagship for software engineering; 1M context",
+        notes="Text-only input",
+        recommended_for=["coding", "long_context", "cost_effective"],
+    ),
+    "~z-ai/glm-flash-latest": ModelMetadata(  # glm-5.3-flash
+        model_class=ModelClass.FLASH,
+        strengths={
+            TaskType.CODING: "B",
+            TaskType.VISION: "B",
+            TaskType.GENERAL: "B",
+        },
+        description="Z.ai's fast tier; takes text, image and video",
+        recommended_for=["quick_tasks", "quick_vision", "cost_effective"],
+    ),
+    # === xAI ===
+    "~x-ai/grok-latest": ModelMetadata(  # grok-4.7
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "A",
-            TaskType.VISION: "A",
-            TaskType.CREATIVE: "A",
             TaskType.GENERAL: "A",
         },
-        description="Strong all-rounder with good speed",
-        recommended_for=["general", "creative", "coding"],
+        description="xAI flagship for coding and agentic work; 500K context",
+        recommended_for=["coding", "second_opinion"],
     ),
-    "openai/gpt-4o-mini": ModelMetadata(
-        model_class=ModelClass.FLASH,
-        strengths={
-            TaskType.CODING: "B",
-            TaskType.REASONING: "B",
-            TaskType.GENERAL: "B",
-        },
-        description="Cost-effective GPT-4 class model",
-        recommended_for=["quick_tasks", "simple_coding", "summaries"],
-    ),
-    "openai/gpt-4-turbo": ModelMetadata(
+    # === Qwen (no alias on OpenRouter, pinned) ===
+    "qwen/qwen3.8-max-0902": ModelMetadata(
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
@@ -172,156 +220,113 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.LONG_CONTEXT: "A",
             TaskType.GENERAL: "A",
         },
-        description="128K context, strong overall performance",
-        recommended_for=["long_documents", "coding", "general"],
+        description="Alibaba's 2.4T MoE flagship; takes text, image and video",
+        notes="$2/$6 per M tokens, 1M context",
+        recommended_for=["vision", "multilingual", "general"],
     ),
-    # === DeepSeek Models ===
-    "deepseek/deepseek-r1": ModelMetadata(
-        model_class=ModelClass.DEEP,
+    "qwen/qwen3.8-flash": ModelMetadata(
+        model_class=ModelClass.FLASH,
         strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "S",
-            TaskType.GENERAL: "A",
+            TaskType.CODING: "B",
+            TaskType.VISION: "A",
+            TaskType.GENERAL: "B",
         },
-        description="Specialized reasoning with reinforcement learning",
-        notes="Excels at math, logic, and complex coding",
-        recommended_for=["complex_reasoning", "math", "logic_puzzles"],
+        description="Cheap multimodal reasoning tier; long-video and document analysis",
+        recommended_for=["quick_vision", "video", "cost_effective"],
     ),
-    "deepseek/deepseek-chat": ModelMetadata(
+    # === MiniMax (no alias on OpenRouter, pinned) ===
+    "minimax/minimax-m3": ModelMetadata(
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.CREATIVE: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="Strong general-purpose model, cost-effective",
-        notes="Popular open-source option",
-        recommended_for=["general", "coding", "creative"],
-    ),
-    # === Meta Models ===
-    "meta-llama/llama-3.3-70b-instruct": ModelMetadata(
-        model_class=ModelClass.PRO,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="Strong open-source model, often free tier",
-        notes="Great for cost-conscious usage",
-        recommended_for=["general", "coding", "free_tier"],
-    ),
-    "meta-llama/llama-3.1-405b-instruct": ModelMetadata(
-        model_class=ModelClass.DEEP,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
+            TaskType.VISION: "B",
             TaskType.LONG_CONTEXT: "A",
             TaskType.GENERAL: "A",
         },
-        description="Largest Llama, 128K context",
-        recommended_for=["complex_tasks", "long_context"],
+        description="Multimodal model for long agentic work; 1M context at $0.30/$1.20",
+        recommended_for=["coding", "cost_effective"],
     ),
-    # === Mistral Models ===
-    "mistralai/mistral-large": ModelMetadata(
-        model_class=ModelClass.PRO,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="Strong European model with good coding",
-        recommended_for=["coding", "general", "multilingual"],
-    ),
-    "mistralai/mistral-medium-3": ModelMetadata(
+    # === Mistral (no alias on OpenRouter, pinned) ===
+    "mistralai/mistral-medium-3-5": ModelMetadata(
         model_class=ModelClass.PRO,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "B",
             TaskType.GENERAL: "A",
         },
-        description="90% of premium performance at $0.40/M tokens",
-        notes="Best value for money",
-        recommended_for=["cost_effective", "general", "coding"],
-    ),
-    # === xAI Models ===
-    "x-ai/grok-2": ModelMetadata(
-        model_class=ModelClass.PRO,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.CREATIVE: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="Strong reasoning with real-time web integration",
-        notes="Has 'Think' mode for step-by-step reasoning",
-        recommended_for=["reasoning", "current_events", "creative"],
-    ),
-    # === Qwen Models ===
-    "qwen/qwen-2.5-72b-instruct": ModelMetadata(
-        model_class=ModelClass.PRO,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="Strong open-source alternative from Alibaba",
-        notes="Second most used open-source on OpenRouter",
-        recommended_for=["coding", "general", "multilingual"],
+        description="Dense 128B European model; 262K context",
+        recommended_for=["multilingual", "general"],
     ),
 }
 
 
-# Task-to-model recommendations based on our research
+# Task-to-model recommendations, best first. The comment on each list names
+# what its order rests on.
 TASK_RECOMMENDATIONS: dict[TaskType, list[str]] = {
+    # SWE-bench Verified, Terminal-Bench, Coding Agent Index (Sept 2026)
     TaskType.CODING: [
-        "anthropic/claude-sonnet-4",  # SWE-bench leader
-        "anthropic/claude-3.5-sonnet",
-        "google/gemini-2.5-pro",
-        "deepseek/deepseek-chat",
+        "~openai/gpt-astra-latest",
+        "~deepseek/deepseek-pro-latest",  # best open-weight, 80.6% SWE-bench Verified
+        "~openai/gpt-sol-latest",
+        "~moonshotai/kimi-latest",  # led LMArena's frontend-code board (July 2026)
+        "~z-ai/glm-latest",
     ],
+    # No ranked code-review benchmark exists: follows CODING, minus the
+    # flagship-priced Astra, since reviews run often
     TaskType.CODE_REVIEW: [
-        "anthropic/claude-sonnet-4",
-        "anthropic/claude-3.5-sonnet",
-        "google/gemini-3-pro-preview",
+        "~openai/gpt-sol-latest",
+        "~deepseek/deepseek-pro-latest",
+        "~moonshotai/kimi-latest",
+        "~z-ai/glm-latest",
     ],
+    # GPQA Diamond (Sept 2026)
     TaskType.REASONING: [
-        "deepseek/deepseek-r1",  # Specialized reasoning
-        "google/gemini-3-pro-preview",  # 86.4 GPQA
-        "anthropic/claude-opus-4",
-        "x-ai/grok-2",
+        "~openai/gpt-astra-latest",  # 96.1% (vendor-reported)
+        "~google/gemini-pro-latest",  # 95.5%
+        "~deepseek/deepseek-pro-latest",
+        "~openai/gpt-sol-latest",
     ],
+    # EQ-Bench Longform creative writing (Sept 2026)
     TaskType.CREATIVE: [
-        "anthropic/claude-3.5-sonnet",
-        "openai/gpt-4o",
-        "deepseek/deepseek-chat",
+        "~moonshotai/kimi-latest",  # #2 overall, top non-Anthropic
+        "~openai/gpt-sol-latest",  # GPT-5.6 Sol was #3; GPT-6 not yet scored
+        "~google/gemini-pro-latest",
     ],
+    # No vision leaderboard covers these models yet: ordered by tier, then by
+    # the input modalities OpenRouter lists
     TaskType.VISION: [
-        "google/gemini-2.5-pro",  # Dominates vision workloads
-        "google/gemini-2.5-flash",
-        "openai/gpt-4o",
-        "anthropic/claude-3.5-sonnet",
+        "~google/gemini-pro-latest",  # text, image, video, audio
+        "qwen/qwen3.8-max-0902",  # text, image, video
+        "~moonshotai/kimi-latest",  # text, image, video
+        "~google/gemini-flash-latest",  # text, image, video, audio
     ],
+    # No long-context benchmark covers these models yet, and all four serve
+    # about 1M tokens: ordered by rating
     TaskType.LONG_CONTEXT: [
-        "google/gemini-2.5-pro",  # 1M tokens
-        "google/gemini-3-pro-preview",  # 1M tokens
-        "anthropic/claude-opus-4",
-        "meta-llama/llama-3.1-405b-instruct",
+        "~google/gemini-pro-latest",  # rated S
+        "~z-ai/glm-latest",
+        "~deepseek/deepseek-pro-latest",
+        "~openai/gpt-sol-latest",
     ],
+    # LMArena text puts Gemini 3.1 Pro in its frontier tier; GPT-6 and the
+    # open-weight models are not yet scored there
     TaskType.GENERAL: [
-        "anthropic/claude-3.5-sonnet",
-        "openai/gpt-4o",
-        "google/gemini-2.5-pro",
-        "deepseek/deepseek-chat",
+        "~google/gemini-pro-latest",
+        "~openai/gpt-sol-latest",
+        "~moonshotai/kimi-latest",
+        "~deepseek/deepseek-pro-latest",
+        "~z-ai/glm-latest",
     ],
 }
 
 
-# Free tier recommendations
+# Free tier recommendations. Free routes churn fastest of all; check them with
+# scripts/check_models.py.
 FREE_TIER_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "deepseek/deepseek-chat:free",
-    "qwen/qwen-2.5-72b-instruct:free",
+    "qwen/qwen3.8-27b:free",  # 262K, text/image/video
+    "google/gemma-4-31b-it:free",  # 262K, text/image/video
+    "nvidia/nemotron-3-ultra-550b-a55b:free",  # 1M, text
+    "z-ai/glm-5.2:free",  # only 32K on the free route
 ]
 
 
@@ -329,7 +334,7 @@ def get_model_metadata(model_id: str) -> Optional[ModelMetadata]:
     """Get curated metadata for a model.
 
     Args:
-        model_id: The model ID (e.g., 'anthropic/claude-3.5-sonnet').
+        model_id: The model ID (e.g., '~z-ai/glm-latest').
 
     Returns:
         ModelMetadata if found, None otherwise.
@@ -343,10 +348,12 @@ def get_model_metadata(model_id: str) -> Optional[ModelMetadata]:
     if base_id in MODEL_REGISTRY:
         return MODEL_REGISTRY[base_id]
 
-    # Try fuzzy match on model name
-    model_lower = model_id.lower()
+    # Try fuzzy match: an alias typed without its "~", or an ID that extends a
+    # registry key. Not the reverse: "mistral-medium-3" is a different, older
+    # model than the "mistral-medium-3-5" key it is a prefix of.
+    model_lower = model_id.lower().lstrip("~")
     for reg_id, metadata in MODEL_REGISTRY.items():
-        if reg_id.lower() in model_lower or model_lower in reg_id.lower():
+        if reg_id.lower().lstrip("~") in model_lower:
             return metadata
 
     return None
@@ -399,7 +406,7 @@ def generate_model_guide() -> str:
     for task in TaskType:
         task_name = task.value.replace("_", " ").title()
         recommendations = get_recommendations_for_task(task, limit=3)
-        models_str = ", ".join(r.split("/")[1] for r in recommendations)
+        models_str = ", ".join(recommendations)
         lines.append(f"**{task_name}**: {models_str}")
 
     lines.extend(

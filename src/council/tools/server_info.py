@@ -115,25 +115,29 @@ class ServerInfoTool(MCPTool):
         return info
 
     def _get_quick_guide(self) -> str:
-        """Generate a quick model selection guide."""
-        return """## Quick Model Selection Guide
+        """Generate a quick model selection guide from the curated registry."""
+        from ..discovery.model_registry import (
+            FREE_TIER_MODELS,
+            ModelClass,
+            TaskType,
+            get_model_class_description,
+            get_recommendations_for_task,
+        )
 
-**By Task Type:**
-• Coding/Code Review → Claude Sonnet 4, Claude 3.5 Sonnet
-• Reasoning/Math → DeepSeek R1, Gemini 3 Pro
-• Vision/Images → Gemini 2.5 Flash, Gemini 2.5 Pro
-• Web Development → Gemini 2.5 Pro (leads WebDev Arena)
-• Long Documents → Gemini (1M tokens), Llama 4 Scout (10M)
-• General/Creative → Claude 3.5 Sonnet, GPT-4o
+        lines = ["## Quick Model Selection Guide", "", "**By Task Type:**"]
+        for task in TaskType:
+            models = ", ".join(get_recommendations_for_task(task, limit=3))
+            lines.append(f"• {task.value.replace('_', ' ').title()} → {models}")
 
-**Model Classes:**
-• FLASH: Fast & cheap (Haiku, GPT-4o-mini, Gemini Flash)
-• PRO: Balanced quality/cost (Sonnet, GPT-4o, Gemini Pro)
-• DEEP: Maximum quality (Opus, o1, DeepSeek R1)
+        lines.extend(["", "**Model Classes:**"])
+        for model_class in ModelClass:
+            description = get_model_class_description(model_class)
+            lines.append(f"• {model_class.value.upper()}: {description}")
 
-**Free Tier Options:**
-• meta-llama/llama-3.3-70b-instruct:free
-• deepseek/deepseek-chat:free
-• qwen/qwen-2.5-72b-instruct:free
+        lines.extend(["", "**Free Tier Options:**"])
+        lines.extend(f"• {model}" for model in FREE_TIER_MODELS)
 
-💡 Use `recommend_model` tool for detailed task-specific recommendations."""
+        lines.extend(
+            ["", "💡 Use `recommend_model` tool for detailed task-specific recommendations."]
+        )
+        return "\n".join(lines)

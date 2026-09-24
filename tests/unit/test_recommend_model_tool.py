@@ -2,6 +2,7 @@
 
 import pytest
 
+from council.discovery.model_registry import TaskType, get_recommendations_for_task
 from council.tools.recommend_model import RecommendModelTool
 
 
@@ -92,6 +93,14 @@ class TestRecommendModelTool:
         assert "Recommendations" in result.result
         # Should include model class guide
         assert "Flash" in result.result or "Pro" in result.result
+
+    @pytest.mark.asyncio
+    async def test_execute_shows_full_model_ids(self, tool):
+        """Test recommendations print the full ID that the model parameter accepts."""
+        result = await tool.execute({"task": "coding"})
+
+        top_pick = get_recommendations_for_task(TaskType.CODING, limit=1)[0]
+        assert f"**{top_pick}**" in result.result
 
     @pytest.mark.asyncio
     async def test_execute_reasoning_task(self, tool):

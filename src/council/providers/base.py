@@ -31,8 +31,9 @@ class ModelInfo:
     def from_openrouter(cls, data: dict[str, Any]) -> "ModelInfo":
         """Create ModelInfo from OpenRouter API response."""
         model_id = data.get("id", "")
-        # Extract provider from model ID (e.g., "google/gemini-3-pro-preview" -> "google")
-        provider = model_id.split("/")[0] if "/" in model_id else "unknown"
+        # Extract provider from model ID (e.g., "z-ai/glm-5.3" -> "z-ai"), dropping the
+        # "~" that marks OpenRouter's floating aliases ("~z-ai/glm-latest")
+        provider = model_id.split("/")[0].lstrip("~") if "/" in model_id else "unknown"
 
         # Check if it's a free model (ends with ":free")
         is_free = model_id.endswith(":free")

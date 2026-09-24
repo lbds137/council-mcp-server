@@ -115,10 +115,15 @@ class TestModelRegistry:
         """Test registry contains models."""
         assert len(MODEL_REGISTRY) > 0
 
-    def test_anthropic_models_present(self):
-        """Test Anthropic models are in registry."""
-        anthropic_models = [k for k in MODEL_REGISTRY.keys() if "anthropic" in k]
-        assert len(anthropic_models) >= 3  # At least 3 Claude models
+    def test_no_anthropic_models(self):
+        """Test Anthropic models are left out of every curated list.
+
+        The caller is Claude Code, which can spawn its own Claude agents, so
+        council recommends other model families only.
+        """
+        recommended = [m for models in TASK_RECOMMENDATIONS.values() for m in models]
+        curated = [*MODEL_REGISTRY, *recommended, *FREE_TIER_MODELS]
+        assert not [m for m in curated if "anthropic" in m]
 
     def test_google_models_present(self):
         """Test Google models are in registry."""
@@ -154,7 +159,7 @@ class TestModelRegistry:
     def test_deep_class_models_exist(self):
         """Test there are deep-class models."""
         deep_models = [k for k, v in MODEL_REGISTRY.items() if v.model_class == ModelClass.DEEP]
-        assert len(deep_models) >= 2
+        assert len(deep_models) >= 1
 
 
 class TestTaskRecommendations:
@@ -166,14 +171,14 @@ class TestTaskRecommendations:
             assert task in TASK_RECOMMENDATIONS
             assert len(TASK_RECOMMENDATIONS[task]) > 0
 
-    def test_coding_has_claude_recommendation(self):
-        """Test coding task recommends Claude."""
-        coding_recs = TASK_RECOMMENDATIONS[TaskType.CODING]
-        claude_models = [r for r in coding_recs if "claude" in r.lower()]
-        assert len(claude_models) >= 1
+    def test_recommended_models_have_metadata(self):
+        """Test every recommended model has a registry entry to rate it."""
+        for models in TASK_RECOMMENDATIONS.values():
+            for model_id in models:
+                assert model_id in MODEL_REGISTRY
 
     def test_reasoning_has_deepseek_recommendation(self):
-        """Test reasoning task recommends DeepSeek R1."""
+        """Test reasoning task recommends DeepSeek."""
         reasoning_recs = TASK_RECOMMENDATIONS[TaskType.REASONING]
         assert any("deepseek" in r.lower() for r in reasoning_recs)
 
@@ -191,10 +196,6 @@ class TestFreeTierModels:
         """Test free tier list is not empty."""
         assert len(FREE_TIER_MODELS) >= 1
 
-    def test_free_tier_has_llama(self):
-        """Test free tier includes Llama."""
-        assert any("llama" in m.lower() for m in FREE_TIER_MODELS)
-
     def test_free_tier_models_have_free_suffix(self):
         """Test free tier models have :free suffix."""
         for model in FREE_TIER_MODELS:
@@ -206,20 +207,24 @@ class TestGetModelMetadata:
 
     def test_exact_match(self):
         """Test getting metadata with exact model ID."""
-        metadata = get_model_metadata("anthropic/claude-3.5-sonnet")
+        metadata = get_model_metadata("~z-ai/glm-latest")
         assert metadata is not None
         assert metadata.model_class == ModelClass.PRO
 
     def test_with_version_suffix(self):
         """Test getting metadata with version suffix."""
-        metadata = get_model_metadata("anthropic/claude-3.5-sonnet:free")
+        metadata = get_model_metadata("qwen/qwen3.8-max-0902:batch")
         assert metadata is not None
         assert metadata.model_class == ModelClass.PRO
 
     def test_fuzzy_match(self):
-        """Test fuzzy matching on model name."""
-        metadata = get_model_metadata("anthropic/claude-3.5-sonnet-latest")
+        """Test fuzzy matching finds an alias typed without its ~ prefix."""
+        metadata = get_model_metadata("z-ai/glm-latest")
         assert metadata is not None
+
+    def test_older_model_does_not_borrow_newer_key(self):
+        """Test a model whose ID is a prefix of a registry key doesn't get its metadata."""
+        assert get_model_metadata("mistralai/mistral-medium-3") is None
 
     def test_unknown_model_returns_none(self):
         """Test unknown model returns None."""
@@ -228,7 +233,7 @@ class TestGetModelMetadata:
 
     def test_case_insensitive_fuzzy_match(self):
         """Test fuzzy match is case-insensitive."""
-        metadata = get_model_metadata("ANTHROPIC/CLAUDE-3.5-SONNET")
+        metadata = get_model_metadata("~Z-AI/GLM-LATEST")
         # Fuzzy match should find it
         assert metadata is not None
 

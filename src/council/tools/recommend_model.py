@@ -19,7 +19,7 @@ class RecommendModelTool(MCPTool):
     def description(self) -> str:
         return (
             "Recommend the best AI model for a specific task. "
-            "Provides curated recommendations based on benchmarks and usage data. "
+            "Provides curated recommendations based on published benchmarks where they exist. "
             "Task types: coding, code_review, reasoning, creative, vision, long_context, general."
         )
 
@@ -111,11 +111,10 @@ class RecommendModelTool(MCPTool):
                     # Get strength for this task
                     strength = metadata.strengths.get(task, "B")
 
-                    # Build model line
-                    model_name = model_id.split("/")[1]
+                    # Build model line with the full ID, which is what `model` accepts
                     class_badge = f"[{metadata.model_class.value.upper()}]"
 
-                    line = f"{i}. **{model_name}** {class_badge} (Rating: {strength})"
+                    line = f"{i}. **{model_id}** {class_badge} (Rating: {strength})"
                     if metadata.description:
                         line += f"\n   _{metadata.description}_"
                     result_lines.append(line)
@@ -140,20 +139,28 @@ class RecommendModelTool(MCPTool):
             # Add notes for specific tasks
             task_notes = {
                 TaskType.CODING: (
-                    "\n💡 **Tip**: Claude Sonnet 4 leads SWE-bench (77-82%). "
-                    "For web dev, Gemini 2.5 Pro leads WebDev Arena."
+                    "\n💡 **Tip**: DeepSeek V4 Pro leads open-weight models on "
+                    "SWE-bench Verified (80.6%, Sept 2026)."
+                ),
+                TaskType.CODE_REVIEW: (
+                    "\n💡 **Tip**: No ranked code-review benchmark exists; these follow "
+                    "the coding results at a price suited to frequent reviews."
                 ),
                 TaskType.REASONING: (
-                    "\n💡 **Tip**: DeepSeek R1 uses reinforcement learning for "
-                    "step-by-step reasoning. Gemini 3 Pro scores 86.4 on GPQA."
+                    "\n💡 **Tip**: GPT-6 Astra reports 96.1% on GPQA Diamond (vendor figure); "
+                    "Gemini 3.1 Pro scores 95.5%."
+                ),
+                TaskType.CREATIVE: (
+                    "\n💡 **Tip**: Kimi K3 ranks #2 on EQ-Bench creative writing, "
+                    "the highest of any non-Anthropic model (Sept 2026)."
                 ),
                 TaskType.VISION: (
-                    "\n💡 **Tip**: Gemini Flash handles 50%+ of vision workloads on OpenRouter. "
-                    "Great balance of speed and quality for image tasks."
+                    "\n💡 **Tip**: Gemini also takes audio and video; Qwen3.8 Max and "
+                    "Kimi K3 take video. No vision leaderboard covers these models yet."
                 ),
                 TaskType.LONG_CONTEXT: (
-                    "\n💡 **Tip**: Gemini models support up to 1M tokens. "
-                    "Llama 4 Scout handles up to 10M tokens for extreme cases."
+                    "\n💡 **Tip**: No long-context benchmark covers these models yet; "
+                    "all four serve about 1M tokens."
                 ),
             }
 

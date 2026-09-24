@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-cov lint format type-check clean pre-commit update-mcp
+.PHONY: help install install-dev test test-cov lint format type-check clean pre-commit update-mcp check-models
 
 help:
 	@echo "Available commands:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make pre-commit    Run all pre-commit hooks"
 	@echo "  make clean         Clean up generated files"
 	@echo "  make update-mcp    Update MCP installation"
+	@echo "  make check-models  Find registry model IDs OpenRouter no longer lists"
 
 install:
 	pip install -e .
@@ -55,3 +56,6 @@ clean:
 
 update-mcp:
 	./scripts/update.sh
+
+check-models:
+	python scripts/check_models.py

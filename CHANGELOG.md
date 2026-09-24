@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `scripts/check_models.py` (`make check-models`) lists registry model IDs that OpenRouter no longer serves
 - Comprehensive test coverage for JSON-RPC layer (30 tests)
 - Complete test suite for main.py entry point (16 tests)
 - Full test coverage for DualModelManager (15 tests)
@@ -17,11 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
+- Model registry refreshed to September 2026 and keyed on OpenRouter's floating `~vendor/family-latest` aliases, so new releases are picked up without edits
+- Anthropic models removed from the registry and all recommendations: Claude Code can spawn its own Claude agents, so council covers other families. Recommendations draw on OpenAI, Google, DeepSeek, Kimi, GLM and Qwen; xAI, MiniMax and Mistral are rated for `list_models`
+- Default model is now `~openai/gpt-sol-latest` (GPT-6 Sol)
+- `server_info`'s quick guide is generated from the registry instead of a hand-written copy
+- `recommend_model` prints full model IDs, which is what the `model` parameter accepts
 - Python version requirement updated to 3.9+ (required by google-generativeai)
 - Test coverage increased from 49% to 80%
 - Entry point in setup.py corrected to gemini_mcp.main:main
 
 ### Fixed
+- Fallback default model `google/gemini-3-pro-preview` no longer exists on OpenRouter
+- `list_models` provider filter missed `~` alias entries (their provider read as `~openai`)
+- Responses name the model OpenRouter actually served, not the `~` alias that was requested
+- Model metadata lookup no longer gives an older model a newer model's entry when its ID is a prefix of the newer key
+- Release workflow built on Python 3.11, below `python_requires>=3.12`; it now uses 3.13
 - All mypy type errors resolved - project now passes strict type checking
 - Test import errors in CI (ModuleNotFoundError issues)
 - Optional type hints in JSON-RPC classes

@@ -30,8 +30,8 @@ class ListModelsTool(MCPTool):
                 "provider": {
                     "type": "string",
                     "description": (
-                        "Filter by provider (e.g., 'google', 'anthropic', 'openai', "
-                        "'meta', 'mistral')"
+                        "Filter by provider (e.g., 'google', 'openai', 'deepseek', "
+                        "'z-ai', 'moonshotai')"
                     ),
                 },
                 "capability": {

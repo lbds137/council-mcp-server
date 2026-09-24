@@ -43,8 +43,8 @@ class StartConversationTool(MCPTool):
                 "model": {
                     "type": "string",
                     "description": (
-                        "The model to converse with (e.g., 'deepseek/deepseek-r1', "
-                        "'anthropic/claude-3-haiku'). Use list_models to see options."
+                        "The model to converse with (e.g., '~deepseek/deepseek-pro-latest', "
+                        "'~z-ai/glm-latest'). Use list_models to see options."
                     ),
                 },
                 "system_prompt": {
