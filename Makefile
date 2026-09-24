@@ -12,8 +12,8 @@ help:
 	@echo "  make install-dev   Install package with dev dependencies"
 	@echo "  make test          Run tests"
 	@echo "  make test-cov      Run tests with coverage"
-	@echo "  make lint          Run linting (flake8)"
-	@echo "  make format        Format code with black and isort"
+	@echo "  make lint          Run linting (ruff check)"
+	@echo "  make format        Format code and sort imports (ruff)"
 	@echo "  make type-check    Run type checking with mypy"
 	@echo "  make pre-commit    Run all pre-commit hooks"
 	@echo "  make clean         Clean up generated files"
@@ -34,11 +34,11 @@ test-cov:
 	$(PYTHON) -m pytest tests/ -v --cov=council --cov-report=term-missing --cov-report=html
 
 lint:
-	$(PYTHON) -m flake8 src/ tests/
+	$(PYTHON) -m ruff check src/ tests/ scripts/
 
 format:
-	$(PYTHON) -m black src/ tests/
-	$(PYTHON) -m isort src/ tests/
+	$(PYTHON) -m ruff check --fix --select I src/ tests/ scripts/
+	$(PYTHON) -m ruff format src/ tests/ scripts/
 
 type-check:
 	$(PYTHON) -m mypy src/

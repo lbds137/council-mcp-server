@@ -24,7 +24,12 @@ echo "   Target: $MCP_DIR"
 # Always rebuild from modular source to ensure latest code
 echo "🔨 Building server from modular source..."
 cd "$PROJECT_ROOT"
-python3 scripts/bundler.py
+# The repo venv has ruff, so the rebuilt bundle comes out formatted
+BUNDLER_PYTHON="python3"
+if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
+    BUNDLER_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+fi
+"$BUNDLER_PYTHON" scripts/bundler.py
 
 # Create MCP directory if needed
 if [ ! -d "$MCP_DIR" ]; then

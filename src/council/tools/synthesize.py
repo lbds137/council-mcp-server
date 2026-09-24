@@ -70,7 +70,7 @@ class SynthesizeTool(MCPTool):
                 return ToolOutput(success=False, error="At least one perspective is required")
             for i, perspective in enumerate(perspectives):
                 if not isinstance(perspective, dict) or not perspective.get("content"):
-                    return ToolOutput(success=False, error=f"Perspective {i+1} has no content")
+                    return ToolOutput(success=False, error=f"Perspective {i + 1} has no content")
 
             model_override = parameters.get("model")
 
@@ -104,7 +104,7 @@ class SynthesizeTool(MCPTool):
         """Build the synthesis prompt."""
         perspectives_text = "\n\n".join(
             [
-                f"**{p.get('source') or f'Perspective {i+1}'}:**\n{p['content']}"
+                f"**{p.get('source') or f'Perspective {i + 1}'}:**\n{p['content']}"
                 for i, p in enumerate(perspectives)
             ]
         )
