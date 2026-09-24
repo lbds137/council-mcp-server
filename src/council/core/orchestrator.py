@@ -48,7 +48,8 @@ class ConversationOrchestrator:
         output = await tool.execute(parameters)
         output.execution_time_ms = (time.monotonic() - started) * 1000
 
-        if cache_key and output.success:
+        # A tool can veto caching one result, e.g. a partial one
+        if cache_key and output.success and output.metadata.get("cacheable", True):
             self.cache.set(cache_key, output)
 
         self.total_executions += 1

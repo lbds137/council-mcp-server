@@ -26,6 +26,7 @@ Since this MCP server is already running, you can use these tools directly:
 - `mcp__council__test_cases` - Generate test cases
 - `mcp__council__explain` - Get explanations
 - `mcp__council__synthesize_perspectives` - Combine multiple viewpoints
+- `mcp__council__debate` - 2-4 models debate a topic (openings, rebuttals, synthesis); calls run in parallel, one per debater per round
 - `mcp__council__debug` - Diagnose an error
 - `mcp__council__refactor` - Suggest refactorings
 
@@ -104,6 +105,7 @@ src/council/
 │   ├── base.py          # MCPTool base class, ToolOutput
 │   ├── ask.py, code_review.py, brainstorm.py, test_cases.py, explain.py,
 │   ├── synthesize.py, debug.py, refactor.py   # Answer tools (cacheable)
+│   ├── debate.py        # Multi-model debate
 │   ├── conversation.py  # Multi-turn conversation tools
 │   ├── list_models.py, set_model.py, recommend_model.py, server_info.py
 ├── core/
