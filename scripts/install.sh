@@ -54,7 +54,9 @@ SOURCE="git+file://$PROJECT_ROOT@$COMMIT"
 # from git as already installed, so the second replaces council itself every time.
 "$VENV_DIR/bin/pip" install --quiet "$SOURCE"
 "$VENV_DIR/bin/pip" install --quiet --force-reinstall --no-deps "$SOURCE"
-git -C "$PROJECT_ROOT" show "$COMMIT:launcher.py" > "$MCP_DIR/launcher.py"
+# Via a temporary name, so a failed git show can't leave the live launcher empty
+git -C "$PROJECT_ROOT" show "$COMMIT:launcher.py" > "$MCP_DIR/launcher.py.new"
+mv "$MCP_DIR/launcher.py.new" "$MCP_DIR/launcher.py"
 
 # Fail here, not at the next reconnect, if the install can't even import
 "$VENV_DIR/bin/python" -c "import council.main"
