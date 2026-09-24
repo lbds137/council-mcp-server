@@ -42,27 +42,31 @@ run_check() {
 # Change to project root
 cd "$(git rev-parse --show-toplevel)"
 
-# Activate virtual environment if it exists
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-elif [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
+# Set up venv paths
+VENV_BIN=""
+if [ -d ".venv/bin" ]; then
+    VENV_BIN=".venv/bin/"
+elif [ -d "venv/bin" ]; then
+    VENV_BIN="venv/bin/"
 fi
 
+# Python command
+PYTHON="${VENV_BIN}python"
+
 # Run linting (fast)
-run_check "Ruff linting" "ruff check src/ tests/ --quiet || flake8 src/ tests/ --quiet"
+run_check "Ruff linting" "$PYTHON -m ruff check src/ tests/ --quiet 2>/dev/null || $PYTHON -m flake8 src/ tests/ --quiet"
 
 # Run formatting check (fast)
-run_check "Black formatting" "black --check src/ tests/ --quiet"
+run_check "Black formatting" "$PYTHON -m black --check src/ tests/ --quiet"
 
 # Run import order check (fast)
-run_check "isort import order" "isort --check-only src/ tests/ --quiet"
+run_check "isort import order" "$PYTHON -m isort --check-only src/ tests/ --quiet"
 
 # Run type checking (medium)
-run_check "mypy type checking" "mypy src/ --no-error-summary"
+run_check "mypy type checking" "$PYTHON -m mypy src/ --no-error-summary"
 
 # Run tests (comprehensive)
-run_check "pytest test suite" "pytest tests/ -v --tb=short -q"
+run_check "pytest test suite" "$PYTHON -m pytest tests/ -v --tb=short -q"
 
 # Summary
 echo -e "${BLUE}========================================${NC}"
