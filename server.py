@@ -3884,6 +3884,12 @@ class DebateTool(MCPTool):
         if not isinstance(models, list) or not all(isinstance(m, str) and m for m in models):
             return "models must be a list of model IDs"
 
+        if positions and parameters.get("models") and len(models) > len(positions):
+            return (
+                f"{len(models)} models for {len(positions)} positions would leave models out: "
+                "give at most one model per position (fewer models are reused in turn)"
+            )
+
         count = len(positions) if positions else len(models)
         if not MIN_DEBATERS <= count <= MAX_DEBATERS:
             what = "positions" if positions else "models"
@@ -4598,6 +4604,7 @@ from typing import Any
 
 
 RATING_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3}
+LIMIT = 5  # recommendations shown
 
 
 def _tokens(count: int) -> str:
@@ -4797,7 +4804,7 @@ class RecommendModelTool(MCPTool):
     def _select(
         task: Any, prefer_fast: bool, min_context: int | None
     ) -> tuple[list[str], list[tuple[str, int]]]:
-        """Pick up to five models for the task.
+        """Pick up to LIMIT models for the task.
 
         Returns:
             The models to recommend, and the (model, window) pairs left out
@@ -4818,17 +4825,20 @@ class RecommendModelTool(MCPTool):
 
         dropped: list[tuple[str, int]] = []
         if min_context:
-            kept = []
+            kept: list[str] = []
             for model_id in candidates:
+                if len(kept) == LIMIT:
+                    break
                 metadata = get_model_metadata(model_id)
                 window = metadata.context_window if metadata else 0
                 if window >= min_context:
                     kept.append(model_id)
                 else:
+                    # Only name models that would otherwise have been listed
                     dropped.append((model_id, window))
             candidates = kept
 
-        return candidates[:5], dropped
+        return candidates[:LIMIT], dropped
 
 
 # ========== Refactor tool for atomic refactoring plans with before/after examples. ==========
@@ -5521,14 +5531,9 @@ class TestCasesTool(MCPTool):
 
         test_focus = test_type_instructions.get(test_type, test_type_instructions["all"])
 
-        # Detect if input is code or feature description
-        is_code = any(
-            indicator in code_or_feature
-            for indicator in ["def ", "function", "class", "{", "=>", "()"]
-        )
-        input_type = "code" if is_code else "feature"
-
-        return f"""Please suggest test cases for the following {input_type}:
+        # No guessing whether this is code or prose: a keyword guess mislabels
+        # "Users can classify tickets" as code, and the model can tell anyway
+        return f"""Please suggest test cases for the following code or feature description:
 
 {code_or_feature}
 

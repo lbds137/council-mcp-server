@@ -5,7 +5,6 @@ Works with the modular architecture to combine all components into a single depl
 """
 
 import ast
-import importlib.util
 import logging
 import subprocess
 import sys
@@ -257,64 +256,8 @@ def _apply_tool_registry_override():
         return override_code
 
     def clean_content(self, content: str, rel_path: str) -> str:
-        """Clean module content for bundling using AST parsing."""
-        try:
-            # Parse the content to ensure it's valid Python
-            tree = ast.parse(content)
-
-            # For main.py, we need special handling
-            if rel_path == "main.py":
-                # Remove the if __name__ == "__main__" block since we'll add our own
-                class MainBlockRemover(ast.NodeTransformer):
-                    def visit_If(self, node):
-                        # Check if this is a __name__ == "__main__" check
-                        if (
-                            isinstance(node.test, ast.Compare)
-                            and isinstance(node.test.left, ast.Name)
-                            and node.test.left.id == "__name__"
-                            and len(node.test.comparators) == 1
-                            and isinstance(node.test.comparators[0], ast.Constant)
-                            and node.test.comparators[0].value == "__main__"
-                        ):
-                            return None  # Remove this node
-                        return self.generic_visit(node)
-
-                tree = MainBlockRemover().visit(tree)
-
-            # Convert back to source
-            import astor
-
-            cleaned = astor.to_source(tree)
-
-            # Remove imports that won't work in bundled version
-            lines = cleaned.split("\n")
-            filtered_lines = []
-
-            for line in lines:
-                # Skip relative imports
-                if line.strip().startswith("from .") or line.strip().startswith("from .."):
-                    continue
-                # Skip imports from our own package
-                if "from council" in line or "from src.council" in line:
-                    continue
-                if "import council" in line or "import src.council" in line:
-                    continue
-                # Skip old gemini_mcp imports
-                if "from gemini_mcp" in line or "from src.gemini_mcp" in line:
-                    continue
-                if "import gemini_mcp" in line or "import src.gemini_mcp" in line:
-                    continue
-
-                filtered_lines.append(line)
-
-            return "\n".join(filtered_lines)
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to use AST cleaning for {rel_path}, falling back to text processing: {e}"
-            )
-            # Fallback to simple text processing
-            return self._simple_clean_content(content)
+        """Clean one module for the bundle: drop its package imports and __main__ block."""
+        return self._simple_clean_content(content)
 
     def _fix_tool_imports(self, content: str, is_tool: bool) -> str:
         """Drop the tools' package imports; the bundle provides those names as globals.
@@ -333,8 +276,8 @@ def _apply_tool_registry_override():
             "# _server_instance is a module global in the bundle",
         )
 
-    def _simple_clean_content(self, content: str):
-        """Simple text-based content cleaning as fallback."""
+    def _simple_clean_content(self, content: str) -> str:
+        """Text-based cleaning, which keeps comments and formatting."""
         lines = content.split("\n")
         cleaned_lines = []
 
@@ -343,9 +286,20 @@ def _apply_tool_registry_override():
         in_module_docstring = False
         docstring_delimiter = None
         in_multiline_import = False  # Track multi-line imports
+        in_main_block = False  # Inside a top-level `if __name__ == "__main__":`
 
         for i, line in enumerate(lines):
             stripped = line.strip()
+
+            # The bundle adds its own entry point, so drop each module's whole
+            # __main__ block: the if line and everything indented under it
+            if in_main_block:
+                if not stripped or line[0] in " \t":
+                    continue
+                in_main_block = False
+            if line.startswith("if __name__ ==") and "__main__" in line:
+                in_main_block = True
+                continue
 
             # Skip shebang
             if i == 0 and line.startswith("#!"):
@@ -408,13 +362,6 @@ def _apply_tool_registry_override():
                 if seen_code:  # Only skip if we've already seen these imports
                     continue
 
-            # Skip if __name__ == "__main__" blocks to avoid duplicate execution
-            if 'if __name__ == "__main__"' in line:
-                # Skip this block entirely
-                continue
-            if line.strip() == "main()" and i > 0 and "if __name__" in lines[i - 1]:
-                continue
-
             cleaned_lines.append(line)
 
         return "\n".join(cleaned_lines)
@@ -422,11 +369,6 @@ def _apply_tool_registry_override():
     def create_bundle(self) -> str:
         """Create the complete bundled server."""
         logger.info("Starting bundle creation...")
-
-        if importlib.util.find_spec("astor"):
-            logger.info("Using AST-based cleaning (astor available)")
-        else:
-            logger.warning("astor not available, using text-based cleaning")
 
         # Discover all components and tools
         self.discover_all()

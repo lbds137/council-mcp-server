@@ -97,14 +97,9 @@ class TestCasesTool(MCPTool):
 
         test_focus = test_type_instructions.get(test_type, test_type_instructions["all"])
 
-        # Detect if input is code or feature description
-        is_code = any(
-            indicator in code_or_feature
-            for indicator in ["def ", "function", "class", "{", "=>", "()"]
-        )
-        input_type = "code" if is_code else "feature"
-
-        return f"""Please suggest test cases for the following {input_type}:
+        # No guessing whether this is code or prose: a keyword guess mislabels
+        # "Users can classify tickets" as code, and the model can tell anyway
+        return f"""Please suggest test cases for the following code or feature description:
 
 {code_or_feature}
 

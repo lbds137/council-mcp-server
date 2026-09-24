@@ -77,23 +77,23 @@ class TestCasesToolExecute:
         assert result.result.endswith("[Model: ~openai/gpt-sol-latest]")
 
     @pytest.mark.asyncio
-    async def test_prompt_for_code_input(self, server, manager):
-        """Code input is embedded and labelled as code."""
-        code = "def add(a, b):\n    return a + b"
-        await CasesTool().execute({"code_or_feature": code})
+    @pytest.mark.parametrize(
+        "code_or_feature",
+        [
+            "def add(a, b):\n    return a + b",
+            "Users can reset their password by email",
+            "Users can classify tickets by function",  # once misread as code
+        ],
+    )
+    async def test_prompt_embeds_input_with_one_neutral_label(
+        self, server, manager, code_or_feature
+    ):
+        """Code and prose get the same prompt, so nothing can be mislabelled."""
+        await CasesTool().execute({"code_or_feature": code_or_feature})
         prompt = manager.generate_content.call_args[0][0]
-        assert code in prompt
-        assert "test cases for the following code:" in prompt
+        assert code_or_feature in prompt
+        assert "test cases for the following code or feature description:" in prompt
         assert "comprehensive test cases covering all aspects" in prompt
-
-    @pytest.mark.asyncio
-    async def test_prompt_for_feature_input(self, server, manager):
-        """A prose description is labelled as a feature."""
-        feature = "Users can reset their password by email"
-        await CasesTool().execute({"code_or_feature": feature})
-        prompt = manager.generate_content.call_args[0][0]
-        assert feature in prompt
-        assert "test cases for the following feature:" in prompt
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

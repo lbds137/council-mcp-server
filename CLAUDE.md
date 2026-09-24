@@ -79,7 +79,7 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 The owner doesn't read diffs; the pre-push hook and CI are the gates.
 - **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs ruff (lint and format), mypy and pytest.
 - **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
-- No ruleset is active on GitHub. `.github/rulesets/main.json` requires the checks CI reports, `test (3.12)` and `test (3.13)`; activating it is the owner's call.
+- The GitHub ruleset in `.github/rulesets/main.json` (active since 2026-09-24) blocks force-pushes to `main` and its deletion, with no bypass. It doesn't require CI, so direct small-fix pushes still work. Never rewrite `main`'s history.
 
 ## Code Architecture
 

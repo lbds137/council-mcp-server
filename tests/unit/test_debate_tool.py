@@ -83,6 +83,10 @@ class TestDebateValidation:
             ({"topic": "x", "positions": ["a", ""]}, "positions must be a list"),
             ({"topic": "x", "models": "~z-ai/glm-latest"}, "models must be a list"),
             ({"topic": "x", "rounds": 3}, "rounds must be 1 or 2"),
+            (
+                {"topic": "x", "positions": ["a", "b"], "models": ["m1", "m2", "m3"]},
+                "3 models for 2 positions would leave models out",
+            ),
             ({"topic": "x", "rounds": True}, "rounds must be 1 or 2"),
         ],
     )

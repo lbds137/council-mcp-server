@@ -3,7 +3,7 @@
 import ast
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -278,36 +278,25 @@ if __name__ == "__main__":
         cleaned = bundler._simple_clean_content(content)
 
         assert "def my_function():" in cleaned
-        # The current implementation only removes the if __name__ line itself
-        # but keeps the indented content (which is a bug we should note)
         assert 'if __name__ == "__main__"' not in cleaned
-        # Note: The current implementation has a limitation where it doesn't
-        # remove the entire if block, just the if line itself
+        assert "This should be removed" not in cleaned
+        assert "    my_function()" not in cleaned
+        compile(cleaned, "module.py", "exec")
 
-    def test_ast_cleaning_with_astor(self, bundler):
-        """Test AST-based cleaning when astor is available."""
-        # Test with mock astor module
-        mock_astor = Mock()
-        mock_astor.to_source.return_value = """def my_function():
-    pass
-"""
-
-        with patch.dict("sys.modules", {"astor": mock_astor}):
-            content = '''#!/usr/bin/env python3
-"""Module docstring."""
-from .. import something
-
-def my_function():
-    pass
-
+    def test_code_after_the_main_block_is_kept(self, bundler):
+        """Test only the indented block goes; the next top-level statement stays."""
+        content = """
 if __name__ == "__main__":
-    my_function()
-'''
+    run()
 
-            cleaned = bundler.clean_content(content, "test.py")
+    cleanup()
 
-            # Should attempt to use AST cleaning
-            assert "def my_function():" in cleaned
+AFTER = 1
+"""
+        cleaned = bundler._simple_clean_content(content)
+
+        assert "run()" not in cleaned and "cleanup()" not in cleaned
+        assert "AFTER = 1" in cleaned
 
     def test_error_handling_in_bundle_creation(self, bundler, mock_src_dir, monkeypatch):
         """Test error handling during bundle creation."""
