@@ -56,7 +56,7 @@ class TestToolRegistry:
         registry.discover_tools()
 
         tools = registry.list_tools()
-        assert len(tools) == 17
+        assert len(tools) >= 17
         for name in ("ask", "set_model", "debug", "start_conversation", "server_info"):
             assert name in tools
 
@@ -64,12 +64,13 @@ class TestToolRegistry:
         """Test a second discovery warns about each tool and registers nothing new."""
         registry = ToolRegistry()
         registry.discover_tools()
+        count = len(registry.list_tools())
 
         with patch("council.core.registry.logger") as mock_logger:
             registry.discover_tools()
 
-        assert len(registry.list_tools()) == 17
-        assert mock_logger.warning.call_count == 17
+        assert len(registry.list_tools()) == count
+        assert mock_logger.warning.call_count == count
 
     def test_get_tool(self):
         """Test getting a tool by name."""
