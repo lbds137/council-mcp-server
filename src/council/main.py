@@ -82,9 +82,6 @@ class CouncilMCPServer:
 
         council._server_instance = self
 
-        # Also set as global for bundled mode
-        globals()["_server_instance"] = self
-
     @staticmethod
     def _launcher_dir() -> str:
         """Directory of the main entry point (launcher.py in an install)."""
@@ -181,8 +178,6 @@ class CouncilMCPServer:
         try:
             logger.info(f"Initializing ModelManager with API key (length: {len(api_key)})")
             self.model_manager = ModelManager(api_key)
-            # Bundled tools read the manager as a module global
-            globals()["model_manager"] = self.model_manager
 
             # Create orchestrator with all components
             logger.info("Creating conversation orchestrator...")

@@ -138,7 +138,7 @@ src/council/
 Create a new file in `src/council/tools/`:
 
 ```python
-from .base import MCPTool, ToolOutput
+from .base import MCPTool, ToolOutput, get_model_manager
 
 
 class MyNewTool(MCPTool):
@@ -162,10 +162,9 @@ class MyNewTool(MCPTool):
         }
 
     async def execute(self, parameters: dict) -> ToolOutput:
-        # Get model manager
-        from .. import _server_instance
-
-        model_manager = _server_instance.model_manager
+        model_manager = get_model_manager()
+        if not model_manager:
+            return ToolOutput(success=False, error="Model manager not available")
 
         # Generate content
         prompt = f"Your prompt: {parameters['param1']}"

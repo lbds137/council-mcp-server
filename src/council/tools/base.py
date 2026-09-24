@@ -7,7 +7,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# Simplified ToolOutput for bundled tools
+def get_server() -> Any:
+    """The running CouncilMCPServer, or None before it starts."""
+    # Looked up at call time: main.py (and the tests) set council._server_instance
+    import council
+
+    return council._server_instance
+
+
+def get_model_manager() -> Any:
+    """The running server's model manager, or None before it is ready."""
+    server = get_server()
+    return server.model_manager if server else None
+
+
 class ToolOutput:
     """Standard output format for tool execution."""
 

@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import council.tools.test_cases as test_cases_module
 from council.tools.test_cases import TestCasesTool as CasesTool
 
 
@@ -144,19 +143,8 @@ class TestCasesToolExecute:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await CasesTool().execute({"code_or_feature": "x"})
         assert result.success is False
         assert result.error == "Model manager not available"
-
-    @pytest.mark.asyncio
-    async def test_bundled_global_fallback(self, manager):
-        """In bundled mode the module-global model_manager is used."""
-        with (
-            patch("council._server_instance", None),
-            patch.dict(test_cases_module.__dict__, {"model_manager": manager}),
-        ):
-            result = await CasesTool().execute({"code_or_feature": "x"})
-        assert result.success is True
-        manager.generate_content.assert_called_once()

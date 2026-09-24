@@ -1,11 +1,13 @@
 """Unit tests for the base tool."""
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 
-from council.tools.base import MCPTool, ToolOutput
+from council.tools.base import MCPTool, ToolOutput, get_model_manager, get_server
 
 
 class ConcreteTestTool(MCPTool):
@@ -139,3 +141,26 @@ class TestBaseTool:
 
         assert result.metadata is not None
         assert result.metadata["tags"] == ["test", "example"]
+
+
+class TestServerLookup:
+    """How tools reach the running server and its model manager."""
+
+    def test_nothing_before_the_server_starts(self):
+        """With no server instance, both lookups return None."""
+        with patch("council._server_instance", None):
+            assert get_server() is None
+            assert get_model_manager() is None
+
+    def test_server_without_a_manager_yet(self):
+        """A server whose manager isn't initialized gives no manager."""
+        with patch("council._server_instance", SimpleNamespace(model_manager=None)):
+            assert get_model_manager() is None
+
+    def test_reads_the_current_instance_at_call_time(self):
+        """The lookup sees an instance set after the tools module was imported."""
+        manager = Mock()
+        server = SimpleNamespace(model_manager=manager)
+        with patch("council._server_instance", server):
+            assert get_server() is server
+            assert get_model_manager() is manager
