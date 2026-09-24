@@ -44,8 +44,10 @@ def load_credentials(directory: str) -> list[str]:
             continue
 
         try:
+            # stdin is the MCP server's JSON-RPC channel: keep the child off it
             result = subprocess.run(
                 ["systemd-creds", "decrypt", "--user", f"--name={name}", str(path), "-"],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=DECRYPT_TIMEOUT_SECONDS,
             )
@@ -58,7 +60,12 @@ def load_credentials(directory: str) -> list[str]:
             logger.warning(f"Could not decrypt credential {name}: {error}")
             continue
 
-        os.environ[name] = result.stdout.decode().strip()
+        try:
+            value = result.stdout.decode().strip()
+        except UnicodeDecodeError:
+            logger.warning(f"Credential {name} is not valid UTF-8; skipping it")
+            continue
+        os.environ[name] = value
         loaded.append(name)
 
     if loaded:

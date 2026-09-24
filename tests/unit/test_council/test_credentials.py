@@ -47,6 +47,8 @@ class TestLoadCredentials:
         assert os.environ["OPENROUTER_API_KEY"] == SECRET
         args = mock_run.call_args[0][0]
         assert args[:4] == ["systemd-creds", "decrypt", "--user", "--name=OPENROUTER_API_KEY"]
+        # The server's stdin carries JSON-RPC; the child must not read from it
+        assert mock_run.call_args[1]["stdin"] is subprocess.DEVNULL
 
     @patch("council.credentials.subprocess.run")
     def test_existing_environment_variable_wins(self, mock_run, cred_dir, monkeypatch):
@@ -96,6 +98,14 @@ class TestLoadCredentials:
         mock_run.side_effect = subprocess.TimeoutExpired("systemd-creds", 20)
 
         assert load_credentials(str(cred_dir)) == []
+
+    @patch("council.credentials.subprocess.run")
+    def test_non_utf8_value_is_skipped(self, mock_run, cred_dir):
+        """Test a credential that isn't text is skipped instead of stopping startup."""
+        mock_run.return_value = Mock(returncode=0, stdout=b"\xff\xfe", stderr=b"")
+
+        assert load_credentials(str(cred_dir)) == []
+        assert "OPENROUTER_API_KEY" not in os.environ
 
     def test_missing_directory_loads_nothing(self, tmp_path):
         """Test a machine without a credentials directory is fine."""
