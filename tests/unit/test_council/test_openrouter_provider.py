@@ -36,6 +36,12 @@ class TestModelInfo:
         assert info.pricing == {"prompt": 0.001, "completion": 0.002}
         assert info.is_free is False
 
+    def test_from_openrouter_alias_provider_drops_tilde(self):
+        """Test a floating alias reports its vendor, so provider filters include it."""
+        info = ModelInfo.from_openrouter({"id": "~z-ai/glm-latest", "name": "GLM Latest"})
+
+        assert info.provider == "z-ai"
+
     def test_from_openrouter_free_model(self):
         """Test detecting free tier models."""
         data = {
@@ -88,7 +94,7 @@ class TestOpenRouterProviderInit:
         provider = OpenRouterProvider(api_key="test-key")
 
         assert provider.api_key == "test-key"
-        assert provider.default_model == "google/gemini-3-pro-preview"
+        assert provider.default_model == "~openai/gpt-sol-latest"
         assert provider.timeout == 600.0
         assert provider.name == "openrouter"
 
@@ -179,6 +185,7 @@ class TestOpenRouterProviderGenerate:
         mock = Mock()
         mock.id = "chatcmpl-123"
         mock.created = 1700000000
+        mock.model = None  # the served model; tests that need one set it
         mock.choices = [Mock(message=Mock(content="Test response"))]
         mock.usage = Mock(
             prompt_tokens=10,
@@ -199,13 +206,28 @@ class TestOpenRouterProviderGenerate:
 
         assert isinstance(response, LLMResponse)
         assert response.content == "Test response"
-        assert response.model == "google/gemini-3-pro-preview"
+        assert response.model == "~openai/gpt-sol-latest"
         assert response.usage == {
             "prompt_tokens": 10,
             "completion_tokens": 20,
             "total_tokens": 30,
         }
         assert response.metadata["id"] == "chatcmpl-123"
+
+    @patch("council.providers.openrouter.OpenAI")
+    def test_generate_reports_model_an_alias_resolved_to(self, mock_openai_class, mock_completion):
+        """Test the response names the model OpenRouter served, not the alias requested."""
+        mock_completion.model = "openai/gpt-6-sol"
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_completion
+        mock_openai_class.return_value = mock_client
+
+        provider = OpenRouterProvider(api_key="test-key")
+        response = provider.generate("Hello", model="~openai/gpt-sol-latest")
+
+        call_args = mock_client.chat.completions.create.call_args
+        assert call_args[1]["model"] == "~openai/gpt-sol-latest"
+        assert response.model == "openai/gpt-6-sol"
 
     @patch("council.providers.openrouter.OpenAI")
     def test_generate_with_custom_model(self, mock_openai_class, mock_completion):

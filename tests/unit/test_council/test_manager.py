@@ -20,7 +20,7 @@ class TestModelManagerInit:
         manager = ModelManager(api_key="test-key")
 
         assert manager.api_key == "test-key"
-        assert manager.default_model == "google/gemini-3-pro-preview"
+        assert manager.default_model == "~openai/gpt-sol-latest"
         assert manager.timeout == 600.0
         assert manager.total_calls == 0
         assert manager.successful_calls == 0
@@ -301,8 +301,8 @@ class TestModelManagerStats:
         stats = manager.get_stats()
 
         assert stats["provider"] == "openrouter"
-        assert stats["active_model"] == "google/gemini-3-pro-preview"
-        assert stats["default_model"] == "google/gemini-3-pro-preview"
+        assert stats["active_model"] == "~openai/gpt-sol-latest"
+        assert stats["default_model"] == "~openai/gpt-sol-latest"
         assert stats["total_calls"] == 0
         assert stats["successful_calls"] == 0
         assert stats["failed_calls"] == 0

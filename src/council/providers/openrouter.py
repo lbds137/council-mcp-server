@@ -29,7 +29,7 @@ class OpenRouterProvider(LLMProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        default_model: str = "google/gemini-3-pro-preview",
+        default_model: str = "~openai/gpt-sol-latest",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
     ):
@@ -118,10 +118,13 @@ class OpenRouterProvider(LLMProvider):
                     "total_tokens": response.usage.total_tokens,
                 }
 
-            logger.info(f"OpenRouter response received from {model_id}")
+            # OpenRouter reports the model that actually ran, which differs from
+            # the request when the request names a "~" alias
+            served_model = response.model or model_id
+            logger.info(f"OpenRouter response received from {served_model}")
             return LLMResponse(
                 content=content,
-                model=model_id,
+                model=served_model,
                 usage=usage,
                 metadata={"id": response.id, "created": response.created},
             )

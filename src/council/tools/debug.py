@@ -60,7 +60,7 @@ class DebugTool(MCPTool):
                 "model": {
                     "type": "string",
                     "description": (
-                        "Optional model override (e.g., 'anthropic/claude-3-opus'). "
+                        "Optional model override (e.g., '~moonshotai/kimi-latest'). "
                         "Use list_models to see available options."
                     ),
                 },
