@@ -1,11 +1,11 @@
 #!/bin/bash
 # Install or update the Council MCP server.
 #
-# Installs the council package from this repo into its own venv and copies
-# launcher.py beside it. The install is a snapshot of the working tree, not an
-# editable install, so switching branches in the repo doesn't change the running
-# server. INSTALLED records the commit that was deployed; to roll back, check out
-# an earlier commit and run this script again.
+# Installs the council package, as of the commit checked out in this repo, into
+# its own venv, and puts launcher.py from that commit beside it. It installs the
+# commit straight from git, so uncommitted edits and leftovers in build/ never
+# ship, and INSTALLED names exactly what is running. To roll back, check out an
+# earlier commit and run this script again.
 #
 # COUNCIL_MCP_DIR installs somewhere other than ~/.claude-mcp-servers/council
 # (used to try an install without touching the live one).
@@ -18,15 +18,20 @@ MCP_DIR="${COUNCIL_MCP_DIR:-$HOME/.claude-mcp-servers/council}"
 VENV_DIR="$MCP_DIR/.venv"
 PYTHON_VERSION="3.13"
 
+if ! COMMIT="$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD 2>/dev/null)"; then
+    echo "❌ $PROJECT_ROOT is not a git checkout with a commit; install.sh deploys commits." >&2
+    exit 1
+fi
+SHORT="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
+if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain)" ]; then
+    echo "   ⚠️  The repo has uncommitted changes. They are NOT installed: commit them first"
+    echo "      if they should ship. Installing $SHORT as committed."
+fi
+
 if [ -d "$VENV_DIR" ]; then
     echo "🔄 Updating Council MCP Server in $MCP_DIR"
 else
     echo "🚀 Installing Council MCP Server in $MCP_DIR"
-fi
-
-COMMIT="$(git -C "$PROJECT_ROOT" describe --always --dirty 2>/dev/null || echo unknown)"
-if [[ "$COMMIT" == *-dirty ]]; then
-    echo "   ⚠️  The working tree has uncommitted changes; they are installed too."
 fi
 
 mkdir -p "$MCP_DIR"
@@ -42,11 +47,14 @@ if [ ! -d "$VENV_DIR" ]; then
     fi
 fi
 
-echo "📦 Installing council and its dependencies..."
+echo "📦 Installing council $SHORT and its dependencies..."
+SOURCE="git+file://$PROJECT_ROOT@$COMMIT"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-# pip reinstalls from a directory even when the version number hasn't changed
-"$VENV_DIR/bin/pip" install --quiet "$PROJECT_ROOT"
-cp "$PROJECT_ROOT/launcher.py" "$MCP_DIR/launcher.py"
+# The first command installs any missing dependencies. pip counts the same version
+# from git as already installed, so the second replaces council itself every time.
+"$VENV_DIR/bin/pip" install --quiet "$SOURCE"
+"$VENV_DIR/bin/pip" install --quiet --force-reinstall --no-deps "$SOURCE"
+git -C "$PROJECT_ROOT" show "$COMMIT:launcher.py" > "$MCP_DIR/launcher.py"
 
 # Fail here, not at the next reconnect, if the install can't even import
 "$VENV_DIR/bin/python" -c "import council.main"
@@ -60,7 +68,7 @@ if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
 fi
 
 echo ""
-echo "✅ Installed $COMMIT"
+echo "✅ Installed $SHORT"
 echo ""
 echo "📋 Next steps:"
 echo "   - First install: store your OpenRouter key with scripts/set-secret.sh OPENROUTER_API_KEY,"
