@@ -178,9 +178,8 @@ council-mcp-server/
 │   ├── core/             # Tool registry and orchestrator
 │   └── services/         # Response cache and conversation sessions
 ├── tests/                # Test suite
-├── scripts/              # install.sh, bundler.py, set-secret.sh, check_models.py
-├── server.py             # Bundled single-file server
-├── launcher.py           # Launcher with venv support
+├── scripts/              # install.sh, set-secret.sh, check_models.py
+├── launcher.py           # Entry point the installed server runs
 ├── CLAUDE.md            # Claude Code instructions
 └── README.md            # This file
 ```
@@ -192,15 +191,6 @@ make test        # or: .venv/bin/python -m pytest tests/
 make test-cov    # with coverage
 ```
 
-### Building the Bundle
-```bash
-# Generate single-file server.py
-.venv/bin/python scripts/bundler.py
-
-# Deploy to MCP location
-./scripts/install.sh
-```
-
 ## Updating
 
 To update your local MCP installation after making changes:
@@ -208,6 +198,12 @@ To update your local MCP installation after making changes:
 ```bash
 ./scripts/install.sh
 ```
+
+The script installs the `council` package from your working tree into the
+server's own venv (`~/.claude-mcp-servers/council/.venv`), next to `launcher.py`,
+and writes the deployed commit to `INSTALLED` there. The install is a snapshot:
+switching branches in the repo doesn't change the running server. To roll back,
+check out the earlier commit and run `./scripts/install.sh` again.
 
 Then reconnect the server in each open Claude Code session (`/mcp` → council →
 Reconnect), or restart Claude Desktop.

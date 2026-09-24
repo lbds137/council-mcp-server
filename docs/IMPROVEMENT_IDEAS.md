@@ -6,18 +6,6 @@ git history (`git log -- docs/IMPROVEMENT_IDEAS.md`).
 
 ## Worth doing
 
-### Install from the package instead of bundling
-`scripts/bundler.py` concatenates `src/council/` into one `server.py` by text
-manipulation: it strips imports, drops `__main__` blocks, and relies on every
-module sharing one namespace. It has broken once already (a rewrite that cut
-the rest of a tool's file, caught in #6), and the shared namespace let two
-modules define classes with the same name (also removed in #6). Installing the
-package into the server venv (`pip install .`) and launching `python -m
-council.main` would remove the bundler and its whole class of bugs. Cost: change
-`install.sh` and `launcher.py`, and delete the bundler and its tests.
-`tests/test_bundler.py::TestBundleOfRealSource` guards the current setup in the
-meantime.
-
 ### Progress notifications for long tools
 A `debate` with reasoning models takes minutes (about 4.5 minutes for two GLM
 debaters), and the caller sees nothing until it ends. MCP progress

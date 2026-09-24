@@ -21,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
+- `scripts/install.sh` installs the `council` package into the server venv instead of copying a generated single-file bundle; `launcher.py` just runs `council.main`. The deployed server is the code the tests run. The install writes the deployed commit to `INSTALLED`; roll back by reinstalling an earlier commit. The bundler (`scripts/bundler.py`), the committed `server.py`, and `requirements.txt` (a duplicate of `setup.py`'s dependencies) are gone
 - `test_cases` sends code and feature descriptions with one neutral prompt instead of guessing which it got by keywords (it read "Users can classify tickets" as code)
 - `debate` rejects more explicit models than positions, instead of silently leaving the extra models out; `recommend_model`'s "left out" note names only models that would otherwise have been listed
-- The bundler has one cleaning path (the never-installed `astor` path is gone), and it now drops a module's whole `__main__` block instead of only its `if` line
 - All API keys live in one encrypted credential, `keys.cred`, so startup needs one TPM decrypt (about 3.5 s instead of about 7 s with two keys). `set-secret.sh NAME` adds or replaces one key in it; older per-key `NAME.cred` files still load for names it lacks
 - Linting and formatting moved from flake8, black and isort to ruff, which also runs bugbear and pyupgrade rules; annotations use the Python 3.12 forms (`dict[...]`, `X | None`), and the two `str, Enum` classes are `StrEnum`
 - Model registry refreshed to September 2026 and keyed on OpenRouter's floating `~vendor/family-latest` aliases, so new releases are picked up without edits

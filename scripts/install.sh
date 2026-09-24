@@ -1,116 +1,70 @@
 #!/bin/bash
-# Smart install/update script for Council MCP Server v4
+# Install or update the Council MCP server.
+#
+# Installs the council package from this repo into its own venv and copies
+# launcher.py beside it. The install is a snapshot of the working tree, not an
+# editable install, so switching branches in the repo doesn't change the running
+# server. INSTALLED records the commit that was deployed; to roll back, check out
+# an earlier commit and run this script again.
+#
+# COUNCIL_MCP_DIR installs somewhere other than ~/.claude-mcp-servers/council
+# (used to try an install without touching the live one).
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-MCP_DIR="$HOME/.claude-mcp-servers/council"
+MCP_DIR="${COUNCIL_MCP_DIR:-$HOME/.claude-mcp-servers/council}"
 VENV_DIR="$MCP_DIR/.venv"
 PYTHON_VERSION="3.13"
 
-# Determine if this is first install or update
-if [ -d "$MCP_DIR" ]; then
-    echo "🔄 Updating Council MCP Server v4"
-    IS_UPDATE=true
+if [ -d "$VENV_DIR" ]; then
+    echo "🔄 Updating Council MCP Server in $MCP_DIR"
 else
-    echo "🚀 Installing Council MCP Server v4"
-    IS_UPDATE=false
+    echo "🚀 Installing Council MCP Server in $MCP_DIR"
 fi
 
-echo "   Source: $PROJECT_ROOT/server.py"
-echo "   Target: $MCP_DIR"
-
-# Always rebuild from modular source to ensure latest code
-echo "🔨 Building server from modular source..."
-cd "$PROJECT_ROOT"
-# The repo venv has ruff, so the rebuilt bundle comes out formatted
-BUNDLER_PYTHON="python3"
-if [ -x "$PROJECT_ROOT/.venv/bin/python" ]; then
-    BUNDLER_PYTHON="$PROJECT_ROOT/.venv/bin/python"
-fi
-"$BUNDLER_PYTHON" scripts/bundler.py
-
-# Create MCP directory if needed
-if [ ! -d "$MCP_DIR" ]; then
-    echo "📁 Creating MCP directory..."
-    mkdir -p "$MCP_DIR"
+COMMIT="$(git -C "$PROJECT_ROOT" describe --always --dirty 2>/dev/null || echo unknown)"
+if [[ "$COMMIT" == *-dirty ]]; then
+    echo "   ⚠️  The working tree has uncommitted changes; they are installed too."
 fi
 
-# Backup existing server if updating
-if [ "$IS_UPDATE" = true ] && [ -f "$MCP_DIR/server.py" ]; then
-    if ! cmp -s "$PROJECT_ROOT/server.py" "$MCP_DIR/server.py"; then
-        echo "📦 Backing up current server..."
-        cp "$MCP_DIR/server.py" "$MCP_DIR/server.backup.$(date +%Y%m%d_%H%M%S).py"
-    fi
-fi
+mkdir -p "$MCP_DIR"
 
-# Deploy the server
-if [ "$IS_UPDATE" = true ]; then
-    echo "📝 Updating server..."
-else
-    echo "📦 Installing server..."
-fi
-cp "$PROJECT_ROOT/server.py" "$MCP_DIR/server.py"
-cp "$PROJECT_ROOT/launcher.py" "$MCP_DIR/launcher.py"
-chmod +x "$MCP_DIR/server.py"
-chmod +x "$MCP_DIR/launcher.py"
-
-# Copy requirements
-echo "📋 Copying requirements..."
-cp "$PROJECT_ROOT/requirements.txt" "$MCP_DIR/"
-
-# Create/update virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating virtual environment..."
     if command -v uv >/dev/null 2>&1; then
         # uv's own standalone Python, so an OS Python upgrade can't break the server.
-        # --seed adds pip, which the dependency install below uses.
+        # --seed adds pip, which the install below uses.
         uv venv --managed-python --python "$PYTHON_VERSION" --seed "$VENV_DIR"
     else
         python3 -m venv "$VENV_DIR"
     fi
 fi
 
-# Install/update dependencies
-echo "📦 Installing dependencies..."
+echo "📦 Installing council and its dependencies..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet -r "$MCP_DIR/requirements.txt"
+# pip reinstalls from a directory even when the version number hasn't changed
+"$VENV_DIR/bin/pip" install --quiet "$PROJECT_ROOT"
+cp "$PROJECT_ROOT/launcher.py" "$MCP_DIR/launcher.py"
 
-# Copy .env.example if .env doesn't exist
+# Fail here, not at the next reconnect, if the install can't even import
+"$VENV_DIR/bin/python" -c "import council.main"
+
+printf 'commit: %s\ninstalled: %s\n' "$COMMIT" "$(date '+%Y-%m-%d %H:%M:%S %Z')" \
+    > "$MCP_DIR/INSTALLED"
+
 if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
-    echo "📝 Creating .env file from template..."
+    echo "📝 Creating .env from .env.example..."
     cp "$PROJECT_ROOT/.env.example" "$MCP_DIR/.env"
-    echo "   ⚠️  Remember to store your OpenRouter key: scripts/set-secret.sh OPENROUTER_API_KEY"
 fi
 
 echo ""
-if [ "$IS_UPDATE" = true ]; then
-    echo "✅ Update complete!"
-    echo ""
-    echo "📊 Changes:"
-    echo "   - Server rebuilt from modular source"
-    echo "   - Dependencies updated"
-    echo "   - Previous version backed up"
-else
-    echo "✅ Installation complete!"
-    echo ""
-    echo "🎉 Council MCP Server v4 is ready to use!"
-fi
-
+echo "✅ Installed $COMMIT"
 echo ""
 echo "📋 Next steps:"
-echo "   1. Store your OpenRouter key: scripts/set-secret.sh OPENROUTER_API_KEY"
-echo "   2. Update Claude Desktop config to point to council server"
-echo "   3. Restart Claude Desktop"
-echo "   4. Test with: mcp__council__server_info"
-echo ""
-# Launch with the venv's own python, not whatever python3 is first on PATH.
-echo "📝 Claude Code registration:"
-echo "   claude mcp add council -s user -- $VENV_DIR/bin/python $MCP_DIR/launcher.py"
-echo ""
-echo "📝 Claude Desktop config example:"
-echo "   \"council\": {"
-echo "     \"command\": \"$VENV_DIR/bin/python\","
-echo "     \"args\": [\"$MCP_DIR/launcher.py\"]"
-echo "   }"
+echo "   - First install: store your OpenRouter key with scripts/set-secret.sh OPENROUTER_API_KEY,"
+echo "     then register the server with Claude Code:"
+echo "       claude mcp add council -s user -- $VENV_DIR/bin/python $MCP_DIR/launcher.py"
+echo "     (Claude Desktop: command \"$VENV_DIR/bin/python\", args [\"$MCP_DIR/launcher.py\"])"
+echo "   - Update: reconnect council in each open Claude Code session (/mcp → council → Reconnect)"

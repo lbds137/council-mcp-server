@@ -30,8 +30,8 @@ make install       # Install package in production mode
 make install-dev   # Install package with dev dependencies
 make test          # Run tests
 make test-cov      # Run tests with coverage report
-make lint          # Run flake8 linting
-make format        # Format code with black and isort
+make lint          # Run ruff check
+make format        # Sort imports and format code with ruff
 make type-check    # Run mypy type checking
 make pre-commit    # Run all pre-commit hooks
 make clean         # Clean up generated files
@@ -41,40 +41,20 @@ make check-models  # Find registry model IDs OpenRouter no longer lists
 
 ### Code Quality Tools
 
-#### Black (Code Formatter)
-- Automatically formats Python code
+#### Ruff (Linter and Formatter)
+- Lints (pycodestyle, pyflakes, isort, bugbear and pyupgrade rules) and formats
 - Configuration in `pyproject.toml`
 - Line length: 100 characters
 
 ```bash
-# Format all code
+# Lint
+make lint
+
+# Sort imports and format
 make format
 
 # Check formatting without changes
-black --check src/ tests/
-```
-
-#### isort (Import Sorter)
-- Sorts and organizes imports
-- Configured to work with Black
-- Groups: stdlib, third-party, local
-
-```bash
-# Sort imports
-isort src/ tests/
-
-# Check import order
-isort --check-only src/ tests/
-```
-
-#### Flake8 (Linter)
-- Checks for Python style issues
-- Configuration in `.flake8`
-- Max line length: 100
-
-```bash
-# Run linting
-make lint
+.venv/bin/python -m ruff format --check src/ tests/ scripts/
 ```
 
 #### Mypy (Type Checker)
@@ -106,12 +86,10 @@ make pre-commit
 - **YAML/JSON/TOML** validation
 - **Large file** prevention
 - **Merge conflict** detection
-- **Black** formatting
-- **isort** import sorting
-- **Flake8** linting
+- **ruff** linting and formatting
 
-The pre-push hook (`hooks/pre-push`) runs flake8, black, isort, mypy and the full
-test suite before every push.
+The pre-push hook (`hooks/pre-push`) runs ruff (lint and format check), mypy and
+the full test suite before every push.
 
 ### Testing
 
@@ -136,8 +114,7 @@ make test-cov
 
 GitHub Actions runs on all pushes and pull requests:
 - **Python versions**: 3.12, 3.13
-- **Linting**: flake8
-- **Formatting**: black, isort
+- **Linting and formatting**: ruff
 - **Type checking**: mypy
 - **Tests**: pytest with coverage
 - **Coverage**: Uploaded to Codecov
@@ -181,18 +158,18 @@ changes go through a pull request that is merged once CI is green.
 
 1. **Follow PEP 8** with these modifications:
    - Line length: 100 characters
-   - Use Black for formatting
+   - Use ruff for formatting
 
 2. **Type hints** are required for all functions:
    ```python
-   def process_data(input_str: str, count: int = 0) -> Dict[str, Any]:
+   def process_data(input_str: str, count: int = 0) -> dict[str, Any]:
        """Process input data and return results."""
        ...
    ```
 
 3. **Docstrings** required for all public functions:
    ```python
-   def generate_content(self, prompt: str) -> Tuple[str, str]:
+   def generate_content(self, prompt: str) -> tuple[str, str]:
        """
        Generate content with the active model.
 
@@ -207,7 +184,7 @@ changes go through a pull request that is merged once CI is green.
        """
    ```
 
-4. **Import order** (handled by isort):
+4. **Import order** (handled by ruff):
    - Standard library
    - Third-party packages
    - Local imports
@@ -217,15 +194,15 @@ changes go through a pull request that is merged once CI is green.
 1. **Enable debug logging**:
    ```python
    import logging
+
    logging.basicConfig(level=logging.DEBUG)
    ```
 
-2. **Test the bundled server directly** (initialize first, then list tools):
+2. **Run the server from source directly** (initialize first, then list tools):
    ```bash
-   .venv/bin/python scripts/bundler.py
    printf '%s\n' \
      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cli","version":"0"}}}' \
-     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | .venv/bin/python server.py
+     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | .venv/bin/python -m council.main
    ```
 
 3. **Check pre-commit issues**:
