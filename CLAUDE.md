@@ -180,6 +180,8 @@ Then export it in `src/council/tools/__init__.py`. Discovery finds it automatica
 
 If the tool's answer depends only on its input and the model, override `is_cacheable(parameters)` to return True so repeated calls are served from cache. Never do this for a tool that reads or changes server state.
 
+A tool that makes several model calls can call `report_progress(done, total, message)` (from `.base`) after each one; the client then shows how far it has got. It does nothing when the client didn't ask for progress.
+
 ## Configuration
 
 ### API Keys

@@ -155,6 +155,18 @@ class TestJsonRpcServer:
         mock_print.assert_called_once_with('{"test": "data"}', flush=True)
 
     @patch("builtins.print")
+    def test_send_notification_has_no_id(self, mock_print):
+        """A notification carries method and params, and no id member."""
+        server = JsonRpcServer("test-server")
+        server.send_notification("notifications/progress", {"progressToken": "t", "progress": 1})
+        written = json.loads(mock_print.call_args.args[0])
+        assert written == {
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {"progressToken": "t", "progress": 1},
+        }
+
+    @patch("builtins.print")
     def test_write_message_exception(self, mock_print):
         """Test exception during writing."""
         server = JsonRpcServer("test-server")
