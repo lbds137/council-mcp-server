@@ -1,7 +1,7 @@
 """Debug tool for structured debugging with hypothesis tracking."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -24,7 +24,7 @@ class DebugTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -68,11 +68,11 @@ class DebugTool(MCPTool):
             "required": ["error_message", "code_context"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """Cacheable unless it reads a conversation session, which keeps changing."""
         return not parameters.get("session_id")
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute structured debugging analysis."""
         try:
             error_message = parameters.get("error_message")
@@ -163,7 +163,7 @@ class DebugTool(MCPTool):
         error_message: str,
         code_context: str,
         stack_trace: str,
-        previous_attempts: List[str],
+        previous_attempts: list[str],
         environment: str,
         session_context: str,
     ) -> str:
@@ -257,7 +257,7 @@ class DebugTool(MCPTool):
         self,
         response_text: str,
         model_used: str,
-        session_id: Optional[str],
+        session_id: str | None,
         attempt_count: int,
     ) -> str:
         """Format the debugging response."""

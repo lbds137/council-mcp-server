@@ -11,7 +11,6 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import Dict, Optional
 
 # Configure logging only if running as main script
 if __name__ == "__main__":
@@ -75,7 +74,7 @@ class Bundler:
         rel_path = file_path.relative_to(SRC_DIR).as_posix()
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 source = f.read()
                 tree = ast.parse(source, filename=str(file_path))
 
@@ -120,7 +119,7 @@ class Bundler:
 
         return "MCPTool" in base_names
 
-    def _extract_tool_info(self, node: ast.ClassDef, file_path: Path) -> Optional[Dict[str, str]]:
+    def _extract_tool_info(self, node: ast.ClassDef, file_path: Path) -> dict[str, str] | None:
         """Extract tool information from a class definition."""
         tool_name = None
 
@@ -453,7 +452,7 @@ def _apply_tool_registry_override():
             logger.info(f"Processing {rel_path}...")
 
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     content = f.read()
 
                 # Clean the content

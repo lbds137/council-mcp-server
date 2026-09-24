@@ -1,7 +1,7 @@
 """Unit tests for the tool registry."""
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import patch
 
 from council.core.registry import ToolRegistry
@@ -20,10 +20,10 @@ class MockTool(MCPTool):
         return "Mock tool for testing"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}}
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         return ToolOutput(success=True, result="mock result")
 
 
@@ -162,10 +162,10 @@ class TestToolRegistry:
                 return "Bad tool"
 
             @property
-            def input_schema(self) -> Dict[str, Any]:
+            def input_schema(self) -> dict[str, Any]:
                 return {}
 
-            async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+            async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
                 return ToolOutput(success=True, result="bad")
 
         registry = ToolRegistry()

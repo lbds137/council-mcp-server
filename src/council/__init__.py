@@ -1,10 +1,13 @@
 """Council MCP Server - Multi-LLM collaboration server for Claude Code"""
 
-__version__ = "3.0.0"
-__author__ = "Your Name"
+from typing import Any
+
+__version__ = "4.0.0"
+__author__ = "lbds137"
 
 # Global server instance for tools to access
-_server_instance = None
+# (a CouncilMCPServer; typed Any to avoid a circular import)
+_server_instance: Any = None
 
 # Don't import server at package level to avoid circular imports
 __all__: list[str] = []

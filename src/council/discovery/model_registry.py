@@ -15,11 +15,10 @@ The registry uses a "T-shirt sizing" system:
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class ModelClass(str, Enum):
+class ModelClass(StrEnum):
     """Model class/tier for quick selection."""
 
     FLASH = "flash"  # Fast, cheap, good for simple tasks
@@ -27,7 +26,7 @@ class ModelClass(str, Enum):
     DEEP = "deep"  # Maximum quality, complex reasoning
 
 
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     """Task types for model recommendations."""
 
     CODING = "coding"
@@ -331,7 +330,7 @@ FREE_TIER_MODELS = [
 ]
 
 
-def get_model_metadata(model_id: str) -> Optional[ModelMetadata]:
+def get_model_metadata(model_id: str) -> ModelMetadata | None:
     """Get curated metadata for a model.
 
     Args:

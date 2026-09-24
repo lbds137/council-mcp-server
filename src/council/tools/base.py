@@ -2,7 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -11,15 +11,15 @@ logger = logging.getLogger(__name__)
 class ToolOutput:
     """Standard output format for tool execution."""
 
-    def __init__(self, success: bool, result: Optional[str] = None, error: Optional[str] = None):
+    def __init__(self, success: bool, result: str | None = None, error: str | None = None):
         self.success = success
         self.result = result
         self.error = error
-        self.metadata: Dict[str, Any] = {}
+        self.metadata: dict[str, Any] = {}
         # Add missing attributes for compatibility with orchestrator
         self.tool_name: str = ""
-        self.execution_time_ms: Optional[float] = None
-        self.model_used: Optional[str] = None
+        self.execution_time_ms: float | None = None
+        self.model_used: str | None = None
         self.timestamp = None
 
 
@@ -40,16 +40,16 @@ class MCPTool(ABC):
 
     @property
     @abstractmethod
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         """Return the JSON schema for tool inputs."""
         pass
 
     @abstractmethod
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         pass
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """Whether a successful result may be served again for the same input.
 
         Only tools whose answer depends on nothing but their input and the
@@ -57,7 +57,7 @@ class MCPTool(ABC):
         """
         return False
 
-    def get_mcp_definition(self) -> Dict[str, Any]:
+    def get_mcp_definition(self) -> dict[str, Any]:
         """Get the MCP tool definition."""
         return {
             "name": self.name,

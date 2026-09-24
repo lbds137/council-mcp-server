@@ -1,7 +1,6 @@
 """Model filtering for Council MCP server."""
 
 import logging
-from typing import Optional
 
 from council.providers.base import ModelInfo
 
@@ -157,7 +156,7 @@ class ModelFilter:
         """
         return len(self.models)
 
-    def first(self) -> Optional[ModelInfo]:
+    def first(self) -> ModelInfo | None:
         """Get the first model in the filtered list.
 
         Returns:
@@ -169,12 +168,12 @@ class ModelFilter:
     def apply_filters(
         cls,
         models: list[ModelInfo],
-        provider: Optional[str] = None,
-        capability: Optional[str] = None,
+        provider: str | None = None,
+        capability: str | None = None,
         free_only: bool = False,
-        search: Optional[str] = None,
-        min_context: Optional[int] = None,
-        limit: Optional[int] = None,
+        search: str | None = None,
+        min_context: int | None = None,
+        limit: int | None = None,
     ) -> list[ModelInfo]:
         """Apply multiple filters at once.
 

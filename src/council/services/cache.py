@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,18 +16,18 @@ class ResponseCache:
     def __init__(self, max_size: int = 100, ttl_seconds: int = 3600):
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
-    def create_key(self, tool_name: str, parameters: Dict[str, Any]) -> str:
+    def create_key(self, tool_name: str, parameters: dict[str, Any]) -> str:
         """Create a cache key from tool name and parameters."""
         # Sort parameters for consistent hashing
         params_str = json.dumps(parameters, sort_keys=True)
         key_data = f"{tool_name}:{params_str}"
         return hashlib.sha256(key_data.encode()).hexdigest()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get a value from cache if it exists and isn't expired."""
         if key not in self.cache:
             self.misses += 1
@@ -60,7 +60,7 @@ class ResponseCache:
         self.hits = 0
         self.misses = 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total_requests = self.hits + self.misses
         return {

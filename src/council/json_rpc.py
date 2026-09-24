@@ -5,7 +5,8 @@ Standalone JSON-RPC 2.0 implementation for MCP servers.
 import json
 import logging
 import sys
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class JsonRpcRequest:
 class JsonRpcResponse:
     """JSON-RPC 2.0 Response"""
 
-    def __init__(self, result: Any = None, error: Optional[Dict[str, Any]] = None, id: Any = None):
+    def __init__(self, result: Any = None, error: dict[str, Any] | None = None, id: Any = None):
         self.jsonrpc = JSONRPC_VERSION
         self.id = id
         if error is not None:
@@ -77,7 +78,7 @@ class JsonRpcServer:
 
     def __init__(self, server_name: str):
         self.server_name = server_name
-        self._handlers: Dict[str, Callable] = {}
+        self._handlers: dict[str, Callable] = {}
         self._running = False
 
     def register_handler(self, method: str, handler: Callable):
@@ -85,7 +86,7 @@ class JsonRpcServer:
         logger.info(f"Registering handler for method: {method}")
         self._handlers[method] = handler
 
-    def _read_message(self) -> Optional[str]:
+    def _read_message(self) -> str | None:
         """Read a single line from stdin."""
         try:
             line = sys.stdin.readline()
@@ -103,7 +104,7 @@ class JsonRpcServer:
         except Exception as e:
             logger.error(f"Error writing to stdout: {e}")
 
-    def _process_request(self, request_str: str) -> Optional[dict]:
+    def _process_request(self, request_str: str) -> dict | None:
         """Process a single JSON-RPC message. Returns None for notifications.
 
         Per JSON-RPC 2.0 §4.1, a message lacking the "id" member is a

@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from openai import OpenAI
@@ -58,9 +58,9 @@ class ZaiCodingProvider(LLMProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 180.0,
-        cache_ttl: Optional[float] = None,
+        cache_ttl: float | None = None,
     ):
         """Initialize the provider.
 
@@ -76,11 +76,11 @@ class ZaiCodingProvider(LLMProvider):
         self.cache_ttl = (
             cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
         )
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
         self._models: list[dict[str, Any]] = []
         self._next_fetch: float = 0.0
         # Why the last model-list fetch failed, or None after a success
-        self.list_error: Optional[str] = None
+        self.list_error: str | None = None
 
     @property
     def name(self) -> str:
@@ -166,7 +166,7 @@ class ZaiCodingProvider(LLMProvider):
             or lowered.startswith("glm-")
         )
 
-    def resolve(self, model_id: str) -> Optional[str]:
+    def resolve(self, model_id: str) -> str | None:
         """Return the bare Z.ai ID that serves model_id on the plan.
 
         Args:
@@ -198,9 +198,9 @@ class ZaiCodingProvider(LLMProvider):
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate a response on the coding plan.

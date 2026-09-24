@@ -1,7 +1,7 @@
 """Server information tool for checking status and configuration."""
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from ..tools.base import MCPTool, ToolOutput
 from .conversation import get_session_manager
@@ -21,10 +21,10 @@ class ServerInfoTool(MCPTool):
         return "Get server version and status"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}, "required": []}
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             # Access the server components through global context
@@ -45,7 +45,7 @@ class ServerInfoTool(MCPTool):
                 server = globals().get("_server_instance", None)
 
             # Declare info variable
-            info: Dict[str, Any]
+            info: dict[str, Any]
 
             if not server:
                 # Fallback to basic info if server instance not available
@@ -87,16 +87,16 @@ class ServerInfoTool(MCPTool):
             return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
 
     @staticmethod
-    def _conversation_stats() -> Dict[str, Any]:
+    def _conversation_stats() -> dict[str, Any]:
         """How many conversation sessions are open."""
         return {"active": len(get_session_manager().sessions)}
 
-    def _get_model_info(self, model_manager) -> Dict[str, Any]:
+    def _get_model_info(self, model_manager) -> dict[str, Any]:
         """Get model manager information."""
         if not model_manager:
             return {"initialized": False}
 
-        info: Dict[str, Any] = {
+        info: dict[str, Any] = {
             "initialized": True,
             "default_model": getattr(model_manager, "default_model", None),
             "active_model": getattr(model_manager, "active_model", None),

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 from .providers import (
     LLMProviderError,
@@ -27,9 +27,9 @@ class ModelManager:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        default_model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        api_key: str | None = None,
+        default_model: str | None = None,
+        timeout: float | None = None,
     ):
         """Initialize the model manager.
 
@@ -50,9 +50,9 @@ class ModelManager:
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
         # Initialize the providers
-        self._provider: Optional[OpenRouterProvider] = None
+        self._provider: OpenRouterProvider | None = None
         self.zai_api_key = os.getenv("ZAI_CODING_API_KEY")
-        self._zai_provider: Optional[ZaiCodingProvider] = None
+        self._zai_provider: ZaiCodingProvider | None = None
 
         # Current active model (can be changed with set_model)
         self._active_model: str = self.default_model
@@ -79,7 +79,7 @@ class ModelManager:
         return self._provider
 
     @property
-    def zai_provider(self) -> Optional[ZaiCodingProvider]:
+    def zai_provider(self) -> ZaiCodingProvider | None:
         """Get the Z.ai coding-plan provider, or None when no key is configured."""
         if self._zai_provider is None and self.zai_api_key:
             self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key, timeout=self.timeout)
@@ -106,7 +106,7 @@ class ModelManager:
     def generate_content(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, str]:
         """Generate content from the LLM.
@@ -132,7 +132,7 @@ class ModelManager:
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate content and return full response object.
@@ -151,9 +151,7 @@ class ModelManager:
         response, _ = self._generate(prompt, model, **kwargs)
         return response
 
-    def _generate(
-        self, prompt: str, model: Optional[str], **kwargs: Any
-    ) -> tuple[LLMResponse, str]:
+    def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
         """Route a request and return the response with a label naming its route.
 
         GLM models the Z.ai plan carries go there first; everything else, and
@@ -235,7 +233,7 @@ class ModelManager:
         """
         return self.provider.list_models(force_refresh=force_refresh)
 
-    def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model_info(self, model_id: str) -> ModelInfo | None:
         """Get information about a specific model.
 
         Args:

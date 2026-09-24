@@ -142,7 +142,7 @@ class TestModelRegistry:
 
     def test_all_models_have_metadata(self):
         """Test all models have valid metadata."""
-        for model_id, metadata in MODEL_REGISTRY.items():
+        for metadata in MODEL_REGISTRY.values():
             assert isinstance(metadata, ModelMetadata)
             assert isinstance(metadata.model_class, ModelClass)
 

@@ -1,7 +1,7 @@
 """Refactor tool for atomic refactoring plans with before/after examples."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -35,7 +35,7 @@ class RefactorTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -75,11 +75,11 @@ class RefactorTool(MCPTool):
             "required": ["code", "goal"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the refactoring analysis."""
         try:
             code = parameters.get("code")
