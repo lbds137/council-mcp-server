@@ -65,12 +65,14 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 
 ### 2. Deploying Changes
 ```bash
-# Install or update: pip-installs the package from the working tree into
-# ~/.claude-mcp-servers/council/.venv and records the commit in INSTALLED there
+# Install or update: pip-installs the checked-out commit (from git) into
+# ~/.claude-mcp-servers/council/.venv and records it in INSTALLED there
 ./scripts/install.sh
 ```
-The install is a snapshot, not editable, so the running server doesn't follow branch
-switches. Roll back by checking out the earlier commit and running the script again.
+Only committed code ships: the script warns about uncommitted changes and leaves them
+out, so commit (and normally merge) first. The install is a snapshot, not editable, so the
+running server doesn't follow branch switches. Roll back by checking out the earlier
+commit and running the script again.
 
 ### 3. Testing Changes
 1. After deploying, reconnect council in each open session (`/mcp` → council → Reconnect)

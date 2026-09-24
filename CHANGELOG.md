@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
-- `scripts/install.sh` installs the `council` package into the server venv instead of copying a generated single-file bundle; `launcher.py` just runs `council.main`. The deployed server is the code the tests run. The install writes the deployed commit to `INSTALLED`; roll back by reinstalling an earlier commit. The bundler (`scripts/bundler.py`), the committed `server.py`, and `requirements.txt` (a duplicate of `setup.py`'s dependencies) are gone
+- `scripts/install.sh` installs the `council` package, as of the checked-out commit and straight from git, into the server venv instead of copying a generated single-file bundle; uncommitted changes don't ship; `launcher.py` just runs `council.main`. The deployed server is the code the tests run. The install writes the deployed commit to `INSTALLED`; roll back by reinstalling an earlier commit. The bundler (`scripts/bundler.py`), the committed `server.py`, and `requirements.txt` (a duplicate of `setup.py`'s dependencies) are gone
 - `test_cases` sends code and feature descriptions with one neutral prompt instead of guessing which it got by keywords (it read "Users can classify tickets" as code)
 - `debate` rejects more explicit models than positions, instead of silently leaving the extra models out; `recommend_model`'s "left out" note names only models that would otherwise have been listed
 - All API keys live in one encrypted credential, `keys.cred`, so startup needs one TPM decrypt (about 3.5 s instead of about 7 s with two keys). `set-secret.sh NAME` adds or replaces one key in it; older per-key `NAME.cred` files still load for names it lacks

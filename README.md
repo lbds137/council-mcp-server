@@ -199,10 +199,12 @@ To update your local MCP installation after making changes:
 ./scripts/install.sh
 ```
 
-The script installs the `council` package from your working tree into the
-server's own venv (`~/.claude-mcp-servers/council/.venv`), next to `launcher.py`,
-and writes the deployed commit to `INSTALLED` there. The install is a snapshot:
-switching branches in the repo doesn't change the running server. To roll back,
+The script installs the `council` package, as of the commit you have checked
+out, into the server's own venv (`~/.claude-mcp-servers/council/.venv`), next to
+`launcher.py`, and writes that commit to `INSTALLED` there. It installs from git,
+so uncommitted changes are left out (the script warns about them): commit first.
+The install is a snapshot: switching branches in the repo doesn't change the
+running server. To roll back,
 check out the earlier commit and run `./scripts/install.sh` again.
 
 Then reconnect the server in each open Claude Code session (`/mcp` → council →
