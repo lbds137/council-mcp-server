@@ -7,7 +7,6 @@ import pytest
 from council.core.orchestrator import ConversationOrchestrator
 from council.core.registry import ToolRegistry
 from council.services.cache import ResponseCache
-from council.services.memory import ConversationMemory
 from council.tools.base import MCPTool, ToolOutput
 from tests.fixtures import create_mock_model_manager
 
@@ -50,7 +49,6 @@ class TestConversationOrchestrator:
         """Set up orchestrator with dependencies."""
         registry = ToolRegistry()
         model_manager = create_mock_model_manager()
-        memory = ConversationMemory()
         cache = ResponseCache()
 
         # Register test tools
@@ -58,15 +56,15 @@ class TestConversationOrchestrator:
         registry._tools["test_tool"] = test_tool
 
         orchestrator = ConversationOrchestrator(
-            tool_registry=registry, model_manager=model_manager, memory=memory, cache=cache
+            tool_registry=registry, model_manager=model_manager, cache=cache
         )
 
-        return orchestrator, registry, model_manager, memory, cache
+        return orchestrator, registry, model_manager, cache
 
     @pytest.mark.asyncio
     async def test_execute_tool_success(self, setup_orchestrator):
         """Test successful tool execution."""
-        orchestrator, registry, model_manager, memory, cache = setup_orchestrator
+        orchestrator, registry, model_manager, cache = setup_orchestrator
 
         result = await orchestrator.execute_tool(
             "test_tool", {"param": "value"}, request_id="test-123"
@@ -82,7 +80,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_execute_unknown_tool(self, setup_orchestrator):
         """Test executing an unknown tool."""
-        orchestrator, _, _, _, _ = setup_orchestrator
+        orchestrator, _, _, _ = setup_orchestrator
 
         result = await orchestrator.execute_tool("unknown_tool", {"param": "value"})
 
@@ -92,7 +90,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_cache_integration(self, setup_orchestrator):
         """Test that caching works correctly."""
-        orchestrator, registry, _, _, cache = setup_orchestrator
+        orchestrator, registry, _, cache = setup_orchestrator
 
         # First execution
         result1 = await orchestrator.execute_tool("test_tool", {"param": "value"})
@@ -116,7 +114,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_tools_that_do_not_opt_in_are_never_cached(self, setup_orchestrator):
         """Test a state-changing tool runs on every call, even with the same input."""
-        orchestrator, registry, _, _, cache = setup_orchestrator
+        orchestrator, registry, _, cache = setup_orchestrator
         stateful = MockTestTool("set_something", cacheable=False)
         registry._tools["set_something"] = stateful
 
@@ -129,7 +127,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_switching_the_active_model_misses_the_cache(self, setup_orchestrator):
         """Test an answer cached under one active model isn't served for another."""
-        orchestrator, registry, model_manager, _, _ = setup_orchestrator
+        orchestrator, registry, model_manager, _ = setup_orchestrator
         tool = registry.get_tool("test_tool")
 
         model_manager.active_model = "model-a"
@@ -144,7 +142,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_model_override_is_part_of_the_cache_key(self, setup_orchestrator):
         """Test the same question to two override models runs twice."""
-        orchestrator, registry, _, _, _ = setup_orchestrator
+        orchestrator, registry, _, _ = setup_orchestrator
         tool = registry.get_tool("test_tool")
 
         await orchestrator.execute_tool("test_tool", {"question": "hi", "model": "a"})
@@ -155,7 +153,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_context_injection(self, setup_orchestrator):
         """Test that global model_manager is set for tools."""
-        orchestrator, registry, model_manager, memory, _ = setup_orchestrator
+        orchestrator, registry, model_manager, _ = setup_orchestrator
 
         # Create a tool that uses global model_manager
         class ContextAwareTool(MCPTool):
@@ -188,7 +186,7 @@ class TestConversationOrchestrator:
     @pytest.mark.asyncio
     async def test_failed_tool_not_cached(self, setup_orchestrator):
         """Test that failed tool executions are not cached."""
-        orchestrator, registry, _, _, cache = setup_orchestrator
+        orchestrator, registry, _, cache = setup_orchestrator
 
         # Create a failing tool
         class FailingTool(MockTestTool):
@@ -214,21 +212,9 @@ class TestConversationOrchestrator:
         stats = cache.get_stats()
         assert stats["hits"] == 0
 
-    @pytest.mark.asyncio
-    async def test_execute_protocol_simple(self, setup_orchestrator):
-        """Test simple protocol execution."""
-        orchestrator, _, _, _, _ = setup_orchestrator
-
-        results = await orchestrator.execute_protocol(
-            "simple", {"tool_name": "test_tool", "parameters": {"test": "value"}}
-        )
-
-        assert len(results) == 1
-        assert results[0].success is True
-
     def test_get_execution_stats(self, setup_orchestrator):
         """Test execution statistics."""
-        orchestrator, _, _, _, _ = setup_orchestrator
+        orchestrator, _, _, _ = setup_orchestrator
 
         orchestrator.total_executions = 3
         orchestrator.successful_executions = 2

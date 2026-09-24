@@ -1,20 +1,20 @@
 # Council MCP Server
 
-A Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. Access 100+ models from Google, Anthropic, OpenAI, Meta, Mistral, and more.
+A Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. Access OpenAI, Google, DeepSeek, Moonshot (Kimi), Z.ai (GLM), Qwen, xAI, Mistral and many more.
 
 ## Features
 
-- **Multi-Model Support**: Access 100+ models via OpenRouter (Gemini, GPT, Claude, Llama, Mistral, etc.)
+- **Multi-Model Support**: Access hundreds of models via OpenRouter, plus GLM on a Z.ai coding plan
 - **Dynamic Model Discovery**: List and filter available models by provider, capability, or pricing
 - **Per-Request Model Override**: Use different models for different tasks
-- **Multiple Collaboration Tools**: Code review, brainstorming, test generation, explanations
-- **Response Caching**: Automatic caching for repeated queries
+- **Multiple Collaboration Tools**: Code review, debugging, refactoring, brainstorming, test generation, explanations, multi-turn conversations
+- **Response Caching**: A repeated question to the same model is answered from cache for an hour
 
 ## Quick Start
 
 ### 1. Prerequisites
 
-- Python 3.9+
+- Python 3.12+
 - [Claude Desktop](https://claude.ai/download) or [Claude Code](https://claude.ai/code)
 - [OpenRouter API Key](https://openrouter.ai/keys)
 
@@ -25,12 +25,9 @@ A Model Context Protocol (MCP) server that enables Claude to collaborate with mu
 git clone https://github.com/lbds137/council-mcp-server.git
 cd council-mcp-server
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy and configure environment
-cp .env.example .env
-# Edit .env and add your OPENROUTER_API_KEY
+# Create the dev venv and install dependencies
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
 ```
 
 ### 3. Configuration
@@ -90,6 +87,18 @@ claude mcp add council -s user -- ~/.claude-mcp-servers/council/.venv/bin/python
 | `test_cases` | Generate comprehensive test scenarios |
 | `explain` | Clear explanations of complex code or concepts |
 | `synthesize_perspectives` | Combine multiple viewpoints into a coherent summary |
+| `debug` | Diagnose an error from its message, stack trace and code |
+| `refactor` | Suggest refactorings toward a stated goal |
+
+### Conversations
+
+| Tool | Description |
+|------|-------------|
+| `start_conversation` | Open a multi-turn conversation with a model |
+| `continue_conversation` | Send the next message in a conversation |
+| `get_conversation_history` | Show a conversation's turns |
+| `list_conversations` | List open conversations |
+| `end_conversation` | Close a conversation |
 
 ### Model Management
 
@@ -98,6 +107,7 @@ claude mcp add council -s user -- ~/.claude-mcp-servers/council/.venv/bin/python
 | `server_info` | Check server status and current model |
 | `list_models` | List available models with filtering |
 | `set_model` | Change the active model for subsequent requests |
+| `recommend_model` | Suggest models for a task (coding, reasoning, vision, ...) |
 
 ### Model Override
 
@@ -121,9 +131,9 @@ mcp__council__brainstorm(
 ## Popular Model Configurations
 
 IDs that start with `~` are OpenRouter aliases that always point at the newest
-model in a family, so they don't go stale. Anthropic models work too, but Claude
-Code can already run its own Claude agents, so council is most useful for other
-model families.
+model in a family, so they don't go stale. Council's recommendations leave out
+Anthropic models on purpose: Claude Code can already run its own Claude agents,
+so council is for other model families.
 
 ### OpenAI GPT (Default)
 ```bash
@@ -162,14 +172,15 @@ COUNCIL_DEFAULT_MODEL=qwen/qwen3.8-27b:free
 council-mcp-server/
 ├── src/council/           # Main source code
 │   ├── main.py           # CouncilMCPServer entry point
-│   ├── manager.py        # ModelManager (OpenRouter)
-│   ├── providers/        # LLM provider implementations
-│   ├── discovery/        # Model discovery and filtering
+│   ├── manager.py        # ModelManager (routes to OpenRouter or the Z.ai plan)
+│   ├── credentials.py    # Decrypts stored API keys at startup
+│   ├── providers/        # OpenRouter and Z.ai coding-plan providers
+│   ├── discovery/        # Model registry, filtering and caching
 │   ├── tools/            # MCP tool implementations
-│   ├── core/             # Registry and orchestrator
-│   └── services/         # Cache and memory
+│   ├── core/             # Tool registry and orchestrator
+│   └── services/         # Response cache and conversation sessions
 ├── tests/                # Test suite
-├── scripts/              # Installation scripts
+├── scripts/              # install.sh, bundler.py, set-secret.sh, check_models.py
 ├── server.py             # Bundled single-file server
 ├── launcher.py           # Launcher with venv support
 ├── CLAUDE.md            # Claude Code instructions
@@ -178,21 +189,15 @@ council-mcp-server/
 
 ### Running Tests
 ```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
-pytest tests/ -v
+# Uses the repo's .venv (see Installation)
+make test        # or: .venv/bin/python -m pytest tests/
+make test-cov    # with coverage
 ```
 
 ### Building the Bundle
 ```bash
 # Generate single-file server.py
-python scripts/bundler.py
+.venv/bin/python scripts/bundler.py
 
 # Deploy to MCP location
 ./scripts/install.sh
@@ -206,7 +211,8 @@ To update your local MCP installation after making changes:
 ./scripts/install.sh
 ```
 
-Then restart Claude Desktop/Code.
+Then reconnect the server in each open Claude Code session (`/mcp` → council →
+Reconnect), or restart Claude Desktop.
 
 ## Troubleshooting
 
@@ -221,17 +227,20 @@ claude mcp list
 
 ### API Key Issues
 ```bash
-# Verify environment variable
-echo $OPENROUTER_API_KEY
+# Check the stored credentials exist (this never prints a key)
+ls ~/.claude-mcp-servers/council/credentials/
 
-# Test with list_models tool
-mcp__council__list_models(limit=5)
+# Store or replace a key
+./scripts/set-secret.sh OPENROUTER_API_KEY
 ```
+Then reconnect council and run `mcp__council__server_info` or
+`mcp__council__list_models(limit=5)`. The server log is
+`~/.claude-mcp-servers/council/logs/council-mcp-server.log`.
 
 ### Model Not Available
 Use `list_models` to find available models:
 ```python
-mcp__council__list_models(provider="google")
+mcp__council__list_models(provider="moonshotai")
 ```
 
 ## Version History
