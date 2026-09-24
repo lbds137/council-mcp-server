@@ -470,6 +470,67 @@ SPACES_VALUE = value with spaces"""
         assert "Test error" in response["result"]["content"][0]["text"]
 
 
+class TestToolCallProgress:
+    """notifications/progress for a tool call whose client sent a progressToken."""
+
+    @staticmethod
+    def _server_with_reporting_tool(total=None, message=None):
+        """A server whose tool reports progress twice, then succeeds."""
+        from council.tools.base import report_progress
+
+        server = CouncilMCPServer()
+        server.orchestrator = MagicMock()
+        server.server.send_notification = MagicMock()
+        output = MagicMock(success=True, result="done")
+
+        async def _fake_exec(**_kw):
+            report_progress(1, total, message)
+            report_progress(2, total, message)
+            return output
+
+        server.orchestrator.execute_tool = _fake_exec
+        return server
+
+    def test_token_gets_progress_notifications(self):
+        """Each report becomes a notification quoting the client's token."""
+        server = self._server_with_reporting_tool(total=2, message="step")
+
+        response = server.handle_tool_call(
+            8, {"name": "debate", "arguments": {}, "_meta": {"progressToken": "tok"}}
+        )
+
+        assert response["result"]["isError"] is False
+        sent = [c.args for c in server.server.send_notification.call_args_list]
+        assert sent == [
+            (
+                "notifications/progress",
+                {"progressToken": "tok", "progress": 1, "total": 2, "message": "step"},
+            ),
+            (
+                "notifications/progress",
+                {"progressToken": "tok", "progress": 2, "total": 2, "message": "step"},
+            ),
+        ]
+
+    def test_unset_total_and_message_are_left_out(self):
+        """Optional fields that the tool didn't give are omitted, not null."""
+        server = self._server_with_reporting_tool()
+
+        server.handle_tool_call(9, {"name": "debate", "_meta": {"progressToken": 0}})
+
+        first = server.server.send_notification.call_args_list[0].args[1]
+        assert first == {"progressToken": 0, "progress": 1}
+
+    def test_no_token_no_notifications(self):
+        """A call without a progressToken gets only its result."""
+        server = self._server_with_reporting_tool(total=2)
+
+        response = server.handle_tool_call(10, {"name": "debate", "_meta": {}})
+
+        assert response["result"]["isError"] is False
+        server.server.send_notification.assert_not_called()
+
+
 class TestMainFunction:
     """Test the main function."""
 

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Progress notifications: when the client sends a `progressToken` (Claude Code does), a tool can call `report_progress` and the server sends `notifications/progress` during the call. `debate` reports each finished model call ("3/7 · Opening from Debater 2 (~z-ai/glm-latest) in"), so a minutes-long debate is no longer silent until it ends
 - `recommend_model` honours `prefer_fast` (flash-class models rated for the task first, best rating first) and `min_context` (drops models whose window is too small and names them). Each registry entry records the window most providers serve, and each recommendation shows it; `make check-models` reports windows that have drifted
 - `debate` tool: 2-4 models give opening statements (assigned stances or their own views), rebut each other, and a synthesis model weighs the result. Each round's calls run in parallel; a debater that fails is noted and sits out, and a debate missing a voice isn't cached
 - GLM models the Z.ai coding plan carries are routed to the plan when `ZAI_CODING_API_KEY` is set (`~z-ai/*` aliases resolve against Z.ai's own model list), with one OpenRouter retry on failure; the output names the route

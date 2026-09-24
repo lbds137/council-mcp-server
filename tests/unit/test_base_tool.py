@@ -7,7 +7,14 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from council.tools.base import MCPTool, ToolOutput, get_model_manager, get_server
+from council.tools.base import (
+    MCPTool,
+    ToolOutput,
+    get_model_manager,
+    get_server,
+    progress_reporter,
+    report_progress,
+)
 
 
 class ConcreteTestTool(MCPTool):
@@ -164,3 +171,40 @@ class TestServerLookup:
         with patch("council._server_instance", server):
             assert get_server() is server
             assert get_model_manager() is manager
+
+
+class TestProgressReporting:
+    """report_progress reaches the reporter the server set for this call."""
+
+    def test_without_a_reporter_it_does_nothing(self):
+        """Outside a call that asked for progress, reporting is a no-op."""
+        report_progress(1, 2, "ignored")
+
+    def test_inside_a_reporter_block_it_calls_back(self):
+        """Each report reaches the callback with its arguments."""
+        callback = Mock()
+        with progress_reporter(callback):
+            report_progress(1, 3, "one")
+            report_progress(2)
+        assert callback.call_args_list == [((1, 3, "one"),), ((2, None, None),)]
+
+    def test_reporter_is_reset_after_the_block_even_on_error(self):
+        """A failed call doesn't leave its reporter behind for the next one."""
+        callback = Mock()
+        with pytest.raises(RuntimeError), progress_reporter(callback):
+            raise RuntimeError("tool blew up")
+        report_progress(1)
+        callback.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reaches_tasks_and_worker_threads(self):
+        """gather's tasks and to_thread workers inherit the reporter."""
+        callback = Mock()
+
+        async def in_task():
+            report_progress(1)
+
+        with progress_reporter(callback):
+            await asyncio.gather(in_task())
+            await asyncio.to_thread(report_progress, 2)
+        assert [c.args[0] for c in callback.call_args_list] == [1, 2]

@@ -5,6 +5,7 @@ Main MCP server implementation that orchestrates all modular components.
 import logging
 import os
 import sys
+from contextlib import nullcontext
 from logging.handlers import RotatingFileHandler
 from os import PathLike
 from typing import IO, Any
@@ -15,6 +16,7 @@ from .credentials import load_credentials
 from .json_rpc import JsonRpcServer, create_result_response
 from .manager import ModelManager
 from .services.cache import ResponseCache
+from .tools.base import ProgressCallback, progress_reporter
 
 # Protocol versions this server implements. The first entry is the default
 # returned when the client requests an unknown version (spec-compliant fallback).
@@ -289,13 +291,23 @@ class CouncilMCPServer:
         # Always create a fresh event loop for the sync bridge. Relying on
         # asyncio.get_event_loop() is unsafe on Python 3.12+ where it may
         # raise DeprecationWarning or return an unrelated loop.
+        # A client that wants progress for this call sends a token to quote back
+        meta = params.get("_meta") or {}
+        progress_token = meta.get("progressToken") if isinstance(meta, dict) else None
+        reporting = (
+            progress_reporter(self._progress_sender(progress_token))
+            if progress_token is not None
+            else nullcontext()
+        )
+
         loop = asyncio.new_event_loop()
         try:
-            output = loop.run_until_complete(
-                self.orchestrator.execute_tool(
-                    tool_name=tool_name, parameters=arguments, request_id=request_id
+            with reporting:
+                output = loop.run_until_complete(
+                    self.orchestrator.execute_tool(
+                        tool_name=tool_name, parameters=arguments, request_id=request_id
+                    )
                 )
-            )
         except Exception as e:
             logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
             return _tool_error(request_id, f"Error executing tool: {e}")
@@ -308,6 +320,19 @@ class CouncilMCPServer:
                 {"content": [{"type": "text", "text": output.result or ""}], "isError": False},
             )
         return _tool_error(request_id, output.error or "Unknown error")
+
+    def _progress_sender(self, progress_token: Any) -> ProgressCallback:
+        """A progress callback that sends notifications/progress for this token."""
+
+        def send(progress: float, total: float | None, message: str | None) -> None:
+            notification: dict[str, Any] = {"progressToken": progress_token, "progress": progress}
+            if total is not None:
+                notification["total"] = total
+            if message is not None:
+                notification["message"] = message
+            self.server.send_notification("notifications/progress", notification)
+
+        return send
 
     def run(self):
         """Run the MCP server."""

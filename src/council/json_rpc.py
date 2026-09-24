@@ -104,6 +104,14 @@ class JsonRpcServer:
         except Exception as e:
             logger.error(f"Error writing to stdout: {e}")
 
+    def send_notification(self, method: str, params: dict[str, Any]) -> None:
+        """Send a notification (a message with no id) to the client.
+
+        Handlers may call this while they run, e.g. for progress: it is written
+        before their response, from the same thread.
+        """
+        self._write_message({"jsonrpc": JSONRPC_VERSION, "method": method, "params": params})
+
     def _process_request(self, request_str: str) -> dict | None:
         """Process a single JSON-RPC message. Returns None for notifications.
 

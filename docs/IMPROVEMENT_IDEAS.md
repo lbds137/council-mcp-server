@@ -4,14 +4,6 @@ Open ideas, as of 2026-09-24. The earlier version of this file (June 2025)
 listed a review backlog that has since been done or no longer applies; it is in
 git history (`git log -- docs/IMPROVEMENT_IDEAS.md`).
 
-## Worth doing
-
-### Progress notifications for long tools
-A `debate` with reasoning models takes minutes (about 4.5 minutes for two GLM
-debaters), and the caller sees nothing until it ends. MCP progress
-notifications could report each finished turn. Cost: the JSON-RPC layer would
-have to send notifications during a call, which it can't do today.
-
 ## Maybe
 
 ### Conversations that survive a reconnect

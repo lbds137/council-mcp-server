@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from council.providers.base import RateLimitError
+from council.tools.base import progress_reporter
 from council.tools.debate import DEFAULT_PANEL, DebateTool
 
 
@@ -278,3 +279,64 @@ class TestDebateFailures:
         """A debate where every call answered carries no cache veto."""
         result = await DebateTool().execute({"topic": "x", "rounds": 1})
         assert "cacheable" not in result.metadata
+
+
+class TestDebateProgress:
+    """Progress reports: one per finished call, ending at the total."""
+
+    @staticmethod
+    async def run_reporting(manager, parameters):
+        """Run a debate, returning the (progress, total, message) reports."""
+        reports = []
+        with (
+            patch("council._server_instance", SimpleNamespace(model_manager=manager)),
+            progress_reporter(lambda *report: reports.append(report)),
+        ):
+            await DebateTool().execute(parameters)
+        return reports
+
+    @pytest.mark.asyncio
+    async def test_default_debate_counts_to_seven(self, manager):
+        """A start report at 0, then one per call up to 7 of 7."""
+        reports = await self.run_reporting(manager, {"topic": "x"})
+
+        assert reports[0] == (0, 7, "Openings: 3 debaters")
+        assert [(p, t) for p, t, _ in reports[1:]] == [(n, 7) for n in range(1, 8)]
+        assert reports[-1][2] == "Synthesis in"
+        assert sum("Rebuttal from" in m for _, _, m in reports) == 3
+
+    @pytest.mark.asyncio
+    async def test_dropped_debater_shrinks_the_total(self):
+        """A failed opener sits out the rebuttals, so the total drops to 6."""
+        manager = replying_manager(fail_models={"~moonshotai/kimi-latest"})
+        reports = await self.run_reporting(manager, {"topic": "x"})
+
+        assert any(
+            m == "Opening from Debater 3 (~moonshotai/kimi-latest) failed" for _, _, m in reports
+        )
+        assert reports[-1][:2] == (6, 6)
+        progress = [p for p, _, _ in reports]
+        assert progress == sorted(set(progress))
+
+    @pytest.mark.asyncio
+    async def test_one_round_ends_at_four(self, manager):
+        """rounds=1 is three openings plus the synthesis."""
+        reports = await self.run_reporting(manager, {"topic": "x", "rounds": 1})
+        assert reports[-1][:2] == (4, 4)
+
+    @pytest.mark.asyncio
+    async def test_each_call_reports_when_it_finishes(self):
+        """A slow debater doesn't hold back the others' reports."""
+        manager = replying_manager()
+        slow = manager.generate_content.side_effect
+
+        def generate_content(prompt, model=None):
+            if model == "~openai/gpt-sol-latest":
+                time.sleep(0.2)
+            return slow(prompt, model=model)
+
+        manager.generate_content.side_effect = generate_content
+        reports = await self.run_reporting(manager, {"topic": "x", "rounds": 1})
+
+        openings = [m for _, _, m in reports if m.startswith("Opening from")]
+        assert "~openai/gpt-sol-latest" in openings[-1]

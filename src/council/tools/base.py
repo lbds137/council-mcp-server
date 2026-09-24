@@ -2,9 +2,40 @@
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[float, float | None, str | None], None]
+
+# Set by the server for a call whose client asked for progress. A ContextVar,
+# so it reaches the tool's asyncio tasks and worker threads without plumbing.
+_progress_callback: ContextVar[ProgressCallback | None] = ContextVar(
+    "progress_callback", default=None
+)
+
+
+@contextmanager
+def progress_reporter(callback: ProgressCallback) -> Iterator[None]:
+    """Route report_progress calls made inside this block to callback."""
+    token = _progress_callback.set(callback)
+    try:
+        yield
+    finally:
+        _progress_callback.reset(token)
+
+
+def report_progress(progress: float, total: float | None = None, message: str | None = None):
+    """Tell the client how far a long tool has got; does nothing if it didn't ask.
+
+    progress must increase from one report to the next within a call.
+    """
+    callback = _progress_callback.get()
+    if callback is not None:
+        callback(progress, total, message)
 
 
 def get_server() -> Any:
