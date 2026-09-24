@@ -1,5 +1,6 @@
 """Tests for ModelManager."""
 
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -9,6 +10,7 @@ from council.providers.base import (
     LLMProviderError,
     LLMResponse,
     ModelInfo,
+    RateLimitError,
 )
 
 
@@ -324,3 +326,114 @@ class TestModelManagerStats:
         assert stats["total_calls"] == 2
         assert stats["successful_calls"] == 2
         assert stats["success_rate"] == "100.0%"
+
+
+class TestModelManagerZaiRouting:
+    """Tests for routing GLM models to the Z.ai coding plan."""
+
+    def response(self, model: str) -> LLMResponse:
+        """A provider response from the given model."""
+        return LLMResponse(content=f"from {model}", model=model)
+
+    @pytest.fixture
+    def providers(self):
+        """Patched OpenRouter and Z.ai providers, with a Z.ai key configured."""
+        with (
+            patch.dict("os.environ", {"ZAI_CODING_API_KEY": "zai-key"}),
+            patch("council.manager.OpenRouterProvider") as openrouter_class,
+            patch("council.manager.ZaiCodingProvider") as zai_class,
+        ):
+            openrouter = openrouter_class.return_value
+            zai = zai_class.return_value
+            zai.resolve.side_effect = lambda model: "glm-5.3" if "glm" in model else None
+            zai.list_error = None
+            yield openrouter, zai
+
+    def test_plan_model_goes_to_zai(self, providers):
+        """Test a GLM model the plan carries is served there and labelled."""
+        openrouter, zai = providers
+        zai.generate.return_value = self.response("z-ai/glm-5.3")
+
+        content, model_used = ModelManager(api_key="or-key").generate_content(
+            "Hi", model="~z-ai/glm-latest"
+        )
+
+        zai.generate.assert_called_once_with("Hi", model="glm-5.3")
+        openrouter.generate.assert_not_called()
+        assert content == "from z-ai/glm-5.3"
+        assert model_used == "z-ai/glm-5.3 · Z.ai plan"
+
+    def test_other_models_stay_on_openrouter(self, providers):
+        """Test non-GLM models never touch the plan."""
+        openrouter, zai = providers
+        openrouter.generate.return_value = self.response("openai/gpt-6-sol")
+
+        _, model_used = ModelManager(api_key="or-key").generate_content("Hi")
+
+        zai.generate.assert_not_called()
+        assert model_used == "openai/gpt-6-sol"
+
+    def test_unreachable_plan_is_named_in_the_label(self, providers):
+        """Test a configured key the plan rejects doesn't silently bill OpenRouter."""
+        openrouter, zai = providers
+        zai.resolve.side_effect = None
+        zai.resolve.return_value = None
+        zai.list_error = "model list returned HTTP 401"
+        zai.is_candidate.return_value = True
+        openrouter.generate.return_value = self.response("z-ai/glm-5.3")
+
+        manager = ModelManager(api_key="or-key")
+        _, model_used = manager.generate_content("Hi", model="~z-ai/glm-latest")
+
+        assert model_used == (
+            "z-ai/glm-5.3 · OpenRouter (Z.ai unavailable: model list returned HTTP 401)"
+        )
+        assert manager.get_stats()["zai_fallbacks"] == 1
+
+    def test_plan_failure_retries_once_on_openrouter(self, providers):
+        """Test a Z.ai failure falls back to OpenRouter with the original ID."""
+        openrouter, zai = providers
+        zai.generate.side_effect = RateLimitError("quota window exhausted (Z.ai code 1308)")
+        openrouter.generate.return_value = self.response("z-ai/glm-5.3")
+
+        manager = ModelManager(api_key="or-key")
+        _, model_used = manager.generate_content("Hi", model="~z-ai/glm-latest")
+
+        openrouter.generate.assert_called_once_with("Hi", model="~z-ai/glm-latest")
+        assert model_used == (
+            "z-ai/glm-5.3 · OpenRouter (Z.ai failed: quota window exhausted (Z.ai code 1308))"
+        )
+        stats = manager.get_stats()
+        assert (stats["zai_calls"], stats["zai_fallbacks"]) == (1, 1)
+        assert manager.successful_calls == 1
+
+    def test_both_routes_failing_raises_with_both_errors(self, providers):
+        """Test the raised error names the plan failure and the fallback failure."""
+        openrouter, zai = providers
+        zai.generate.side_effect = RateLimitError("busy or rate limited")
+        openrouter.generate.side_effect = LLMProviderError("upstream 502")
+
+        manager = ModelManager(api_key="or-key")
+        with pytest.raises(LLMProviderError) as exc_info:
+            manager.generate_content("Hi", model="z-ai/glm-5.3")
+
+        assert "busy or rate limited" in str(exc_info.value)
+        assert "upstream 502" in str(exc_info.value)
+        assert exc_info.value.is_retryable is True
+        assert manager.failed_calls == 1
+
+    @patch("council.manager.ZaiCodingProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_without_key_bare_glm_ids_get_openrouter_prefix(self, openrouter_class, zai_class):
+        """Test no Z.ai key means OpenRouter, with bare GLM IDs made routable."""
+        openrouter = openrouter_class.return_value
+        openrouter.generate.return_value = self.response("z-ai/glm-5.3")
+
+        with patch.dict("os.environ"):
+            os.environ.pop("ZAI_CODING_API_KEY", None)
+            manager = ModelManager(api_key="or-key")
+            manager.generate_content("Hi", model="glm-5.3")
+
+        zai_class.assert_not_called()
+        openrouter.generate.assert_called_once_with("Hi", model="z-ai/glm-5.3")
+        assert manager.get_stats()["zai_configured"] is False

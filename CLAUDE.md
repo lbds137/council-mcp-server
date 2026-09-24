@@ -179,11 +179,22 @@ Then export it in `src/council/tools/__init__.py`.
 
 ## Configuration
 
+### API Keys
+Keys are stored as encrypted systemd user credentials, not in `.env`:
+`scripts/set-secret.sh NAME` writes `~/.claude-mcp-servers/council/credentials/NAME.cred`
+(host key + TPM2, not bound to firmware state), and `src/council/credentials.py` decrypts
+them at startup. An environment variable set before startup beats a credential; a credential
+beats a `.env` line.
+Never print a key. Pipe it straight into `set-secret.sh` instead.
+- `OPENROUTER_API_KEY` (required)
+- `ZAI_CODING_API_KEY` (optional): GLM models the Z.ai coding plan carries are routed
+  there (`src/council/providers/zai.py`), with one OpenRouter retry on failure. On this
+  Deck it comes from Tzurot's Railway dev env:
+  `railway variables --environment development --service ai-worker --json | jq -r .ZAI_CODING_API_KEY | scripts/set-secret.sh ZAI_CODING_API_KEY`
+  (run from `~/Projects/tzurot`).
+
 ### Environment Variables
 ```bash
-# Required
-OPENROUTER_API_KEY=sk-or-...
-
 # Optional
 COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest       # Default model
 COUNCIL_CACHE_TTL=3600                              # Model cache TTL (1 hour)

@@ -12,17 +12,46 @@ from council.main import CouncilMCPServer, main
 
 @pytest.fixture(autouse=True)
 def mock_env_loading(request):
-    """Mock _load_env_file for all tests except env loading tests."""
-    # Don't mock for tests that are actually testing env loading
-    if "load_env" in request.node.name:
+    """Mock env and credential loading for all tests except the ones testing it."""
+    # Don't mock for tests that are actually testing env or credential loading
+    if "load_env" in request.node.name or "credentials" in request.node.name:
         yield
     else:
-        with patch.object(CouncilMCPServer, "_load_env_file"):
+        with (
+            patch.object(CouncilMCPServer, "_load_env_file"),
+            patch.object(CouncilMCPServer, "_load_credentials"),
+        ):
             yield
 
 
 class TestCouncilMCPServer:
     """Test the CouncilMCPServer class."""
+
+    @patch("council.main.JsonRpcServer")
+    def test_credentials_load_before_env_file(self, mock_json_rpc):
+        """Test credentials load first, so load_dotenv can't override them with a .env line."""
+        calls = MagicMock()
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials", calls.credentials),
+            patch.object(CouncilMCPServer, "_load_env_file", calls.env_file),
+        ):
+            CouncilMCPServer()
+
+        assert [name for name, _, _ in calls.mock_calls] == ["credentials", "env_file"]
+
+    @patch("council.main.load_credentials")
+    @patch.object(CouncilMCPServer, "_launcher_dir", return_value="/opt/council")
+    def test_load_credentials_directory(self, _launcher_dir, mock_load, monkeypatch):
+        """Test credentials come from COUNCIL_CREDENTIALS_DIR, else beside the launcher."""
+        server = CouncilMCPServer.__new__(CouncilMCPServer)
+
+        monkeypatch.setenv("COUNCIL_CREDENTIALS_DIR", "/custom/creds")
+        server._load_credentials()
+        mock_load.assert_called_with("/custom/creds")
+
+        monkeypatch.delenv("COUNCIL_CREDENTIALS_DIR")
+        server._load_credentials()
+        mock_load.assert_called_with(os.path.join("/opt/council", "credentials"))
 
     @patch("council.main.JsonRpcServer")
     @patch("council.main.ToolRegistry")
