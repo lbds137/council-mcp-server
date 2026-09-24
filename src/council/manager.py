@@ -4,7 +4,13 @@ import logging
 import os
 from typing import Any, Optional
 
-from .providers import LLMProviderError, LLMResponse, ModelInfo, OpenRouterProvider
+from .providers import (
+    LLMProviderError,
+    LLMResponse,
+    ModelInfo,
+    OpenRouterProvider,
+    ZaiCodingProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +19,8 @@ class ModelManager:
     """Manages LLM interactions for Council MCP server.
 
     This class provides a unified interface for:
-    - Generating content from LLMs via OpenRouter
+    - Generating content from LLMs via OpenRouter, or via the Z.ai coding plan
+      for GLM models when ZAI_CODING_API_KEY is set
     - Switching between different models
     - Tracking usage statistics
     """
@@ -42,8 +49,10 @@ class ModelManager:
         )
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
-        # Initialize the provider
+        # Initialize the providers
         self._provider: Optional[OpenRouterProvider] = None
+        self.zai_api_key = os.getenv("ZAI_CODING_API_KEY")
+        self._zai_provider: Optional[ZaiCodingProvider] = None
 
         # Current active model (can be changed with set_model)
         self._active_model: str = self.default_model
@@ -52,6 +61,8 @@ class ModelManager:
         self.total_calls = 0
         self.successful_calls = 0
         self.failed_calls = 0
+        self.zai_calls = 0
+        self.zai_fallbacks = 0
 
         logger.info(f"ModelManager initialized with default model: {self.default_model}")
 
@@ -65,6 +76,13 @@ class ModelManager:
                 timeout=self.timeout,
             )
         return self._provider
+
+    @property
+    def zai_provider(self) -> Optional[ZaiCodingProvider]:
+        """Get the Z.ai coding-plan provider, or None when no key is configured."""
+        if self._zai_provider is None and self.zai_api_key:
+            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key)
+        return self._zai_provider
 
     @property
     def active_model(self) -> str:
@@ -101,23 +119,14 @@ class ModelManager:
             **kwargs: Additional parameters passed to the provider.
 
         Returns:
-            Tuple of (response_content, model_used).
+            Tuple of (response_content, model_used). model_used names the model
+            that served the request, plus its route when the Z.ai plan was tried.
 
         Raises:
             LLMProviderError: If generation fails.
         """
-        model_to_use = model or self._active_model
-        self.total_calls += 1
-
-        try:
-            response = self.provider.generate(prompt, model=model_to_use, **kwargs)
-            self.successful_calls += 1
-            return response.content, response.model
-
-        except LLMProviderError as e:
-            self.failed_calls += 1
-            logger.error(f"Generation failed: {e}")
-            raise
+        response, model_used = self._generate(prompt, model, **kwargs)
+        return response.content, model_used
 
     def generate(
         self,
@@ -138,18 +147,81 @@ class ModelManager:
         Raises:
             LLMProviderError: If generation fails.
         """
+        response, _ = self._generate(prompt, model, **kwargs)
+        return response
+
+    def _generate(
+        self, prompt: str, model: Optional[str], **kwargs: Any
+    ) -> tuple[LLMResponse, str]:
+        """Route a request and return the response with a label naming its route.
+
+        GLM models the Z.ai plan carries go there first; everything else, and
+        any plan failure, goes to OpenRouter.
+        """
         model_to_use = model or self._active_model
         self.total_calls += 1
 
+        zai = self.zai_provider
+        zai_model = zai.resolve(model_to_use) if zai else None
         try:
-            response = self.provider.generate(prompt, model=model_to_use, **kwargs)
-            self.successful_calls += 1
-            return response
-
+            if zai is None or zai_model is None:
+                response = self.provider.generate(
+                    prompt, model=self._openrouter_id(model_to_use), **kwargs
+                )
+                model_used = response.model
+                if zai is not None and zai.list_error and zai.is_candidate(model_to_use):
+                    # A key is set but the plan couldn't be consulted: say so,
+                    # or a broken key would silently bill every GLM call
+                    self.zai_fallbacks += 1
+                    model_used += f" · OpenRouter (Z.ai unavailable: {zai.list_error})"
+            else:
+                response, model_used = self._generate_on_plan(
+                    zai, prompt, model_to_use, zai_model, **kwargs
+                )
         except LLMProviderError as e:
             self.failed_calls += 1
             logger.error(f"Generation failed: {e}")
             raise
+
+        self.successful_calls += 1
+        return response, model_used
+
+    def _generate_on_plan(
+        self,
+        zai: ZaiCodingProvider,
+        prompt: str,
+        requested: str,
+        zai_model: str,
+        **kwargs: Any,
+    ) -> tuple[LLMResponse, str]:
+        """Try the Z.ai plan once, then fall back to OpenRouter once."""
+        self.zai_calls += 1
+        try:
+            response = zai.generate(prompt, model=zai_model, **kwargs)
+            return response, f"{response.model} · Z.ai plan"
+        except LLMProviderError as zai_error:
+            logger.warning(f"Z.ai plan failed for {zai_model}, retrying on OpenRouter: {zai_error}")
+            self.zai_fallbacks += 1
+            try:
+                response = self.provider.generate(
+                    prompt, model=self._openrouter_id(requested), **kwargs
+                )
+            except LLMProviderError as openrouter_error:
+                raise LLMProviderError(
+                    f"Z.ai plan: {zai_error}; OpenRouter fallback: {openrouter_error}",
+                    provider="zai-coding",
+                    model=zai_model,
+                    is_retryable=zai_error.is_retryable,
+                ) from openrouter_error
+            reason = str(zai_error)[:80]
+            return response, f"{response.model} · OpenRouter (Z.ai failed: {reason})"
+
+    @staticmethod
+    def _openrouter_id(model_id: str) -> str:
+        """OpenRouter's ID for a model: bare GLM IDs need the "z-ai/" prefix."""
+        if model_id.lower().startswith("glm-"):
+            return f"z-ai/{model_id}"
+        return model_id
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
         """List available models.
@@ -198,4 +270,7 @@ class ModelManager:
             "successful_calls": self.successful_calls,
             "failed_calls": self.failed_calls,
             "success_rate": f"{success_rate:.1f}%",
+            "zai_configured": bool(self.zai_api_key),
+            "zai_calls": self.zai_calls,
+            "zai_fallbacks": self.zai_fallbacks,
         }

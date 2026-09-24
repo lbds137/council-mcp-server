@@ -35,17 +35,36 @@ cp .env.example .env
 
 ### 3. Configuration
 
-Edit `.env` to configure:
+**API keys** are best stored encrypted, so they never sit in a plaintext file.
+On a Linux machine with systemd 256 or newer, run:
 
 ```bash
-# Your OpenRouter API key (required)
-OPENROUTER_API_KEY=sk-or-...
+# Prompts for the key with input hidden, or reads it from a pipe
+./scripts/set-secret.sh OPENROUTER_API_KEY
 
-# Model configuration (optional - defaults shown)
+# Optional: route GLM models through a Z.ai coding plan (flat rate)
+./scripts/set-secret.sh ZAI_CODING_API_KEY
+```
+
+Each key becomes `~/.claude-mcp-servers/council/credentials/NAME.cred`, which
+only your user on that machine can decrypt. Council decrypts them at startup.
+A key set as an environment variable before council starts takes priority over
+a stored credential; a stored credential takes priority over a `.env` line, so
+a stale `.env` can't shadow a new key. Set `COUNCIL_CREDENTIALS_DIR` to keep
+the credentials somewhere else.
+
+**Other settings** go in `.env` (optional; defaults shown):
+
+```bash
 COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest
 COUNCIL_CACHE_TTL=3600
 COUNCIL_TIMEOUT=600000
 ```
+
+With a Z.ai key set, requests for GLM models the plan carries (`~z-ai/glm-latest`,
+`z-ai/glm-5.3`, or a bare `glm-5.3`) go to the plan. The output names the route,
+for example `[Model: z-ai/glm-5.3 · Z.ai plan]`. If the plan fails (quota, busy,
+outage), council retries once through OpenRouter and says so in the same place.
 
 ### 4. Register with Claude
 

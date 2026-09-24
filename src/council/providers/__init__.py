@@ -10,6 +10,7 @@ from .base import (
     RateLimitError,
 )
 from .openrouter import OpenRouterProvider
+from .zai import ZaiCodingProvider
 
 __all__ = [
     "LLMProvider",
@@ -20,4 +21,5 @@ __all__ = [
     "RateLimitError",
     "ModelNotFoundError",
     "OpenRouterProvider",
+    "ZaiCodingProvider",
 ]

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GLM models the Z.ai coding plan carries are routed to the plan when `ZAI_CODING_API_KEY` is set (`~z-ai/*` aliases resolve against Z.ai's own model list), with one OpenRouter retry on failure; the output names the route
+- API keys can be stored as encrypted systemd user credentials (`scripts/set-secret.sh`), decrypted at startup, instead of plaintext in `.env`
 - `scripts/check_models.py` (`make check-models`) lists registry model IDs that OpenRouter no longer serves
 - Comprehensive test coverage for JSON-RPC layer (30 tests)
 - Complete test suite for main.py entry point (16 tests)

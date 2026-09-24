@@ -653,6 +653,258 @@ class OpenRouterProvider(LLMProvider):
         return None
 
 
+# ========== Z.ai coding-plan provider for Council MCP server.  GLM calls sent here draw o... ==========
+
+
+import os
+import re
+import time
+from typing import Any, Optional
+
+import httpx
+from openai import OpenAI
+
+ZAI_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
+ZAI_MODEL_PREFIX = "z-ai/"
+ZAI_MODELS_TIMEOUT_SECONDS = 10.0
+ZAI_FAILED_FETCH_RETRY_SECONDS = 300.0
+
+# OpenRouter's floating GLM aliases, resolved against Z.ai's own model list:
+# the newest plain version, and the newest -flash variant
+ZAI_ALIAS_PATTERNS = {
+    "~z-ai/glm-latest": re.compile(r"^glm-\d+(\.\d+)?$"),
+    "~z-ai/glm-flash-latest": re.compile(r"^glm-\d+(\.\d+)?-flash$"),
+}
+
+# Business codes Z.ai sends in error bodies. The 429 codes come from Z.ai's
+# client tooling, as recorded by Tzurot; its docs don't list them.
+ZAI_QUOTA_CODES = {"1308", "1310", "1316", "1317", "1318", "1319", "1320", "1321"}
+ZAI_BUSY_CODES = {"1302", "1305", "1313"}
+ZAI_ACCOUNT_CODES = {"1113", "1309"}
+ZAI_MODEL_NOT_FOUND_CODE = "1214"
+ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})""")
+
+
+class ZaiCodingProvider(LLMProvider):
+    """Provider for GLM models on the Z.ai coding plan."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        timeout: float = 180.0,
+        cache_ttl: Optional[float] = None,
+    ):
+        """Initialize the provider.
+
+        Args:
+            api_key: Z.ai coding-plan key. If None, reads ZAI_CODING_API_KEY.
+            timeout: Request timeout in seconds. GLM reasoning can run past a
+                minute, and one rate-limited attempt can take nearly two.
+            cache_ttl: How long to trust Z.ai's model list, in seconds. If None,
+                reads COUNCIL_CACHE_TTL (default 1 hour).
+        """
+        self.api_key = api_key or os.getenv("ZAI_CODING_API_KEY")
+        self.timeout = timeout
+        self.cache_ttl = (
+            cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
+        )
+        self._client: Optional[OpenAI] = None
+        self._models: list[dict[str, Any]] = []
+        self._next_fetch: float = 0.0
+        # Why the last model-list fetch failed, or None after a success
+        self.list_error: Optional[str] = None
+
+    @property
+    def name(self) -> str:
+        """Return the provider name."""
+        return "zai-coding"
+
+    @property
+    def client(self) -> OpenAI:
+        """Get or create the OpenAI client configured for the coding plan."""
+        if self._client is None:
+            if not self.api_key:
+                raise AuthenticationError(
+                    "Z.ai coding-plan key not configured. Set ZAI_CODING_API_KEY.",
+                    provider=self.name,
+                )
+            # One attempt only: on failure the manager falls back to OpenRouter
+            self._client = OpenAI(
+                base_url=ZAI_CODING_BASE_URL,
+                api_key=self.api_key,
+                timeout=self.timeout,
+                max_retries=0,
+            )
+        return self._client
+
+    def _model_list(self) -> list[dict[str, Any]]:
+        """Z.ai's model list, refreshed once per cache TTL.
+
+        A failed fetch keeps the previous list (empty on first failure, which
+        routes nothing to Z.ai) and retries after a few minutes.
+        """
+        if time.time() < self._next_fetch:
+            return self._models
+        try:
+            response = httpx.get(
+                f"{ZAI_CODING_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=ZAI_MODELS_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            self._models = [m for m in response.json().get("data", []) if m.get("id")]
+            self._next_fetch = time.time() + self.cache_ttl
+            self.list_error = None
+        except (httpx.HTTPError, ValueError) as e:
+            logger.warning(f"Could not list Z.ai models: {e}")
+            if isinstance(e, httpx.HTTPStatusError):
+                self.list_error = f"model list returned HTTP {e.response.status_code}"
+            else:
+                self.list_error = f"model list unreachable ({type(e).__name__})"
+            self._next_fetch = time.time() + ZAI_FAILED_FETCH_RETRY_SECONDS
+        return self._models
+
+    @staticmethod
+    def is_candidate(model_id: str) -> bool:
+        """Whether model_id names a GLM model the plan might carry."""
+        lowered = model_id.lower()
+        if ":" in lowered:
+            return False
+        return (
+            lowered in ZAI_ALIAS_PATTERNS
+            or lowered.startswith(ZAI_MODEL_PREFIX)
+            or lowered.startswith("glm-")
+        )
+
+    def resolve(self, model_id: str) -> Optional[str]:
+        """Return the bare Z.ai ID that serves model_id on the plan.
+
+        Args:
+            model_id: A requested model: a "~z-ai/..." alias, a "z-ai/..." ID,
+                or a bare "glm-..." ID.
+
+        Returns:
+            The bare ID if the plan carries the model, or None to leave the
+            request on OpenRouter (including ":free" and ":batch" routes).
+        """
+        if not self.is_candidate(model_id):
+            return None
+
+        lowered = model_id.lower()
+        if lowered in ZAI_ALIAS_PATTERNS:
+            pattern = ZAI_ALIAS_PATTERNS[lowered]
+            candidates = [m for m in self._model_list() if pattern.match(m["id"])]
+            if not candidates:
+                return None
+            newest = max(candidates, key=lambda m: (m.get("created", 0), m["id"]))
+            return str(newest["id"])
+
+        bare = lowered.removeprefix(ZAI_MODEL_PREFIX)
+        for model in self._model_list():
+            if model["id"].lower() == bare:
+                return str(model["id"])
+        return None
+
+    def generate(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Generate a response on the coding plan.
+
+        Args:
+            prompt: The prompt to send to the model.
+            model: Bare Z.ai model ID, as returned by resolve().
+            temperature: Sampling temperature.
+            max_tokens: Maximum tokens to generate.
+            **kwargs: Additional parameters for the API.
+
+        Returns:
+            LLMResponse whose model is the served model, in "z-ai/..." form.
+
+        Raises:
+            LLMProviderError: If the generation fails.
+        """
+        if not model:
+            raise ModelNotFoundError("No Z.ai model given", provider=self.name)
+
+        logger.info(f"Generating with Z.ai coding plan model: {model}")
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs,
+            )
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            raise self._classify_error(e, model) from e
+
+        message = response.choices[0].message
+        content = message.content or ""
+        if not content.strip():
+            # GLM sometimes returns the whole reply in the reasoning channel
+            content = getattr(message, "reasoning_content", None) or ""
+
+        usage = {}
+        if response.usage:
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+
+        served = response.model or model
+        if not served.startswith(ZAI_MODEL_PREFIX):
+            served = f"{ZAI_MODEL_PREFIX}{served}"
+        return LLMResponse(
+            content=content,
+            model=served,
+            usage=usage,
+            metadata={"id": response.id, "created": response.created, "route": self.name},
+        )
+
+    def _classify_error(self, error: Exception, model: str) -> LLMProviderError:
+        """Map a Z.ai API error to a provider error with a short message."""
+        raw = str(error)
+        logger.warning(f"Z.ai error for {model}: {raw}")
+        status = getattr(error, "status_code", None)
+        match = ZAI_CODE_PATTERN.search(raw)
+        code = match.group(1) if match else None
+        suffix = f" (Z.ai code {code})" if code else ""
+
+        if code in ZAI_ACCOUNT_CODES or status in (401, 403):
+            return AuthenticationError(f"account or key problem{suffix}", self.name, model)
+        if code == ZAI_MODEL_NOT_FOUND_CODE or status == 404:
+            return ModelNotFoundError(f"model not on the plan{suffix}", self.name, model)
+        if code in ZAI_QUOTA_CODES:
+            return RateLimitError(f"quota window exhausted{suffix}", self.name, model)
+        if code in ZAI_BUSY_CODES or status == 429:
+            return RateLimitError(f"busy or rate limited{suffix}", self.name, model)
+        return LLMProviderError(
+            raw,
+            provider=self.name,
+            model=model,
+            is_retryable="timeout" in raw.lower(),
+        )
+
+    def list_models(self) -> list[ModelInfo]:
+        """List the plan's models."""
+        return [
+            ModelInfo(id=f"{ZAI_MODEL_PREFIX}{m['id']}", name=m["id"], provider="z-ai")
+            for m in self._model_list()
+        ]
+
+    def is_available(self) -> bool:
+        """Check if the provider is configured."""
+        return bool(self.api_key)
+
+
 # ========== Model caching with TTL for Council MCP server. ==========
 
 
@@ -1169,7 +1421,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.GENERAL: "A",
         },
         description="Open-weight Z.ai flagship for software engineering; 1M context",
-        notes="Text-only input",
+        notes="Text-only input; runs on the Z.ai coding plan when ZAI_CODING_API_KEY is set",
         recommended_for=["coding", "long_context", "cost_effective"],
     ),
     "~z-ai/glm-flash-latest": ModelMetadata(  # glm-5.3-flash
@@ -1180,6 +1432,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.GENERAL: "B",
         },
         description="Z.ai's fast tier; takes text, image and video",
+        notes="Runs on the Z.ai coding plan when ZAI_CODING_API_KEY is set",
         recommended_for=["quick_tasks", "quick_vision", "cost_effective"],
     ),
     # === xAI ===
@@ -1423,7 +1676,8 @@ class ModelManager:
     """Manages LLM interactions for Council MCP server.
 
     This class provides a unified interface for:
-    - Generating content from LLMs via OpenRouter
+    - Generating content from LLMs via OpenRouter, or via the Z.ai coding plan
+      for GLM models when ZAI_CODING_API_KEY is set
     - Switching between different models
     - Tracking usage statistics
     """
@@ -1452,8 +1706,10 @@ class ModelManager:
         )
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
-        # Initialize the provider
+        # Initialize the providers
         self._provider: Optional[OpenRouterProvider] = None
+        self.zai_api_key = os.getenv("ZAI_CODING_API_KEY")
+        self._zai_provider: Optional[ZaiCodingProvider] = None
 
         # Current active model (can be changed with set_model)
         self._active_model: str = self.default_model
@@ -1462,6 +1718,8 @@ class ModelManager:
         self.total_calls = 0
         self.successful_calls = 0
         self.failed_calls = 0
+        self.zai_calls = 0
+        self.zai_fallbacks = 0
 
         logger.info(f"ModelManager initialized with default model: {self.default_model}")
 
@@ -1475,6 +1733,13 @@ class ModelManager:
                 timeout=self.timeout,
             )
         return self._provider
+
+    @property
+    def zai_provider(self) -> Optional[ZaiCodingProvider]:
+        """Get the Z.ai coding-plan provider, or None when no key is configured."""
+        if self._zai_provider is None and self.zai_api_key:
+            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key)
+        return self._zai_provider
 
     @property
     def active_model(self) -> str:
@@ -1511,23 +1776,14 @@ class ModelManager:
             **kwargs: Additional parameters passed to the provider.
 
         Returns:
-            Tuple of (response_content, model_used).
+            Tuple of (response_content, model_used). model_used names the model
+            that served the request, plus its route when the Z.ai plan was tried.
 
         Raises:
             LLMProviderError: If generation fails.
         """
-        model_to_use = model or self._active_model
-        self.total_calls += 1
-
-        try:
-            response = self.provider.generate(prompt, model=model_to_use, **kwargs)
-            self.successful_calls += 1
-            return response.content, response.model
-
-        except LLMProviderError as e:
-            self.failed_calls += 1
-            logger.error(f"Generation failed: {e}")
-            raise
+        response, model_used = self._generate(prompt, model, **kwargs)
+        return response.content, model_used
 
     def generate(
         self,
@@ -1548,18 +1804,81 @@ class ModelManager:
         Raises:
             LLMProviderError: If generation fails.
         """
+        response, _ = self._generate(prompt, model, **kwargs)
+        return response
+
+    def _generate(
+        self, prompt: str, model: Optional[str], **kwargs: Any
+    ) -> tuple[LLMResponse, str]:
+        """Route a request and return the response with a label naming its route.
+
+        GLM models the Z.ai plan carries go there first; everything else, and
+        any plan failure, goes to OpenRouter.
+        """
         model_to_use = model or self._active_model
         self.total_calls += 1
 
+        zai = self.zai_provider
+        zai_model = zai.resolve(model_to_use) if zai else None
         try:
-            response = self.provider.generate(prompt, model=model_to_use, **kwargs)
-            self.successful_calls += 1
-            return response
-
+            if zai is None or zai_model is None:
+                response = self.provider.generate(
+                    prompt, model=self._openrouter_id(model_to_use), **kwargs
+                )
+                model_used = response.model
+                if zai is not None and zai.list_error and zai.is_candidate(model_to_use):
+                    # A key is set but the plan couldn't be consulted: say so,
+                    # or a broken key would silently bill every GLM call
+                    self.zai_fallbacks += 1
+                    model_used += f" · OpenRouter (Z.ai unavailable: {zai.list_error})"
+            else:
+                response, model_used = self._generate_on_plan(
+                    zai, prompt, model_to_use, zai_model, **kwargs
+                )
         except LLMProviderError as e:
             self.failed_calls += 1
             logger.error(f"Generation failed: {e}")
             raise
+
+        self.successful_calls += 1
+        return response, model_used
+
+    def _generate_on_plan(
+        self,
+        zai: ZaiCodingProvider,
+        prompt: str,
+        requested: str,
+        zai_model: str,
+        **kwargs: Any,
+    ) -> tuple[LLMResponse, str]:
+        """Try the Z.ai plan once, then fall back to OpenRouter once."""
+        self.zai_calls += 1
+        try:
+            response = zai.generate(prompt, model=zai_model, **kwargs)
+            return response, f"{response.model} · Z.ai plan"
+        except LLMProviderError as zai_error:
+            logger.warning(f"Z.ai plan failed for {zai_model}, retrying on OpenRouter: {zai_error}")
+            self.zai_fallbacks += 1
+            try:
+                response = self.provider.generate(
+                    prompt, model=self._openrouter_id(requested), **kwargs
+                )
+            except LLMProviderError as openrouter_error:
+                raise LLMProviderError(
+                    f"Z.ai plan: {zai_error}; OpenRouter fallback: {openrouter_error}",
+                    provider="zai-coding",
+                    model=zai_model,
+                    is_retryable=zai_error.is_retryable,
+                ) from openrouter_error
+            reason = str(zai_error)[:80]
+            return response, f"{response.model} · OpenRouter (Z.ai failed: {reason})"
+
+    @staticmethod
+    def _openrouter_id(model_id: str) -> str:
+        """OpenRouter's ID for a model: bare GLM IDs need the "z-ai/" prefix."""
+        if model_id.lower().startswith("glm-"):
+            return f"z-ai/{model_id}"
+        return model_id
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
         """List available models.
@@ -1608,6 +1927,9 @@ class ModelManager:
             "successful_calls": self.successful_calls,
             "failed_calls": self.failed_calls,
             "success_rate": f"{success_rate:.1f}%",
+            "zai_configured": bool(self.zai_api_key),
+            "zai_calls": self.zai_calls,
+            "zai_fallbacks": self.zai_fallbacks,
         }
 
 
@@ -2537,6 +2859,67 @@ Keep your response under 100 words."""
         return result.result if result.success else "Failed to synthesize debate"
 
 
+# ========== Load API keys stored as systemd user credentials.  Each key lives in `<direct... ==========
+
+
+import os
+import re
+import subprocess
+from pathlib import Path
+
+CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+DECRYPT_TIMEOUT_SECONDS = 20
+
+
+def load_credentials(directory: str) -> list[str]:
+    """Decrypt each NAME.cred in directory into os.environ[NAME].
+
+    A variable that is already set wins, so an explicit environment override
+    still works. Failures are logged and skipped; values are never logged.
+
+    Args:
+        directory: Directory holding the .cred files.
+
+    Returns:
+        Names of the variables that were loaded.
+    """
+    credential_dir = Path(directory)
+    if not credential_dir.is_dir():
+        return []
+
+    loaded = []
+    for path in sorted(credential_dir.glob("*.cred")):
+        name = path.stem
+        if not CREDENTIAL_NAME_PATTERN.match(name):
+            logger.warning(f"Skipping credential with invalid name: {path.name}")
+            continue
+        if name in os.environ:
+            logger.info(f"{name} already set in the environment; skipping its credential")
+            continue
+
+        try:
+            result = subprocess.run(
+                ["systemd-creds", "decrypt", "--user", f"--name={name}", str(path), "-"],
+                capture_output=True,
+                timeout=DECRYPT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"Could not run systemd-creds for {name}: {e}")
+            continue
+
+        if result.returncode != 0:
+            error = result.stderr.decode(errors="replace").strip()
+            logger.warning(f"Could not decrypt credential {name}: {error}")
+            continue
+
+        os.environ[name] = result.stdout.decode().strip()
+        loaded.append(name)
+
+    if loaded:
+        logger.info(f"Loaded credentials: {', '.join(loaded)}")
+    return loaded
+
+
 # ========== Main MCP server implementation that orchestrates all modular components. ==========
 
 
@@ -2590,7 +2973,9 @@ class CouncilMCPServer:
 
     def __init__(self):
         """Initialize the server with modular components."""
-        # Load environment variables at startup
+        # Load environment variables at startup. Credentials go first: they
+        # set their variables, which load_dotenv then leaves alone.
+        self._load_credentials()
         self._load_env_file()
 
         self.model_manager: Optional[ModelManager] = None
@@ -2610,11 +2995,23 @@ class CouncilMCPServer:
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
 
+    @staticmethod
+    def _launcher_dir() -> str:
+        """Directory of the main entry point (launcher.py in an install)."""
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+    def _load_credentials(self) -> None:
+        """Load API keys stored as systemd user credentials."""
+        directory = os.getenv("COUNCIL_CREDENTIALS_DIR") or os.path.join(
+            self._launcher_dir(), "credentials"
+        )
+        load_credentials(directory)
+
     def _load_env_file(self) -> None:
         """Load .env file from multiple possible locations."""
         # Try multiple locations for .env file
         # 1. Directory of the main entry point (works with launcher.py)
-        main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        main_dir = self._launcher_dir()
         # 2. Parent directory of main (in case we're in a subdirectory)
         parent_dir = os.path.dirname(main_dir)
         # 3. Current working directory
