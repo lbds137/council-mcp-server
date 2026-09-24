@@ -38,6 +38,7 @@ class Bundler:
             "json_rpc.py",  # Core JSON-RPC implementation
             "providers/base.py",  # Provider base classes (new in v4)
             "providers/openrouter.py",  # OpenRouter implementation (new in v4)
+            "providers/zai.py",  # Z.ai coding-plan provider
             "discovery/model_cache.py",  # Model caching (new in v4)
             "discovery/model_filter.py",  # Model filtering (new in v4)
             "discovery/model_registry.py",  # Curated model recommendations (new in v4)
@@ -50,6 +51,7 @@ class Bundler:
             "core/registry.py",  # Registry needs tool base
             "core/orchestrator.py",  # Orchestrator uses registry
             "protocols/debate.py",  # Protocols come last
+            "credentials.py",  # systemd credential loading, used by main
             "main.py",  # Main server class (not server.py!)
         ]
 

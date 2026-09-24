@@ -11,6 +11,7 @@ from typing import IO, Any, Dict, Optional, Union
 
 from .core.orchestrator import ConversationOrchestrator
 from .core.registry import ToolRegistry
+from .credentials import load_credentials
 from .json_rpc import JsonRpcServer, create_result_response
 from .manager import ModelManager
 from .services.cache import ResponseCache
@@ -63,7 +64,9 @@ class CouncilMCPServer:
 
     def __init__(self):
         """Initialize the server with modular components."""
-        # Load environment variables at startup
+        # Load environment variables at startup. Credentials go first: they
+        # set their variables, which load_dotenv then leaves alone.
+        self._load_credentials()
         self._load_env_file()
 
         self.model_manager: Optional[ModelManager] = None
@@ -84,11 +87,23 @@ class CouncilMCPServer:
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
 
+    @staticmethod
+    def _launcher_dir() -> str:
+        """Directory of the main entry point (launcher.py in an install)."""
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+    def _load_credentials(self) -> None:
+        """Load API keys stored as systemd user credentials."""
+        directory = os.getenv("COUNCIL_CREDENTIALS_DIR") or os.path.join(
+            self._launcher_dir(), "credentials"
+        )
+        load_credentials(directory)
+
     def _load_env_file(self) -> None:
         """Load .env file from multiple possible locations."""
         # Try multiple locations for .env file
         # 1. Directory of the main entry point (works with launcher.py)
-        main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        main_dir = self._launcher_dir()
         # 2. Parent directory of main (in case we're in a subdirectory)
         parent_dir = os.path.dirname(main_dir)
         # 3. Current working directory

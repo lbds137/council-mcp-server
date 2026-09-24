@@ -76,7 +76,7 @@ echo "📦 Installing dependencies..."
 if [ ! -f "$MCP_DIR/.env" ] && [ -f "$PROJECT_ROOT/.env.example" ]; then
     echo "📝 Creating .env file from template..."
     cp "$PROJECT_ROOT/.env.example" "$MCP_DIR/.env"
-    echo "   ⚠️  Remember to add your OPENROUTER_API_KEY to $MCP_DIR/.env"
+    echo "   ⚠️  Remember to store your OpenRouter key: scripts/set-secret.sh OPENROUTER_API_KEY"
 fi
 
 echo ""
@@ -95,7 +95,7 @@ fi
 
 echo ""
 echo "📋 Next steps:"
-echo "   1. Ensure OPENROUTER_API_KEY is set in $MCP_DIR/.env"
+echo "   1. Store your OpenRouter key: scripts/set-secret.sh OPENROUTER_API_KEY"
 echo "   2. Update Claude Desktop config to point to council server"
 echo "   3. Restart Claude Desktop"
 echo "   4. Test with: mcp__council__server_info"

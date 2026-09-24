@@ -186,7 +186,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.GENERAL: "A",
         },
         description="Open-weight Z.ai flagship for software engineering; 1M context",
-        notes="Text-only input",
+        notes="Text-only input; runs on the Z.ai coding plan when ZAI_CODING_API_KEY is set",
         recommended_for=["coding", "long_context", "cost_effective"],
     ),
     "~z-ai/glm-flash-latest": ModelMetadata(  # glm-5.3-flash
@@ -197,6 +197,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
             TaskType.GENERAL: "B",
         },
         description="Z.ai's fast tier; takes text, image and video",
+        notes="Runs on the Z.ai coding plan when ZAI_CODING_API_KEY is set",
         recommended_for=["quick_tasks", "quick_vision", "cost_effective"],
     ),
     # === xAI ===
