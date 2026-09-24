@@ -191,8 +191,7 @@ class TestConversationOrchestrator:
                 return {"type": "object"}
 
             async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
-                # In bundled mode, model_manager would be global
-                # For testing, we'll just verify the orchestrator has it
+                # Verify the orchestrator was given the manager
                 assert orchestrator.model_manager is not None
                 return ToolOutput(success=True, result="Context verified")
 

@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import council.tools.set_model as set_model_module
 from council.providers.base import ModelInfo
 from council.tools.set_model import SetModelTool
 
@@ -146,19 +145,8 @@ class TestSetModelToolExecute:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await SetModelTool().execute({"model": "~z-ai/glm-latest"})
         assert result.success is False
         assert result.error == "Model manager not available"
-
-    @pytest.mark.asyncio
-    async def test_bundled_global_fallback(self, manager):
-        """In bundled mode the module-global model_manager is used."""
-        with (
-            patch("council._server_instance", None),
-            patch.dict(set_model_module.__dict__, {"model_manager": manager}),
-        ):
-            result = await SetModelTool().execute({"model": "~z-ai/glm-latest"})
-        assert result.success is True
-        manager.set_model.assert_called_once_with("~z-ai/glm-latest")

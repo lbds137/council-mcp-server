@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import council.tools.list_models as list_models_module
 from council.providers.base import LLMProviderError, ModelInfo
 from council.tools.list_models import ListModelsTool
 
@@ -188,22 +187,11 @@ class TestListModelsToolExecute:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await ListModelsTool().execute({})
         assert result.success is False
         assert result.error == "Model manager not available"
-
-    @pytest.mark.asyncio
-    async def test_bundled_global_fallback(self, manager):
-        """In bundled mode the module-global model_manager is used."""
-        with (
-            patch("council._server_instance", None),
-            patch.dict(list_models_module.__dict__, {"model_manager": manager}),
-        ):
-            result = await ListModelsTool().execute({})
-        assert result.success is True
-        manager.list_models.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_works_without_registry(self, server, manager):

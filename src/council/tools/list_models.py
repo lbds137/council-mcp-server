@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput
+from .base import MCPTool, ToolOutput, get_model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -68,19 +68,9 @@ class ListModelsTool(MCPTool):
             search = parameters.get("search")
             limit = parameters.get("limit", 20)
 
-            # Get model manager from server instance
-            try:
-                from .. import _server_instance
-
-                if _server_instance and _server_instance.model_manager:
-                    manager = _server_instance.model_manager
-                else:
-                    raise AttributeError("Server instance not available")
-            except (ImportError, AttributeError):
-                # Fallback for bundled mode - model_manager should be global
-                manager = globals().get("model_manager")
-                if not manager:
-                    return ToolOutput(success=False, error="Model manager not available")
+            manager = get_model_manager()
+            if not manager:
+                return ToolOutput(success=False, error="Model manager not available")
 
             # Get models from manager
             if hasattr(manager, "list_models"):

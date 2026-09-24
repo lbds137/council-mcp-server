@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .base import MCPTool, ToolOutput
+from .base import MCPTool, ToolOutput, get_model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -122,19 +122,9 @@ class DebateTool(MCPTool):
             if isinstance(rounds, bool) or rounds not in (1, 2):
                 return ToolOutput(success=False, error="rounds must be 1 or 2")
 
-            # Get model manager from server instance
-            try:
-                from .. import _server_instance
-
-                if _server_instance and _server_instance.model_manager:
-                    model_manager = _server_instance.model_manager
-                else:
-                    raise AttributeError("Server instance not available")
-            except (ImportError, AttributeError):
-                # Fallback for bundled mode - model_manager should be global
-                model_manager = globals().get("model_manager")
-                if not model_manager:
-                    return ToolOutput(success=False, error="Model manager not available")
+            model_manager = get_model_manager()
+            if not model_manager:
+                return ToolOutput(success=False, error="Model manager not available")
 
             return await self._run(model_manager, topic, debaters, rounds, parameters)
         except Exception as e:

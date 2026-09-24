@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-import council.tools.code_review as code_review_module
 from council.tools.code_review import CodeReviewTool
 
 
@@ -133,7 +132,7 @@ class TestCodeReviewToolExecute:
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):
-        """With no server instance and no bundled global, the tool reports it."""
+        """With no server instance, the tool reports it."""
         with patch("council._server_instance", None):
             result = await CodeReviewTool().execute({"code": "x = 1"})
         assert result.success is False
@@ -146,17 +145,6 @@ class TestCodeReviewToolExecute:
             result = await CodeReviewTool().execute({"code": "x = 1"})
         assert result.success is False
         assert result.error == "Model manager not available"
-
-    @pytest.mark.asyncio
-    async def test_bundled_global_fallback(self, manager):
-        """In bundled mode the module-global model_manager is used."""
-        with (
-            patch("council._server_instance", None),
-            patch.dict(code_review_module.__dict__, {"model_manager": manager}),
-        ):
-            result = await CodeReviewTool().execute({"code": "x = 1"})
-        assert result.success is True
-        manager.generate_content.assert_called_once()
 
 
 class TestCodeReviewToolPrompt:

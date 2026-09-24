@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput
+from .base import MCPTool, ToolOutput, get_model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,10 @@ class StartConversationTool(MCPTool):
             # If initial message provided, send it
             if initial_message:
                 try:
-                    from .. import _server_instance
-
-                    if _server_instance and _server_instance.model_manager:
+                    model_manager = get_model_manager()
+                    if model_manager:
                         response, model_used = session_manager.send_message(
-                            session_id, initial_message, _server_instance.model_manager
+                            session_id, initial_message, model_manager
                         )
                         result_lines.extend(
                             [
@@ -176,17 +175,9 @@ class ContinueConversationTool(MCPTool):
                     "Use list_conversations to see active sessions.",
                 )
 
-            # Get model manager
-            try:
-                from .. import _server_instance
-
-                if not _server_instance or not _server_instance.model_manager:
-                    raise AttributeError("Model manager not available")
-                model_manager = _server_instance.model_manager
-            except (ImportError, AttributeError):
-                model_manager = globals().get("model_manager")
-                if not model_manager:
-                    return ToolOutput(success=False, error="Model manager not available")
+            model_manager = get_model_manager()
+            if not model_manager:
+                return ToolOutput(success=False, error="Model manager not available")
 
             response, model_used = session_manager.send_message(session_id, message, model_manager)
 
