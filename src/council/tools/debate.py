@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import MCPTool, ToolOutput, get_model_manager, report_progress
 
 logger = logging.getLogger(__name__)
 
@@ -177,13 +177,28 @@ class DebateTool(MCPTool):
     ) -> ToolOutput:
         """Run the rounds and assemble the transcript."""
         calls = 0
+        # One per debater per round, plus the synthesis; shrinks if a debater drops out
+        total = len(debaters) * rounds + 1
         sections = [f"🏛️ Debate: {topic}"]
+
+        async def call(label: str, prompt: str, model: str | None) -> Turn:
+            """One model call, reported to the client as soon as it finishes."""
+            nonlocal calls
+            turn = await self._call(model_manager, prompt, model)
+            calls += 1
+            outcome = "in" if turn.text is not None else "failed"
+            report_progress(calls, total, f"{label} {outcome}")
+            return turn
+
+        report_progress(0, total, f"Openings: {len(debaters)} debaters")
 
         # Round 1: every debater opens at once
         openings = await asyncio.gather(
-            *(self._call(model_manager, self._opening_prompt(topic, d), d.model) for d in debaters)
+            *(
+                call(f"Opening from {d.title} ({d.model})", self._opening_prompt(topic, d), d.model)
+                for d in debaters
+            )
         )
-        calls += len(debaters)
         sections.append("## Round 1: Opening statements")
         for debater, turn in zip(debaters, openings, strict=True):
             debater.opening = turn.text
@@ -201,26 +216,29 @@ class DebateTool(MCPTool):
                 error=f"Too few debaters answered to hold a debate. {failures}",
             )
 
+        # A debater who didn't open sits out the rebuttals
+        total = calls + (len(speaking) if rounds == 2 else 0) + 1
+
         # Round 2: each debater answers all the others in one call
         if rounds == 2:
             rebuttals = await asyncio.gather(
                 *(
-                    self._call(model_manager, self._rebuttal_prompt(topic, d, speaking), d.model)
+                    call(
+                        f"Rebuttal from {d.title} ({d.model})",
+                        self._rebuttal_prompt(topic, d, speaking),
+                        d.model,
+                    )
                     for d in speaking
                 )
             )
-            calls += len(speaking)
             sections.append("## Round 2: Rebuttals")
             for debater, turn in zip(speaking, rebuttals, strict=True):
                 debater.rebuttal = turn.text
                 sections.append(self._format_turn(debater, turn))
 
-        synthesis = await self._call(
-            model_manager,
-            self._synthesis_prompt(topic, speaking),
-            parameters.get("synthesis_model"),
+        synthesis = await call(
+            "Synthesis", self._synthesis_prompt(topic, speaking), parameters.get("synthesis_model")
         )
-        calls += 1
         sections.append("## Synthesis")
         if synthesis.text is not None:
             sections.append(f"{synthesis.text}\n\n*[Model: {synthesis.model_used}]*")
