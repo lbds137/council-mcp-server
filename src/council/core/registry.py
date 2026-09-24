@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Type
 
-from ..tools.base import BaseTool
+from ..tools.base import MCPTool
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +15,8 @@ class ToolRegistry:
     """Registry for discovering and managing tools."""
 
     def __init__(self):
-        self._tools: Dict[str, BaseTool] = {}
-        self._tool_classes: Dict[str, Type[BaseTool]] = {}
+        self._tools: Dict[str, MCPTool] = {}
+        self._tool_classes: Dict[str, Type[MCPTool]] = {}
 
     def discover_tools(self, tools_path: Optional[Path] = None) -> None:
         """Discover and register all tools in the tools directory."""
@@ -55,16 +55,20 @@ class ToolRegistry:
 
             try:
 
-                # Find all classes that inherit from BaseTool
+                # Concrete tools defined in this module, not ones it imports
                 for name, obj in inspect.getmembers(module, inspect.isclass):
-                    if issubclass(obj, BaseTool) and obj != BaseTool:
+                    if (
+                        issubclass(obj, MCPTool)
+                        and not inspect.isabstract(obj)
+                        and obj.__module__ == module.__name__
+                    ):
                         logger.debug(f"Found tool class: {name}")
                         self._register_tool_class(obj)
 
             except Exception as e:
                 logger.error(f"Failed to import tool from {tool_file}: {e}")
 
-    def _register_tool_class(self, tool_class: Type[BaseTool]) -> None:
+    def _register_tool_class(self, tool_class: Type[MCPTool]) -> None:
         """Register a tool class."""
         try:
             # Instantiate the tool to get its metadata
@@ -83,11 +87,11 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Failed to register tool {tool_class.__name__}: {e}")
 
-    def get_tool(self, name: str) -> Optional[BaseTool]:
+    def get_tool(self, name: str) -> Optional[MCPTool]:
         """Get a tool instance by name."""
         return self._tools.get(name)
 
-    def get_tool_class(self, name: str) -> Optional[Type[BaseTool]]:
+    def get_tool_class(self, name: str) -> Optional[Type[MCPTool]]:
         """Get a tool class by name."""
         return self._tool_classes.get(name)
 
@@ -95,7 +99,7 @@ class ToolRegistry:
         """List all registered tool names."""
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> Dict[str, BaseTool]:
+    def get_all_tools(self) -> Dict[str, MCPTool]:
         """Get all registered tools."""
         return self._tools.copy()
 

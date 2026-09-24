@@ -41,6 +41,10 @@ class ExplainTool(MCPTool):
             "required": ["topic"],
         }
 
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        """The answer depends only on the input and the model."""
+        return True
+
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:

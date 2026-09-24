@@ -15,8 +15,9 @@ from tests.fixtures import create_mock_model_manager
 class MockTestTool(MCPTool):
     """Mock tool for integration tests."""
 
-    def __init__(self, tool_name: str = "test_tool"):
+    def __init__(self, tool_name: str = "test_tool", cacheable: bool = True):
         self._name = tool_name
+        self.cacheable = cacheable
         self.call_count = 0
 
     @property
@@ -30,6 +31,9 @@ class MockTestTool(MCPTool):
     @property
     def input_schema(self) -> Dict[str, Any]:
         return {"type": "object", "properties": {}}
+
+    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+        return self.cacheable
 
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         self.call_count += 1
@@ -71,9 +75,9 @@ class TestConversationOrchestrator:
         assert result.success is True
         assert "Executed test_tool with {'param': 'value'}" in result.result
 
-        # Check execution history
-        assert len(orchestrator.execution_history) == 1
-        assert orchestrator.execution_history[0] == result
+        assert orchestrator.total_executions == 1
+        assert orchestrator.successful_executions == 1
+        assert result.execution_time_ms is not None
 
     @pytest.mark.asyncio
     async def test_execute_unknown_tool(self, setup_orchestrator):
@@ -108,6 +112,45 @@ class TestConversationOrchestrator:
         stats = cache.get_stats()
         assert stats["hits"] == 1
         assert stats["misses"] == 1
+
+    @pytest.mark.asyncio
+    async def test_tools_that_do_not_opt_in_are_never_cached(self, setup_orchestrator):
+        """Test a state-changing tool runs on every call, even with the same input."""
+        orchestrator, registry, _, _, cache = setup_orchestrator
+        stateful = MockTestTool("set_something", cacheable=False)
+        registry._tools["set_something"] = stateful
+
+        await orchestrator.execute_tool("set_something", {"model": "x"})
+        await orchestrator.execute_tool("set_something", {"model": "x"})
+
+        assert stateful.call_count == 2
+        assert cache.get_stats()["size"] == 0
+
+    @pytest.mark.asyncio
+    async def test_switching_the_active_model_misses_the_cache(self, setup_orchestrator):
+        """Test an answer cached under one active model isn't served for another."""
+        orchestrator, registry, model_manager, _, _ = setup_orchestrator
+        tool = registry.get_tool("test_tool")
+
+        model_manager.active_model = "model-a"
+        await orchestrator.execute_tool("test_tool", {"question": "hi"})
+        model_manager.active_model = "model-b"
+        await orchestrator.execute_tool("test_tool", {"question": "hi"})
+        model_manager.active_model = "model-a"
+        await orchestrator.execute_tool("test_tool", {"question": "hi"})
+
+        assert tool.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_model_override_is_part_of_the_cache_key(self, setup_orchestrator):
+        """Test the same question to two override models runs twice."""
+        orchestrator, registry, _, _, _ = setup_orchestrator
+        tool = registry.get_tool("test_tool")
+
+        await orchestrator.execute_tool("test_tool", {"question": "hi", "model": "a"})
+        await orchestrator.execute_tool("test_tool", {"question": "hi", "model": "b"})
+
+        assert tool.call_count == 2
 
     @pytest.mark.asyncio
     async def test_context_injection(self, setup_orchestrator):
@@ -187,17 +230,9 @@ class TestConversationOrchestrator:
         """Test execution statistics."""
         orchestrator, _, _, _, _ = setup_orchestrator
 
-        # Create mock outputs with execution_time_ms attribute
-        class MockOutput:
-            def __init__(self, success, execution_time_ms):
-                self.success = success
-                self.execution_time_ms = execution_time_ms
-
-        orchestrator.execution_history = [
-            MockOutput(success=True, execution_time_ms=10),
-            MockOutput(success=True, execution_time_ms=20),
-            MockOutput(success=False, execution_time_ms=5),
-        ]
+        orchestrator.total_executions = 3
+        orchestrator.successful_executions = 2
+        orchestrator.total_execution_ms = 35.0
 
         stats = orchestrator.get_execution_stats()
 

@@ -247,21 +247,6 @@ class MyTool:
         assert "global model_manager" in fixed
         assert "Access global model manager in bundled version" in fixed
 
-    def test_fix_orchestrator_for_bundled(self, bundler):
-        """Test orchestrator fixing for bundled operation."""
-        content = '''
-class ConversationOrchestrator:
-    async def execute_tool(self, tool_name: str, parameters: Dict[str, Any]) -> ToolOutput:
-        """Original execute_tool method."""
-        # Original implementation
-        return output
-'''
-
-        fixed = bundler._fix_orchestrator_for_bundled(content)
-
-        assert "global model_manager" in fixed
-        assert "model_manager = self.model_manager" in fixed
-
     def test_create_bundle_integration(self, bundler, mock_src_dir, monkeypatch):
         """Test full bundle creation."""
         monkeypatch.setattr("bundler.SRC_DIR", mock_src_dir)

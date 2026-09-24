@@ -128,8 +128,12 @@ class SessionManager:
         history = session.get_message_history()
         prompt = self._format_prompt_with_history(history)
 
-        # Generate response
-        response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+        try:
+            response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+        except Exception:
+            # Drop the unanswered message so a retry doesn't send it twice
+            session.turns.pop()
+            raise
 
         # Add assistant response
         session.add_turn("assistant", response_text)

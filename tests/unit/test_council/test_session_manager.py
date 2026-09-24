@@ -253,6 +253,25 @@ class TestSessionManager:
         assert manager.sessions[session_id].turns[0].role == "user"
         assert manager.sessions[session_id].turns[1].role == "assistant"
 
+    def test_failed_reply_leaves_no_stray_user_turn(self):
+        """Test a failed model call drops the unanswered message, so a retry sends it once."""
+        manager = SessionManager()
+        session_id = manager.create_session(model="test-model")
+        mock_manager = Mock()
+        mock_manager.generate_content.side_effect = TimeoutError("timed out")
+
+        with pytest.raises(TimeoutError):
+            manager.send_message(session_id, "Hello", mock_manager)
+        assert manager.sessions[session_id].turns == []
+
+        mock_manager.generate_content.side_effect = None
+        mock_manager.generate_content.return_value = ("Hi", "test-model")
+        manager.send_message(session_id, "Hello", mock_manager)
+
+        prompt = mock_manager.generate_content.call_args[0][0]
+        assert prompt.count("User: Hello") == 1
+        assert [t.role for t in manager.sessions[session_id].turns] == ["user", "assistant"]
+
     def test_send_message_session_not_found(self):
         """Test sending message to non-existent session."""
         manager = SessionManager()

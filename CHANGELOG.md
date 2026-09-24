@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Entry point in setup.py corrected to gemini_mcp.main:main
 
 ### Fixed
+- The response cache served stale results: every tool was cached for an hour keyed on its arguments alone, so `set_model` could report a switch that didn't happen, a question after a model switch got the old model's answer, and a repeated conversation message never reached the model. Only tools whose answer depends on their input alone are cached now, and the key names the model
+- Tool discovery from source registered no tools (it looked for `BaseTool` subclasses; the tools subclass `MCPTool`). Only the bundle worked, through its own discovery
+- A failed conversation reply left the unanswered message in the session, so a retry sent it twice
+- OpenRouter's model list never refreshed, and a failed fetch looked like an empty catalog; it now refreshes per `COUNCIL_CACHE_TTL`, and a failed first fetch is reported as an error
+- OpenRouter errors are classified by HTTP status, and the SDK's "Request timed out." counts as retryable
+- The orchestrator kept every tool result in memory for the life of the process; it keeps counters now
+- The bundler no longer regex-rewrites the orchestrator; the bundle runs the source orchestrator as written
 - Fallback default model `google/gemini-3-pro-preview` no longer exists on OpenRouter
 - `list_models` provider filter missed `~` alias entries (their provider read as `~openai`)
 - Responses name the model OpenRouter actually served, not the `~` alias that was requested
