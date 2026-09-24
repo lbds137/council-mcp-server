@@ -325,3 +325,20 @@ class TestPreferFastAndMinContext:
         assert _tokens(1_050_000) == "1.05M"
         assert _tokens(1_000_000) == "1M"
         assert _tokens(262_144) == "262K"
+
+    @pytest.mark.asyncio
+    async def test_only_models_that_would_have_been_listed_are_named(self, monkeypatch):
+        """A small-window model below the top five isn't reported as left out."""
+        from council.discovery import model_registry
+
+        coding = list(model_registry.TASK_RECOMMENDATIONS[TaskType.CODING])
+        monkeypatch.setitem(
+            model_registry.TASK_RECOMMENDATIONS,
+            TaskType.CODING,
+            [*coding, "mistralai/mistral-medium-3-5"],  # 262K, sixth in line
+        )
+
+        result = await RecommendModelTool().execute({"task": "coding", "min_context": 500_000})
+
+        assert len(recommended_ids(result.result)) == 5
+        assert "Left out" not in result.result
