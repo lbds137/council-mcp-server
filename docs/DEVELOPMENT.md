@@ -9,12 +9,12 @@ This guide covers the development setup and workflow for the Council MCP Server 
 git clone https://github.com/lbds137/council-mcp-server.git
 cd council-mcp-server
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create the repo venv (the Makefile and pre-push hook use .venv)
+python3 -m venv .venv
 
-# Install with development dependencies
+# Install with development dependencies and the git hooks
 make install-dev
+./scripts/install-hooks.sh
 
 # Run tests
 make test
@@ -35,7 +35,8 @@ make format        # Format code with black and isort
 make type-check    # Run mypy type checking
 make pre-commit    # Run all pre-commit hooks
 make clean         # Clean up generated files
-make update-mcp    # Update MCP installation
+make update-mcp    # Deploy to ~/.claude-mcp-servers/council (scripts/install.sh)
+make check-models  # Find registry model IDs OpenRouter no longer lists
 ```
 
 ### Code Quality Tools
@@ -78,7 +79,7 @@ make lint
 
 #### Mypy (Type Checker)
 - Static type checking
-- Strict mode enabled
+- Checks untyped code too (`check_untyped_defs`)
 - Configuration in `pyproject.toml`
 
 ```bash
@@ -108,7 +109,9 @@ make pre-commit
 - **Black** formatting
 - **isort** import sorting
 - **Flake8** linting
-- **Mypy** type checking
+
+The pre-push hook (`hooks/pre-push`) runs flake8, black, isort, mypy and the full
+test suite before every push.
 
 ### Testing
 
@@ -121,7 +124,7 @@ make test
 make test-cov
 
 # Run specific test
-pytest tests/test_server.py::TestDualModelManager::test_initialization_success -v
+.venv/bin/python -m pytest tests/unit/test_council/test_manager.py -v
 ```
 
 #### Test Coverage
@@ -132,7 +135,7 @@ pytest tests/test_server.py::TestDualModelManager::test_initialization_success -
 ### Continuous Integration
 
 GitHub Actions runs on all pushes and pull requests:
-- **Python versions**: 3.8, 3.9, 3.10, 3.11, 3.12
+- **Python versions**: 3.12, 3.13
 - **Linting**: flake8
 - **Formatting**: black, isort
 - **Type checking**: mypy
@@ -140,6 +143,9 @@ GitHub Actions runs on all pushes and pull requests:
 - **Coverage**: Uploaded to Codecov
 
 ### Development Workflow
+
+See "Shipping Changes" in `CLAUDE.md`: small fixes go straight to `main`, bigger
+changes go through a pull request that is merged once CI is green.
 
 1. **Create feature branch**
    ```bash
@@ -188,7 +194,7 @@ GitHub Actions runs on all pushes and pull requests:
    ```python
    def generate_content(self, prompt: str) -> Tuple[str, str]:
        """
-       Generate content using Gemini models.
+       Generate content with the active model.
 
        Args:
            prompt: The input prompt
@@ -197,7 +203,7 @@ GitHub Actions runs on all pushes and pull requests:
            Tuple of (response_text, model_used)
 
        Raises:
-           Exception: If both models fail
+           LLMProviderError: If generation fails
        """
    ```
 
@@ -214,9 +220,12 @@ GitHub Actions runs on all pushes and pull requests:
    logging.basicConfig(level=logging.DEBUG)
    ```
 
-2. **Test MCP server directly**:
+2. **Test the bundled server directly** (initialize first, then list tools):
    ```bash
-   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python -m council.main
+   .venv/bin/python scripts/bundler.py
+   printf '%s\n' \
+     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cli","version":"0"}}}' \
+     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | .venv/bin/python server.py
    ```
 
 3. **Check pre-commit issues**:

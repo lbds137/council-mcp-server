@@ -116,9 +116,6 @@ class TestServerInfoTool:
         mock_cache = Mock()
         mock_cache.get_stats.return_value = {"size": 5, "max_size": 100, "hits": 10, "misses": 2}
 
-        mock_memory = Mock()
-        mock_memory.get_stats.return_value = {"turns_count": 3, "entries_count": 5}
-
         mock_model_manager = Mock()
         mock_model_manager.default_model = "google/gemini-3-pro-preview"
         mock_model_manager.active_model = "google/gemini-3-pro-preview"
@@ -144,7 +141,6 @@ class TestServerInfoTool:
         mock_server = Mock()
         mock_server.tool_registry = mock_tool_registry
         mock_server.cache = mock_cache
-        mock_server.memory = mock_memory
         mock_server.model_manager = mock_model_manager
         mock_server.orchestrator = mock_orchestrator
 
@@ -166,6 +162,7 @@ class TestServerInfoTool:
         assert info["backend"] == "OpenRouter"
         assert "ask" in info["available_tools"]
         assert info["components"]["tools_registered"] == 3
+        assert isinstance(info["components"]["conversations"]["active"], int)
         assert info["models"]["initialized"] is True
         assert info["models"]["default_model"] == "google/gemini-3-pro-preview"
         assert info["models"]["active_model"] == "google/gemini-3-pro-preview"
@@ -185,7 +182,6 @@ class TestServerInfoTool:
         mock_server = Mock()
         mock_server.tool_registry = mock_tool_registry
         mock_server.cache = None
-        mock_server.memory = None
         mock_server.model_manager = None
         mock_server.orchestrator = None
 
@@ -222,7 +218,6 @@ class TestServerInfoTool:
         mock_server.tool_registry.list_tools.return_value = ["ask"]
         mock_server.model_manager = mock_model_manager
         mock_server.cache = None
-        mock_server.memory = None
         mock_server.orchestrator = None
 
         # Mock council module

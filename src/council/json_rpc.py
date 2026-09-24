@@ -1,6 +1,5 @@
 """
 Standalone JSON-RPC 2.0 implementation for MCP servers.
-Based on Gemini's recommendations for replacing the mcp library.
 """
 
 import json

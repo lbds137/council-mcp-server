@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict
 
 from ..tools.base import MCPTool, ToolOutput
+from .conversation import get_session_manager
 
 __version__ = "4.0.0"
 
@@ -67,7 +68,7 @@ class ServerInfoTool(MCPTool):
                     "components": {
                         "tools_registered": len(registered_tools),
                         "cache_stats": server.cache.get_stats() if server.cache else None,
-                        "memory_stats": server.memory.get_stats() if server.memory else None,
+                        "conversations": self._conversation_stats(),
                     },
                     "models": self._get_model_info(server.model_manager),
                 }
@@ -84,6 +85,11 @@ class ServerInfoTool(MCPTool):
 
         except Exception as e:
             return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
+
+    @staticmethod
+    def _conversation_stats() -> Dict[str, Any]:
+        """How many conversation sessions are open."""
+        return {"active": len(get_session_manager().sessions)}
 
     def _get_model_info(self, model_manager) -> Dict[str, Any]:
         """Get model manager information."""

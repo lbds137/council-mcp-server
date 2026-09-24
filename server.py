@@ -61,7 +61,7 @@ class _Council:
 council = _Council()
 
 
-# ========== Standalone JSON-RPC 2.0 implementation for MCP servers. Based on Gemini's rec... ==========
+# ========== Standalone JSON-RPC 2.0 implementation for MCP servers. ==========
 
 
 from typing import Any, Callable, Dict, Optional
@@ -1993,36 +1993,6 @@ class ModelManager:
         }
 
 
-# ========== Memory-related data models. ==========
-
-
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Dict
-
-
-@dataclass
-class ConversationTurn:
-    """Represents a single turn in a conversation."""
-
-    role: str  # "user", "assistant", "system"
-    content: str
-    timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class MemoryEntry:
-    """Represents an entry in conversation memory."""
-
-    key: str
-    value: Any
-    category: str = "general"
-    timestamp: datetime = field(default_factory=datetime.now)
-    last_accessed: datetime = field(default_factory=datetime.now)
-    access_count: int = 0
-
-
 # ========== Caching service for expensive operations. ==========
 
 
@@ -2092,82 +2062,6 @@ class ResponseCache:
             "misses": self.misses,
             "hit_rate": self.hits / total_requests if total_requests > 0 else 0,
             "ttl_seconds": self.ttl_seconds,
-        }
-
-
-# ========== Memory service for conversation context. ==========
-
-
-from collections import deque
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-
-class ConversationMemory:
-    """Enhanced conversation memory with TTL and structured storage."""
-
-    def __init__(self, max_turns: int = 50, max_entries: int = 100):
-        self.max_turns = max_turns
-        self.max_entries = max_entries
-        self.turns: deque[ConversationTurn] = deque(maxlen=max_turns)
-        self.entries: Dict[str, MemoryEntry] = {}
-        self.created_at = datetime.now()
-        self.access_count = 0
-
-    def add_turn(self, role: str, content: str, metadata: Optional[Dict] = None) -> None:
-        """Add a conversation turn."""
-        turn = ConversationTurn(role=role, content=content, metadata=metadata or {})
-        self.turns.append(turn)
-        self.access_count += 1
-
-    def set(self, key: str, value: Any, category: str = "general") -> None:
-        """Store a value with a key."""
-        # Remove oldest entries if at capacity
-        if len(self.entries) >= self.max_entries:
-            oldest_key = min(self.entries.keys(), key=lambda k: self.entries[k].timestamp)
-            del self.entries[oldest_key]
-
-        self.entries[key] = MemoryEntry(key=key, value=value, category=category, access_count=0)
-        self.access_count += 1
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve a value by key."""
-        if key in self.entries:
-            entry = self.entries[key]
-            entry.access_count += 1
-            entry.last_accessed = datetime.now()
-            self.access_count += 1
-            return entry.value
-        return default
-
-    def get_turns(self, limit: Optional[int] = None) -> List[ConversationTurn]:
-        """Get recent conversation turns."""
-        if limit:
-            return list(self.turns)[-limit:]
-        return list(self.turns)
-
-    def search_entries(self, category: Optional[str] = None) -> List[MemoryEntry]:
-        """Search entries by category."""
-        if category:
-            return [e for e in self.entries.values() if e.category == category]
-        return list(self.entries.values())
-
-    def clear(self) -> None:
-        """Clear all memory."""
-        self.turns.clear()
-        self.entries.clear()
-        self.access_count = 0
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get memory usage statistics."""
-        return {
-            "turns_count": len(self.turns),
-            "entries_count": len(self.entries),
-            "max_turns": self.max_turns,
-            "max_entries": self.max_entries,
-            "total_accesses": self.access_count,
-            "created_at": self.created_at.isoformat(),
-            "categories": list(set(e.category for e in self.entries.values())),
         }
 
 
@@ -2472,30 +2366,6 @@ class MCPTool(ABC):
         }
 
 
-# Keep the original BaseTool for backwards compatibility during migration
-class BaseTool(MCPTool):
-    """Legacy base class that wraps MCPTool for backwards compatibility."""
-
-    def __init__(self):
-        # No-op for legacy compatibility
-        pass
-
-    @property
-    def name(self) -> str:
-        """Default to empty string for legacy tools."""
-        return ""
-
-    @property
-    def description(self) -> str:
-        """Default to empty string for legacy tools."""
-        return ""
-
-    @property
-    def input_schema(self) -> Dict[str, Any]:
-        """Default to empty schema for legacy tools."""
-        return {"type": "object", "properties": {}, "required": []}
-
-
 # ========== Tool registry for dynamic tool discovery and management. ==========
 
 
@@ -2610,26 +2480,24 @@ class ToolRegistry:
         return definitions
 
 
-# ========== Orchestrator for managing tool execution and conversation flow. ==========
+# ========== Orchestrator: runs tools, caches results that may be reused, and counts execu... ==========
 
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 class ConversationOrchestrator:
-    """Orchestrates tool execution and manages conversation flow."""
+    """Runs tools for the server, with caching and execution counts."""
 
     def __init__(
         self,
         tool_registry: ToolRegistry,
         model_manager: Any,
-        memory: Optional[ConversationMemory] = None,
         cache: Optional[ResponseCache] = None,
     ):
         self.tool_registry = tool_registry
         self.model_manager = model_manager
-        self.memory = memory or ConversationMemory()
         self.cache = cache or ResponseCache()
         self.total_executions = 0
         self.successful_executions = 0
@@ -2664,9 +2532,6 @@ class ConversationOrchestrator:
             self.successful_executions += 1
         self.total_execution_ms += output.execution_time_ms
 
-        if output.success and hasattr(tool, "update_memory"):
-            tool.update_memory(self.memory, output)
-
         return output
 
     def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
@@ -2679,60 +2544,6 @@ class ConversationOrchestrator:
             return None
         model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
         return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
-
-    async def execute_protocol(
-        self, protocol_name: str, initial_input: Dict[str, Any]
-    ) -> List[ToolOutput]:
-        """Execute a multi-step protocol (e.g., debate, synthesis)."""
-        logger.info(f"Executing protocol: {protocol_name}")
-
-        # Example: Simple sequential execution
-        if protocol_name == "simple":
-            tool_name = initial_input.get("tool_name", "")
-            parameters = initial_input.get("parameters", {})
-            if tool_name:
-                return [await self.execute_tool(tool_name, parameters)]
-            return []
-
-        # Debate protocol
-        elif protocol_name == "debate":
-            topic = initial_input.get("topic", "")
-            positions = initial_input.get("positions", [])
-
-            if not topic or not positions:
-                output = ToolOutput(
-                    success=False,
-                    error="Debate protocol requires 'topic' and 'positions' parameters",
-                )
-                output.tool_name = "debate_protocol"
-                return [output]
-
-            debate = DebateProtocol(self, topic, positions)
-            try:
-                result = await debate.run()
-                output = ToolOutput(
-                    success=True,
-                    result=str(result),  # Convert to string
-                )
-                output.tool_name = "debate_protocol"
-                output.metadata = {"protocol": "debate", "rounds": len(result.get("rounds", []))}
-                return [output]
-            except Exception as e:
-                logger.error(f"Debate protocol error: {e}")
-                output = ToolOutput(success=False, error=str(e))
-                output.tool_name = "debate_protocol"
-                return [output]
-
-        # Synthesis protocol (simple wrapper around synthesize tool)
-        elif protocol_name == "synthesis":
-            return [
-                await self.execute_tool(
-                    "synthesize_perspectives", initial_input.get("parameters", {})
-                )
-            ]
-
-        # Protocol not implemented
-        raise NotImplementedError(f"Protocol {protocol_name} not implemented")
 
     def get_execution_stats(self) -> Dict[str, Any]:
         """Get statistics about tool executions."""
@@ -2749,169 +2560,6 @@ class ConversationOrchestrator:
             "average_execution_time_ms": avg_time,
             "cache_stats": self.cache.get_stats(),
         }
-
-
-# ========== Debate protocol for structured multi-agent discussions. ==========
-
-
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
-
-
-@dataclass
-class DebatePosition:
-    """Represents a position in a debate."""
-
-    agent_name: str
-    stance: str
-    arguments: List[str] = field(default_factory=list)
-    rebuttals: Dict[str, str] = field(default_factory=dict)
-    confidence: float = 0.5
-
-
-@dataclass
-class DebateRound:
-    """Represents a round of debate."""
-
-    round_number: int
-    positions: List[DebatePosition]
-    synthesis: Optional[str] = None
-
-
-class DebateProtocol:
-    """Orchestrates structured debates between multiple agents."""
-
-    def __init__(self, orchestrator, topic: str, positions: List[str]):
-        self.orchestrator = orchestrator
-        self.topic = topic
-        self.positions = positions
-        self.rounds: List[DebateRound] = []
-        self.max_rounds = 3
-
-    async def run(self) -> Dict[str, Any]:
-        """Run the debate protocol."""
-        logger.info(f"Starting debate on topic: {self.topic}")
-
-        # Round 1: Opening statements
-        round1 = await self._opening_statements()
-        self.rounds.append(round1)
-
-        # Round 2: Rebuttals
-        round2 = await self._rebuttal_round()
-        self.rounds.append(round2)
-
-        # Round 3: Final synthesis
-        synthesis = await self._synthesis_round()
-
-        return {
-            "topic": self.topic,
-            "rounds": self.rounds,
-            "final_synthesis": synthesis,
-            "positions_explored": len(self.positions),
-        }
-
-    async def _opening_statements(self) -> DebateRound:
-        """Generate opening statements for each position."""
-        logger.info("Debate Round 1: Opening statements")
-
-        debate_positions = []
-
-        for i, position in enumerate(self.positions):
-            # Create a persona for this position
-            prompt = f"""You are participating in a structured debate on the topic: {self.topic}
-
-Your assigned position is: {position}
-
-Please provide:
-1. Your main argument (2-3 sentences)
-2. Three supporting points
-3. Your confidence level (0.0-1.0) in this position
-4. Any caveats or limitations you acknowledge
-
-Be concise but persuasive."""
-
-            # Execute via orchestrator
-            result = await self.orchestrator.execute_tool(
-                "ask_gemini", {"question": prompt, "context": f"Debate agent {i+1}"}
-            )
-
-            if result.success:
-                # Parse the response (in a real implementation, we'd use structured output)
-                debate_position = DebatePosition(
-                    agent_name=f"Agent_{i+1}",
-                    stance=position,
-                    arguments=[result.result],  # Simplified for now
-                    confidence=0.7,  # Would be parsed from response
-                )
-                debate_positions.append(debate_position)
-
-        return DebateRound(round_number=1, positions=debate_positions)
-
-    async def _rebuttal_round(self) -> DebateRound:
-        """Generate rebuttals for each position."""
-        logger.info("Debate Round 2: Rebuttals")
-
-        if not self.rounds:
-            raise ValueError("No opening statements to rebut")
-
-        previous_positions = self.rounds[0].positions
-        updated_positions = []
-
-        for i, position in enumerate(previous_positions):
-            rebuttals = {}
-
-            # Generate rebuttals against other positions
-            for j, other_position in enumerate(previous_positions):
-                if i == j:
-                    continue
-
-                prompt = f"""You previously argued for: {position.stance}
-
-The opposing view argues: {other_position.arguments[0]}
-
-Please provide:
-1. A concise rebuttal to their argument
-2. Why your position is stronger
-3. Any points of agreement or common ground
-
-Keep your response under 100 words."""
-
-                result = await self.orchestrator.execute_tool(
-                    "ask_gemini",
-                    {"question": prompt, "context": f"Rebuttal from {position.agent_name}"},
-                )
-
-                if result.success:
-                    rebuttals[other_position.agent_name] = result.result
-
-            # Update position with rebuttals
-            position.rebuttals = rebuttals
-            updated_positions.append(position)
-
-        return DebateRound(round_number=2, positions=updated_positions)
-
-    async def _synthesis_round(self) -> str:
-        """Synthesize all positions into a final analysis."""
-        logger.info("Debate Round 3: Synthesis")
-
-        # Prepare perspectives for synthesis tool
-        perspectives = []
-
-        for round in self.rounds:
-            for position in round.positions:
-                perspectives.append(
-                    {
-                        "source": f"{position.agent_name} ({position.stance})",
-                        "content": " ".join(position.arguments),
-                    }
-                )
-
-        # Use the synthesize_perspectives tool
-        result = await self.orchestrator.execute_tool(
-            "synthesize_perspectives", {"topic": self.topic, "perspectives": perspectives}
-        )
-
-        return result.result if result.success else "Failed to synthesize debate"
 
 
 # ========== Load API keys stored as systemd user credentials.  Each key lives in `<direct... ==========
@@ -3043,7 +2691,6 @@ class CouncilMCPServer:
         self.model_manager: Optional[ModelManager] = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
-        self.memory = ConversationMemory(max_turns=50, max_entries=100)
         self.orchestrator: Optional[ConversationOrchestrator] = None
 
         # Create JSON-RPC server
@@ -3161,7 +2808,6 @@ class CouncilMCPServer:
             self.orchestrator = ConversationOrchestrator(
                 tool_registry=self.tool_registry,
                 model_manager=self.model_manager,
-                memory=self.memory,
                 cache=self.cache,
             )
 
@@ -3299,10 +2945,6 @@ class CouncilMCPServer:
         self.server.run()
 
 
-# Keep GeminiMCPServer as alias for backwards compatibility
-GeminiMCPServer = CouncilMCPServer
-
-
 def main():
     """Main entry point."""
     # Create logs directory if it doesn't exist
@@ -3407,8 +3049,19 @@ class AskTool(MCPTool):
             prompt = f"Context: {context}\n\n" if context else ""
             prompt += f"Question: {question}"
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🤖 Response:\n\n{response_text}"
@@ -3478,8 +3131,19 @@ class BrainstormTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(topic, constraints)
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"💡 Brainstorming Results:\n\n{response_text}"
@@ -3567,8 +3231,19 @@ class CodeReviewTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(code, language, focus)
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🔍 Code Review:\n\n{response_text}"
@@ -4326,8 +4001,19 @@ class ExplainTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(topic, level)
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"📚 Explanation:\n\n{response_text}"
@@ -4438,19 +4124,16 @@ class ListModelsTool(MCPTool):
             search = parameters.get("search")
             limit = parameters.get("limit", 20)
 
-            # Get manager from server instance
+            # Get model manager from server instance
             try:
 
-                if _server_instance and hasattr(_server_instance, "council_manager"):
-                    manager = _server_instance.council_manager
-                elif _server_instance and hasattr(_server_instance, "model_manager"):
-                    # Fallback to old model_manager for compatibility
+                if _server_instance and _server_instance.model_manager:
                     manager = _server_instance.model_manager
                 else:
-                    raise AttributeError("Manager not available")
+                    raise AttributeError("Server instance not available")
             except (ImportError, AttributeError):
-                # Fallback for bundled mode
-                manager = globals().get("council_manager") or globals().get("model_manager")
+                # Fallback for bundled mode - model_manager should be global
+                manager = globals().get("model_manager")
                 if not manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
@@ -5013,7 +4696,7 @@ class ServerInfoTool(MCPTool):
                     "components": {
                         "tools_registered": len(registered_tools),
                         "cache_stats": server.cache.get_stats() if server.cache else None,
-                        "memory_stats": server.memory.get_stats() if server.memory else None,
+                        "conversations": self._conversation_stats(),
                     },
                     "models": self._get_model_info(server.model_manager),
                 }
@@ -5030,6 +4713,11 @@ class ServerInfoTool(MCPTool):
 
         except Exception as e:
             return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
+
+    @staticmethod
+    def _conversation_stats() -> Dict[str, Any]:
+        """How many conversation sessions are open."""
+        return {"active": len(get_session_manager().sessions)}
 
     def _get_model_info(self, model_manager) -> Dict[str, Any]:
         """Get model manager information."""
@@ -5121,22 +4809,21 @@ class SetModelTool(MCPTool):
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            model_id = parameters.get("model", "").strip()
+            model_id = (parameters.get("model") or "").strip()
 
             if not model_id:
                 return ToolOutput(success=False, error="Model ID is required")
 
-            # Get manager from server instance
+            # Get model manager from server instance
             try:
 
-                if _server_instance and hasattr(_server_instance, "council_manager"):
-                    manager = _server_instance.council_manager
-                elif _server_instance and hasattr(_server_instance, "model_manager"):
+                if _server_instance and _server_instance.model_manager:
                     manager = _server_instance.model_manager
                 else:
-                    raise AttributeError("Manager not available")
+                    raise AttributeError("Server instance not available")
             except (ImportError, AttributeError):
-                manager = globals().get("council_manager") or globals().get("model_manager")
+                # Fallback for bundled mode - model_manager should be global
+                manager = globals().get("model_manager")
                 if not manager:
                     return ToolOutput(success=False, error="Model manager not available")
 
@@ -5240,14 +4927,28 @@ class SynthesizeTool(MCPTool):
             perspectives = parameters.get("perspectives", [])
             if not perspectives:
                 return ToolOutput(success=False, error="At least one perspective is required")
+            for i, perspective in enumerate(perspectives):
+                if not isinstance(perspective, dict) or not perspective.get("content"):
+                    return ToolOutput(success=False, error=f"Perspective {i+1} has no content")
 
             model_override = parameters.get("model")
 
             # Build the prompt
             prompt = self._build_prompt(topic, perspectives)
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🔄 Synthesis:\n\n{response_text}"
@@ -5261,7 +4962,7 @@ class SynthesizeTool(MCPTool):
         """Build the synthesis prompt."""
         perspectives_text = "\n\n".join(
             [
-                f"**{p.get('source', f'Perspective {i+1}')}:**\n{p['content']}"
+                f"**{p.get('source') or f'Perspective {i+1}'}:**\n{p['content']}"
                 for i, p in enumerate(perspectives)
             ]
         )
@@ -5339,8 +5040,19 @@ class TestCasesTool(MCPTool):
             # Build the prompt
             prompt = self._build_prompt(code_or_feature, test_type)
 
-            # Access global model manager in bundled version
-            global model_manager
+            # Get model manager from server instance
+            try:
+                # Try to get server instance from parent module
+
+                if _server_instance and _server_instance.model_manager:
+                    model_manager = _server_instance.model_manager
+                else:
+                    raise AttributeError("Server instance not available")
+            except (ImportError, AttributeError):
+                # Fallback for bundled mode - model_manager should be global
+                model_manager = globals().get("model_manager")
+                if not model_manager:
+                    return ToolOutput(success=False, error="Model manager not available")
 
             response_text, model_used = model_manager.generate_content(prompt, model=model_override)
             formatted_response = f"🧪 Test Cases:\n\n{response_text}"

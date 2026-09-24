@@ -53,6 +53,14 @@ class TestSetModelToolExecute:
     """Test SetModelTool.execute."""
 
     @pytest.mark.asyncio
+    async def test_null_model_is_treated_as_missing(self, server, manager):
+        """A JSON null model ID gets the required-field error, not a crash."""
+        result = await SetModelTool().execute({"model": None})
+        assert result.success is False
+        assert result.error == "Model ID is required"
+        manager.set_model.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_missing_model(self, server, manager):
         """A missing model ID is rejected without touching the manager."""
         result = await SetModelTool().execute({})
@@ -135,17 +143,6 @@ class TestSetModelToolExecute:
             result = await SetModelTool().execute({"model": "~z-ai/glm-latest"})
         assert result.success is False
         assert result.error == "Manager does not support setting models"
-
-    @pytest.mark.asyncio
-    async def test_prefers_council_manager(self, manager):
-        """A server exposing council_manager uses it over model_manager."""
-        other = Mock()
-        instance = SimpleNamespace(council_manager=manager, model_manager=other)
-        with patch("council._server_instance", instance):
-            result = await SetModelTool().execute({"model": "~z-ai/glm-latest"})
-        assert result.success is True
-        manager.set_model.assert_called_once()
-        other.set_model.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):

@@ -140,16 +140,23 @@ class TestSynthesizeToolExecute:
         assert "context too long" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_perspective_without_content_fails_cleanly(self, server, manager):
-        """A perspective missing its content fails without calling the model.
-
-        The schema requires content, but the tool does not validate it itself, so the
-        resulting KeyError surfaces as a terse error rather than a crash.
-        """
-        result = await SynthesizeTool().execute({"topic": "x", "perspectives": [{"source": "A"}]})
+    async def test_perspective_without_content_is_named(self, server, manager):
+        """A perspective missing its content is reported by position, without a model call."""
+        result = await SynthesizeTool().execute(
+            {"topic": "x", "perspectives": [{"source": "A", "content": "ok"}, {"source": "B"}]}
+        )
         assert result.success is False
-        assert "content" in result.error
+        assert result.error == "Perspective 2 has no content"
         manager.generate_content.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_source_is_numbered(self, server, manager):
+        """An empty source string falls back to the position label."""
+        await SynthesizeTool().execute(
+            {"topic": "x", "perspectives": [{"source": "", "content": "Try it."}]}
+        )
+        prompt = manager.generate_content.call_args[0][0]
+        assert "**Perspective 1:**\nTry it." in prompt
 
     @pytest.mark.asyncio
     async def test_manager_unavailable(self):

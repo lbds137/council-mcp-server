@@ -41,23 +41,22 @@ class SetModelTool(MCPTool):
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            model_id = parameters.get("model", "").strip()
+            model_id = (parameters.get("model") or "").strip()
 
             if not model_id:
                 return ToolOutput(success=False, error="Model ID is required")
 
-            # Get manager from server instance
+            # Get model manager from server instance
             try:
                 from .. import _server_instance
 
-                if _server_instance and hasattr(_server_instance, "council_manager"):
-                    manager = _server_instance.council_manager
-                elif _server_instance and hasattr(_server_instance, "model_manager"):
+                if _server_instance and _server_instance.model_manager:
                     manager = _server_instance.model_manager
                 else:
-                    raise AttributeError("Manager not available")
+                    raise AttributeError("Server instance not available")
             except (ImportError, AttributeError):
-                manager = globals().get("council_manager") or globals().get("model_manager")
+                # Fallback for bundled mode - model_manager should be global
+                manager = globals().get("model_manager")
                 if not manager:
                     return ToolOutput(success=False, error="Model manager not available")
 

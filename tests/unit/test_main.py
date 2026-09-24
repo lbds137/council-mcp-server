@@ -56,8 +56,7 @@ class TestCouncilMCPServer:
     @patch("council.main.JsonRpcServer")
     @patch("council.main.ToolRegistry")
     @patch("council.main.ResponseCache")
-    @patch("council.main.ConversationMemory")
-    def test_init(self, mock_memory, mock_cache, mock_registry, mock_json_rpc):
+    def test_init(self, mock_cache, mock_registry, mock_json_rpc):
         """Test server initialization."""
         server = CouncilMCPServer()
 
@@ -65,7 +64,6 @@ class TestCouncilMCPServer:
         assert server.model_manager is None  # Not initialized until API key is set
         mock_registry.assert_called_once()
         mock_cache.assert_called_once_with(max_size=100, ttl_seconds=3600)
-        mock_memory.assert_called_once_with(max_turns=50, max_entries=100)
         mock_json_rpc.assert_called_once_with("council-mcp-server")
 
         # Verify server instance is registered globally

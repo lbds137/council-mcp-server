@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/check_models.py` (`make check-models`) lists registry model IDs that OpenRouter no longer serves
 - Comprehensive test coverage for JSON-RPC layer (30 tests)
 - Complete test suite for main.py entry point (16 tests)
-- Full test coverage for DualModelManager (15 tests)
 - Test suite for BrainstormTool (12 tests)
 - Python path setup in conftest.py for proper test imports
 - python-dotenv to install_requires
@@ -25,11 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default model is now `~openai/gpt-sol-latest` (GPT-6 Sol)
 - `server_info`'s quick guide is generated from the registry instead of a hand-written copy
 - `recommend_model` prints full model IDs, which is what the `model` parameter accepts
-- Python version requirement updated to 3.9+ (required by google-generativeai)
-- Test coverage increased from 49% to 80%
-- Entry point in setup.py corrected to gemini_mcp.main:main
+- Test coverage increased from 49% to 80%, and every tool now has its own tests
+
+### Removed
+- The Gemini-era debate protocol (it called a tool that no longer existed and nothing could reach it)
+- `ConversationMemory` and its models: nothing wrote to it, so `server_info` always showed zero turns. `server_info` now reports the number of open conversations instead
+- The `BaseTool` compatibility class, the `GeminiMCPServer` alias, and the unused `council_manager` lookups in `list_models` and `set_model`
+- Stale Gemini-era files: `TEST_STATUS.md`, `TEST_COVERAGE_REPORT.md`, `test_runner.sh`, `run_tests.py`, and `docs/` pages for v3 migration, PyCharm, troubleshooting and old review suggestions
 
 ### Fixed
+- `set_model` with `"model": null` crashed instead of asking for a model ID
+- `synthesize_perspectives` failed with a bare `'content'` error when a perspective had no content, and labelled a perspective with an empty source `**:**`
 - The response cache served stale results: every tool was cached for an hour keyed on its arguments alone, so `set_model` could report a switch that didn't happen, a question after a model switch got the old model's answer, and a repeated conversation message never reached the model. Only tools whose answer depends on their input alone are cached now, and the key names the model
 - Tool discovery from source registered no tools (it looked for `BaseTool` subclasses; the tools subclass `MCPTool`). Only the bundle worked, through its own discovery
 - A failed conversation reply left the unanswered message in the session, so a retry sent it twice

@@ -37,15 +37,15 @@ class JSONRPCHandler:
 '''
         )
 
-        (src_dir / "models").mkdir()
-        (src_dir / "models" / "memory.py").write_text(
-            '''"""Memory models."""
+        (src_dir / "services").mkdir()
+        (src_dir / "services" / "cache.py").write_text(
+            '''"""Cache service."""
 from dataclasses import dataclass
 
 @dataclass
-class ConversationTurn:
-    role: str
-    content: str
+class CacheEntry:
+    key: str
+    value: str
 '''
         )
 
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         # Check components were discovered
         component_paths = [comp[0] for comp in bundler.discovered_components]
         assert "json_rpc.py" in component_paths
-        assert "models/memory.py" in component_paths
+        assert "services/cache.py" in component_paths
         assert "tools/base.py" in component_paths
         assert "tools/sample.py" in component_paths
         assert "main.py" in component_paths
@@ -224,8 +224,8 @@ class MyClass:
         assert "import council" not in cleaned
         assert "class MyClass:" in cleaned
 
-    def test_fix_tool_imports(self, bundler):
-        """Test tool import fixing."""
+    def test_fix_tool_imports_only_touches_package_imports(self, bundler):
+        """Test the package imports go and the manager lookup around them stays."""
         content = """
 from .. import model_manager
 
@@ -233,19 +233,19 @@ class MyTool:
     def execute(self):
         # Get model manager from server instance
         try:
-            import council
-            model_manager = council._server_instance.model_manager
-        except:
-            pass
-
-        response_text, model_used = model_manager.generate_content(prompt)
+            from .. import _server_instance
+            manager = _server_instance.model_manager
+        except (ImportError, AttributeError):
+            manager = globals().get("model_manager")
+        return manager.list_models()
 """
 
         fixed = bundler._fix_tool_imports(content, is_tool=True)
 
-        assert "from .. import model_manager" not in fixed
-        assert "global model_manager" in fixed
-        assert "Access global model manager in bundled version" in fixed
+        assert "from .. import" not in fixed
+        assert "manager = _server_instance.model_manager" in fixed
+        assert "return manager.list_models()" in fixed
+        compile(fixed, "tool.py", "exec")
 
     def test_create_bundle_integration(self, bundler, mock_src_dir, monkeypatch):
         """Test full bundle creation."""
@@ -314,7 +314,7 @@ if __name__ == "__main__":
         monkeypatch.setattr("bundler.SRC_DIR", mock_src_dir)
 
         # Make one file unreadable
-        bad_file = mock_src_dir / "models" / "memory.py"
+        bad_file = mock_src_dir / "services" / "cache.py"
         bad_file.chmod(0o000)
 
         # Should still create bundle, skipping the problematic file
@@ -435,3 +435,47 @@ def greet():
 
         assert len(bundler.discovered_components) == 1
         assert "你好世界" in bundler.discovered_components[0][1]
+
+
+@pytest.fixture(scope="module")
+def bundle_namespace():
+    """The bundle of src/, executed as a module (its main() is not run)."""
+    source = Bundler().create_bundle()
+    namespace = {"__name__": "council_bundle"}
+    exec(compile(source, "server.py", "exec"), namespace)
+    return namespace
+
+
+class TestBundleOfRealSource:
+    """Bundle the real src/ and run it, which the mock-source tests can't catch."""
+
+    def test_bundle_registers_every_source_tool(self, bundle_namespace):
+        """Test the bundle's tool list matches discovery from source."""
+        from council.core.registry import ToolRegistry
+
+        source_registry = ToolRegistry()
+        source_registry.discover_tools()
+
+        bundled = {cls().name for cls in bundle_namespace["BUNDLED_TOOL_CLASSES"]}
+        assert bundled == set(source_registry.list_tools())
+
+    @pytest.mark.asyncio
+    async def test_bundled_tools_find_the_manager(self, bundle_namespace):
+        """Test bundled tools reach the manager through the server-instance global."""
+        from types import SimpleNamespace
+
+        manager = Mock()
+        manager.list_models.return_value = []
+        manager.set_model.return_value = True
+        manager.active_model = "~z-ai/glm-latest"
+        manager.generate_content.return_value = ("Answer", "z-ai/glm-5.3")
+        bundle_namespace["_server_instance"] = SimpleNamespace(model_manager=manager)
+
+        listed = await bundle_namespace["ListModelsTool"]().execute({})
+        switched = await bundle_namespace["SetModelTool"]().execute({"model": "~z-ai/glm-latest"})
+        asked = await bundle_namespace["AskTool"]().execute({"question": "hi"})
+
+        assert listed.success, listed.error
+        assert switched.success, switched.error
+        assert asked.success, asked.error
+        assert "[Model: z-ai/glm-5.3]" in asked.result
