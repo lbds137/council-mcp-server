@@ -334,6 +334,13 @@ class TestOpenRouterProviderGenerate:
 
         assert exc_info.value.is_retryable is True
 
+    def test_missing_key_stays_an_auth_error(self, monkeypatch):
+        """Test our own AuthenticationError isn't re-wrapped as a generic error."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        with pytest.raises(AuthenticationError):
+            OpenRouterProvider(api_key=None).generate("Hello")
+
     @patch("council.providers.openrouter.OpenAI")
     def test_sdk_timeout_message_is_retryable(self, mock_openai_class):
         """Test the SDK's "Request timed out." message counts as a timeout."""
