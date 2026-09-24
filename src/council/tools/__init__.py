@@ -11,6 +11,7 @@ from .conversation import (
     ListConversationsTool,
     StartConversationTool,
 )
+from .debate import DebateTool
 from .debug import DebugTool
 from .explain import ExplainTool
 from .list_models import ListModelsTool
@@ -27,6 +28,7 @@ __all__ = [
     "BrainstormTool",
     "CodeReviewTool",
     "ContinueConversationTool",
+    "DebateTool",
     "DebugTool",
     "EndConversationTool",
     "ExplainTool",

@@ -9,6 +9,7 @@ CACHEABLE = {
     "ask",
     "brainstorm",
     "code_review",
+    "debate",
     "debug",
     "explain",
     "refactor",
