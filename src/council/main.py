@@ -288,9 +288,6 @@ class CouncilMCPServer:
 
         import asyncio
 
-        # Always create a fresh event loop for the sync bridge. Relying on
-        # asyncio.get_event_loop() is unsafe on Python 3.12+ where it may
-        # raise DeprecationWarning or return an unrelated loop.
         # A client that wants progress for this call sends a token to quote back
         meta = params.get("_meta") or {}
         progress_token = meta.get("progressToken") if isinstance(meta, dict) else None
@@ -300,6 +297,9 @@ class CouncilMCPServer:
             else nullcontext()
         )
 
+        # Always create a fresh event loop for the sync bridge. Relying on
+        # asyncio.get_event_loop() is unsafe on Python 3.12+ where it may
+        # raise DeprecationWarning or return an unrelated loop.
         loop = asyncio.new_event_loop()
         try:
             with reporting:
