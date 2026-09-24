@@ -157,6 +157,12 @@ class DebateTool(MCPTool):
         if not isinstance(models, list) or not all(isinstance(m, str) and m for m in models):
             return "models must be a list of model IDs"
 
+        if positions and parameters.get("models") and len(models) > len(positions):
+            return (
+                f"{len(models)} models for {len(positions)} positions would leave models out: "
+                "give at most one model per position (fewer models are reused in turn)"
+            )
+
         count = len(positions) if positions else len(models)
         if not MIN_DEBATERS <= count <= MAX_DEBATERS:
             what = "positions" if positions else "models"

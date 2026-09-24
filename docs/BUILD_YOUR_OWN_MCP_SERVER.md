@@ -86,12 +86,14 @@ import os
 from typing import Dict, Any, Optional
 
 # Ensure unbuffered output for proper communication
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+sys.stdout = os.fdopen(sys.stdout.fileno(), "w", 1)
+sys.stderr = os.fdopen(sys.stderr.fileno(), "w", 1)
+
 
 def send_response(response: Dict[str, Any]):
     """Send a JSON-RPC response"""
     print(json.dumps(response), flush=True)
+
 
 def handle_initialize(request_id: Any) -> Dict[str, Any]:
     """Handle initialization request"""
@@ -100,15 +102,11 @@ def handle_initialize(request_id: Any) -> Dict[str, Any]:
         "id": request_id,
         "result": {
             "protocolVersion": "2024-11-05",
-            "capabilities": {
-                "tools": {}
-            },
-            "serverInfo": {
-                "name": "my-mcp-server",
-                "version": "1.0.0"
-            }
-        }
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "my-mcp-server", "version": "1.0.0"},
+        },
     }
+
 
 def handle_tools_list(request_id: Any) -> Dict[str, Any]:
     """List available tools"""
@@ -118,24 +116,14 @@ def handle_tools_list(request_id: Any) -> Dict[str, Any]:
             "description": "A simple hello world tool",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Name to greet"
-                    }
-                },
-                "required": ["name"]
-            }
+                "properties": {"name": {"type": "string", "description": "Name to greet"}},
+                "required": ["name"],
+            },
         }
     ]
 
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "result": {
-            "tools": tools
-        }
-    }
+    return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tools}}
+
 
 def handle_tool_call(request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
     """Handle tool execution"""
@@ -152,24 +140,11 @@ def handle_tool_call(request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "result": {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": result
-                    }
-                ]
-            }
+            "result": {"content": [{"type": "text", "text": result}]},
         }
     except Exception as e:
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {
-                "code": -32603,
-                "message": str(e)
-            }
-        }
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}}
+
 
 def main():
     """Main server loop"""
@@ -194,10 +169,7 @@ def main():
                 response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
-                    "error": {
-                        "code": -32601,
-                        "message": f"Method not found: {method}"
-                    }
+                    "error": {"code": -32601, "message": f"Method not found: {method}"},
                 }
 
             send_response(response)
@@ -207,15 +179,15 @@ def main():
         except EOFError:
             break
         except Exception as e:
-            if 'request_id' in locals():
-                send_response({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {
-                        "code": -32603,
-                        "message": f"Internal error: {str(e)}"
+            if "request_id" in locals():
+                send_response(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
                     }
-                })
+                )
+
 
 if __name__ == "__main__":
     main()
@@ -294,21 +266,18 @@ import os
 import requests
 from typing import Dict, Any
 
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
-sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+sys.stdout = os.fdopen(sys.stdout.fileno(), "w", 1)
+sys.stderr = os.fdopen(sys.stderr.fileno(), "w", 1)
 
 # Your API key (store securely in production)
 WEATHER_API_KEY = "your-api-key-here"
+
 
 def get_weather(city: str) -> str:
     """Fetch weather data from API"""
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather"
-        params = {
-            "q": city,
-            "appid": WEATHER_API_KEY,
-            "units": "metric"
-        }
+        params = {"q": city, "appid": WEATHER_API_KEY, "units": "metric"}
         response = requests.get(url, params=params)
         data = response.json()
 
@@ -321,7 +290,9 @@ def get_weather(city: str) -> str:
     except Exception as e:
         return f"Error fetching weather: {str(e)}"
 
+
 # ... (include the same boilerplate as before)
+
 
 def handle_tools_list(request_id: Any) -> Dict[str, Any]:
     tools = [
@@ -330,14 +301,9 @@ def handle_tools_list(request_id: Any) -> Dict[str, Any]:
             "description": "Get current weather for a city",
             "inputSchema": {
                 "type": "object",
-                "properties": {
-                    "city": {
-                        "type": "string",
-                        "description": "City name"
-                    }
-                },
-                "required": ["city"]
-            }
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
+            },
         }
     ]
     # ... rest of implementation
@@ -353,14 +319,7 @@ try:
     # Your tool logic
     result = do_something()
 except Exception as e:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "error": {
-            "code": -32603,
-            "message": str(e)
-        }
-    }
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(e)}}
 ```
 
 ### 2. Input Validation
@@ -378,6 +337,7 @@ Use stderr for logging to avoid interfering with JSON-RPC:
 
 ```python
 import logging
+
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 ```
 
@@ -472,10 +432,7 @@ class MCPServer:
         self.conversation_history = []
 
     def add_to_history(self, role: str, content: str):
-        self.conversation_history.append({
-            "role": role,
-            "content": content
-        })
+        self.conversation_history.append({"role": role, "content": content})
 ```
 
 ### 2. File Handling
@@ -483,17 +440,10 @@ Return different content types:
 
 ```python
 # Text content
-{
-    "type": "text",
-    "text": "Your response"
-}
+{"type": "text", "text": "Your response"}
 
 # Image content (base64)
-{
-    "type": "image",
-    "data": base64_encoded_image,
-    "mimeType": "image/png"
-}
+{"type": "image", "data": base64_encoded_image, "mimeType": "image/png"}
 ```
 
 ### 3. Async Operations
@@ -522,24 +472,31 @@ Create `setup.py` for easy installation:
 ```python
 #!/usr/bin/env python3
 """Setup script for MCP server"""
+
 import subprocess
 import sys
 import os
+
 
 def check_python_version():
     if sys.version_info < (3, 8):
         print("❌ Python 3.8+ required")
         sys.exit(1)
 
+
 def install_dependencies():
     print("📦 Installing dependencies...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+
 
 def add_to_claude():
     server_path = os.path.join(os.path.dirname(__file__), "server.py")
     print(f"🔧 Adding to Claude MCP with global scope...")
     # IMPORTANT: Use --scope user for global access!
-    subprocess.run(["claude", "mcp", "add", "--scope", "user", "your-server", "python3", server_path])
+    subprocess.run(
+        ["claude", "mcp", "add", "--scope", "user", "your-server", "python3", server_path]
+    )
+
 
 if __name__ == "__main__":
     check_python_version()
@@ -560,7 +517,7 @@ __updated__ = "2025-06-11"
 {
     "name": "server_info",
     "description": "Get server version and status",
-    "inputSchema": {"type": "object", "properties": {}}
+    "inputSchema": {"type": "object", "properties": {}},
 }
 
 # In tool handler:
@@ -599,6 +556,7 @@ def check_for_updates():
     """Check if updates are available"""
     try:
         import requests
+
         response = requests.get("https://api.github.com/repos/YOUR_REPO/releases/latest")
         latest_version = response.json()["tag_name"]
         if latest_version > __version__:
@@ -607,11 +565,12 @@ def check_for_updates():
     except:
         return "Could not check for updates"
 
+
 # Add update tool to your tools list
 {
     "name": "update_server",
     "description": "Update the MCP server to latest version",
-    "inputSchema": {"type": "object", "properties": {}}
+    "inputSchema": {"type": "object", "properties": {}},
 }
 ```
 
@@ -655,7 +614,7 @@ LOG_LEVEL = os.environ.get("MCP_LOG_LEVEL", "ERROR")
 1. **Database Query Tool**: Allow Claude to query your database
 2. **API Integration**: Connect to any REST API
 3. **System Monitoring**: Check system stats, logs, etc.
-4. **Custom AI Models**: Integrate other AI models (like we did with Gemini)
+4. **Custom AI Models**: Integrate other AI models (as council does through OpenRouter)
 5. **Development Tools**: Linters, formatters, test runners
 6. **Communication Tools**: Send emails, Slack messages, etc.
 
@@ -672,36 +631,36 @@ LOG_LEVEL = os.environ.get("MCP_LOG_LEVEL", "ERROR")
 
 4. **Rate Limiting**: Implement rate limits for API calls
 
-## Real-World Example: Claude-Gemini Collaboration MCP
+## Real-World Example: Council
 
-Here's a complete working example that enables Claude Code to collaborate with Google's Gemini AI:
+Council, the server in this repository, lets Claude Code consult other model
+families (GPT, Gemini, DeepSeek, Kimi, GLM, Qwen) through OpenRouter, and GLM
+through a Z.ai coding plan.
 
-### Quick Installation
+### Installation
 
 ```bash
-# 1. Create permanent directory
-mkdir -p ~/.claude-mcp-servers/council
+git clone https://github.com/lbds137/council-mcp-server.git
+cd council-mcp-server
 
-# 2. Install dependencies
-pip install httpx python-dotenv
+# Builds the single-file server, creates its venv in ~/.claude-mcp-servers/council,
+# and prints the `claude mcp add` command to register it with user scope
+./scripts/install.sh
 
-# 3. Download server (simplified version)
-curl -o ~/.claude-mcp-servers/council/server.py https://your-repo/server.py
-
-# 4. Add to Claude with USER SCOPE (crucial!)
-claude mcp add --scope user council python3 ~/.claude-mcp-servers/council/server.py
-
-# 5. Test from any directory
-claude
-/mcp  # Should show council connected
+# Store the API key encrypted (prompts with input hidden)
+./scripts/set-secret.sh OPENROUTER_API_KEY
 ```
+
+Then run `/mcp` in Claude Code to check that council is connected.
 
 ### Available Tools
 
-Once installed, you'll have these tools globally:
-- `mcp__council__ask` - Ask any model questions
-- `mcp__council__code_review` - Code reviews
-- `mcp__council__brainstorm` - Collaborative brainstorming
+Once installed, the tools are available in every directory, for example:
+- `mcp__council__ask` - Ask another model a question
+- `mcp__council__code_review` - Get a second opinion on code
+- `mcp__council__debate` - Have several models argue a question, then synthesize
+
+See the README for the full list.
 
 ### Usage Example
 
@@ -709,10 +668,11 @@ Once installed, you'll have these tools globally:
 # In any directory, start Claude Code:
 claude
 
-# Use Council for code review:
+# Ask for a review from a different model family:
 mcp__council__code_review
   code: "function authenticate(user) { return user.password === 'admin'; }"
   focus: "security"
+  model: "~moonshotai/kimi-latest"
 
 # The response appears directly in Claude's context!
 ```

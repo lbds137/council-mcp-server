@@ -8,6 +8,7 @@ from .base import MCPTool, ToolOutput
 logger = logging.getLogger(__name__)
 
 RATING_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3}
+LIMIT = 5  # recommendations shown
 
 
 def _tokens(count: int) -> str:
@@ -215,7 +216,7 @@ class RecommendModelTool(MCPTool):
     def _select(
         task: Any, prefer_fast: bool, min_context: int | None
     ) -> tuple[list[str], list[tuple[str, int]]]:
-        """Pick up to five models for the task.
+        """Pick up to LIMIT models for the task.
 
         Returns:
             The models to recommend, and the (model, window) pairs left out
@@ -243,14 +244,17 @@ class RecommendModelTool(MCPTool):
 
         dropped: list[tuple[str, int]] = []
         if min_context:
-            kept = []
+            kept: list[str] = []
             for model_id in candidates:
+                if len(kept) == LIMIT:
+                    break
                 metadata = get_model_metadata(model_id)
                 window = metadata.context_window if metadata else 0
                 if window >= min_context:
                     kept.append(model_id)
                 else:
+                    # Only name models that would otherwise have been listed
                     dropped.append((model_id, window))
             candidates = kept
 
-        return candidates[:5], dropped
+        return candidates[:LIMIT], dropped
