@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server that enables Claude to collaborate with mu
 - **Multi-Model Support**: Access hundreds of models via OpenRouter, plus GLM on a Z.ai coding plan
 - **Dynamic Model Discovery**: List and filter available models by provider, capability, or pricing
 - **Per-Request Model Override**: Use different models for different tasks
-- **Multiple Collaboration Tools**: Code review, debugging, refactoring, brainstorming, test generation, explanations, multi-turn conversations
+- **Multiple Collaboration Tools**: Multi-model debates, code review, debugging, refactoring, brainstorming, test generation, explanations, multi-turn conversations
 - **Response Caching**: A repeated question to the same model is answered from cache for an hour
 
 ## Quick Start
@@ -87,6 +87,7 @@ claude mcp add council -s user -- ~/.claude-mcp-servers/council/.venv/bin/python
 | `test_cases` | Generate comprehensive test scenarios |
 | `explain` | Clear explanations of complex code or concepts |
 | `synthesize_perspectives` | Combine multiple viewpoints into a coherent summary |
+| `debate` | 2-4 models argue a topic, rebut each other, and one synthesizes (default panel: GPT, GLM, Kimi) |
 | `debug` | Diagnose an error from its message, stack trace and code |
 | `refactor` | Suggest refactorings toward a stated goal |
 

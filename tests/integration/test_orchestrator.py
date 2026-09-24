@@ -112,6 +112,27 @@ class TestConversationOrchestrator:
         assert stats["misses"] == 1
 
     @pytest.mark.asyncio
+    async def test_a_result_can_veto_its_own_caching(self, setup_orchestrator):
+        """Test a result flagged cacheable=False (e.g. a partial debate) is not cached."""
+        orchestrator, registry, _, cache = setup_orchestrator
+
+        class PartialTool(MockTestTool):
+            async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+                self.call_count += 1
+                output = ToolOutput(success=True, result="partial")
+                output.metadata["cacheable"] = False
+                return output
+
+        partial = PartialTool("partial_tool")
+        registry._tools["partial_tool"] = partial
+
+        await orchestrator.execute_tool("partial_tool", {"q": 1})
+        await orchestrator.execute_tool("partial_tool", {"q": 1})
+
+        assert partial.call_count == 2
+        assert cache.get_stats()["size"] == 0
+
+    @pytest.mark.asyncio
     async def test_tools_that_do_not_opt_in_are_never_cached(self, setup_orchestrator):
         """Test a state-changing tool runs on every call, even with the same input."""
         orchestrator, registry, _, cache = setup_orchestrator
