@@ -1,12 +1,10 @@
-"""Orchestrator for managing tool execution and conversation flow."""
+"""Orchestrator: runs tools, caches results that may be reused, and counts executions."""
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from ..protocols.debate import DebateProtocol
 from ..services.cache import ResponseCache
-from ..services.memory import ConversationMemory
 from ..tools.base import ToolOutput
 from .registry import ToolRegistry
 
@@ -14,18 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 class ConversationOrchestrator:
-    """Orchestrates tool execution and manages conversation flow."""
+    """Runs tools for the server, with caching and execution counts."""
 
     def __init__(
         self,
         tool_registry: ToolRegistry,
         model_manager: Any,
-        memory: Optional[ConversationMemory] = None,
         cache: Optional[ResponseCache] = None,
     ):
         self.tool_registry = tool_registry
         self.model_manager = model_manager
-        self.memory = memory or ConversationMemory()
         self.cache = cache or ResponseCache()
         self.total_executions = 0
         self.successful_executions = 0
@@ -60,9 +56,6 @@ class ConversationOrchestrator:
             self.successful_executions += 1
         self.total_execution_ms += output.execution_time_ms
 
-        if output.success and hasattr(tool, "update_memory"):
-            tool.update_memory(self.memory, output)
-
         return output
 
     def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
@@ -75,60 +68,6 @@ class ConversationOrchestrator:
             return None
         model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
         return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
-
-    async def execute_protocol(
-        self, protocol_name: str, initial_input: Dict[str, Any]
-    ) -> List[ToolOutput]:
-        """Execute a multi-step protocol (e.g., debate, synthesis)."""
-        logger.info(f"Executing protocol: {protocol_name}")
-
-        # Example: Simple sequential execution
-        if protocol_name == "simple":
-            tool_name = initial_input.get("tool_name", "")
-            parameters = initial_input.get("parameters", {})
-            if tool_name:
-                return [await self.execute_tool(tool_name, parameters)]
-            return []
-
-        # Debate protocol
-        elif protocol_name == "debate":
-            topic = initial_input.get("topic", "")
-            positions = initial_input.get("positions", [])
-
-            if not topic or not positions:
-                output = ToolOutput(
-                    success=False,
-                    error="Debate protocol requires 'topic' and 'positions' parameters",
-                )
-                output.tool_name = "debate_protocol"
-                return [output]
-
-            debate = DebateProtocol(self, topic, positions)
-            try:
-                result = await debate.run()
-                output = ToolOutput(
-                    success=True,
-                    result=str(result),  # Convert to string
-                )
-                output.tool_name = "debate_protocol"
-                output.metadata = {"protocol": "debate", "rounds": len(result.get("rounds", []))}
-                return [output]
-            except Exception as e:
-                logger.error(f"Debate protocol error: {e}")
-                output = ToolOutput(success=False, error=str(e))
-                output.tool_name = "debate_protocol"
-                return [output]
-
-        # Synthesis protocol (simple wrapper around synthesize tool)
-        elif protocol_name == "synthesis":
-            return [
-                await self.execute_tool(
-                    "synthesize_perspectives", initial_input.get("parameters", {})
-                )
-            ]
-
-        # Protocol not implemented
-        raise NotImplementedError(f"Protocol {protocol_name} not implemented")
 
     def get_execution_stats(self) -> Dict[str, Any]:
         """Get statistics about tool executions."""

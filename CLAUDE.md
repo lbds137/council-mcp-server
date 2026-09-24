@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Council** is a Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. It provides a provider-agnostic way for AI-to-AI collaboration on complex tasks, allowing access to Gemini, GPT, Claude, Llama, and many other models.
+**Council** is a Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. It provides a provider-agnostic way for AI-to-AI collaboration on complex tasks, with access to GPT, Gemini, DeepSeek, Kimi, GLM, Qwen and many other models.
 
 ### Key Features
-- **Multi-Model Support**: Access 100+ models via OpenRouter (Gemini, GPT, Claude, Llama, Mistral, etc.)
+- **Multi-Model Support**: Hundreds of models via OpenRouter, plus GLM on the Z.ai coding plan
 - **Dynamic Model Discovery**: List and filter available models by provider, capability, or pricing
 - **Per-Request Model Override**: Use different models for different tasks
-- **Multiple Collaboration Tools**: Code review, brainstorming, test generation, explanations
-- **Response Caching**: Automatic caching for repeated queries
+- **Multiple Collaboration Tools**: Code review, debugging, refactoring, brainstorming, test generation, explanations, multi-turn conversations
+- **Response Caching**: Tools whose answer depends only on their input opt in (`is_cacheable`); the key includes the model
 
 ## Available MCP Tools
 
@@ -26,11 +26,18 @@ Since this MCP server is already running, you can use these tools directly:
 - `mcp__council__test_cases` - Generate test cases
 - `mcp__council__explain` - Get explanations
 - `mcp__council__synthesize_perspectives` - Combine multiple viewpoints
+- `mcp__council__debug` - Diagnose an error
+- `mcp__council__refactor` - Suggest refactorings
+
+### Conversations
+- `mcp__council__start_conversation` / `continue_conversation` - Multi-turn conversation with a model
+- `mcp__council__get_conversation_history` / `list_conversations` / `end_conversation`
 
 ### Model Management
 - `mcp__council__server_info` - Check server status and current model
 - `mcp__council__list_models` - List available models with filtering
 - `mcp__council__set_model` - Change the active model
+- `mcp__council__recommend_model` - Suggest models for a task
 
 ### Using Model Override
 
@@ -56,15 +63,12 @@ mcp__council__ask(
 ### 1. Making Changes
 1. Edit files in `src/council/`
 2. Add tests in `tests/`
-3. Test locally with pytest: `pytest tests/ -v`
+3. Test locally: `make test` (runs `.venv/bin/python -m pytest tests/`)
 
 ### 2. Deploying Changes
 ```bash
 # Install or update (smart script that handles both)
 ./scripts/install.sh
-
-# Development symlink (for rapid iteration)
-./scripts/dev-link.sh
 ```
 
 ### 3. Testing Changes
@@ -85,38 +89,35 @@ The owner doesn't read diffs; the pre-push hook and CI are the gates.
 ```
 src/council/
 ├── main.py              # CouncilMCPServer (entry point)
-├── manager.py           # ModelManager (OpenRouter-based)
+├── manager.py           # ModelManager: routes GLM to the Z.ai plan, the rest to OpenRouter
+├── credentials.py       # Decrypts systemd user credentials into the environment
 ├── json_rpc.py          # JSON-RPC 2.0 implementation
 ├── providers/
-│   ├── base.py          # LLMProvider interface
-│   └── openrouter.py    # OpenRouter implementation
+│   ├── base.py          # LLMProvider interface and error classes
+│   ├── openrouter.py    # OpenRouter implementation
+│   └── zai.py           # Z.ai coding-plan implementation
 ├── discovery/
+│   ├── model_registry.py  # Curated models and task recommendations
 │   ├── model_cache.py   # TTL-based model caching
 │   └── model_filter.py  # Filter by provider, capability, etc.
 ├── tools/
-│   ├── base.py          # MCPTool base class
-│   ├── ask.py           # General questions
-│   ├── code_review.py   # Code review
-│   ├── brainstorm.py    # Brainstorming
-│   ├── test_cases.py    # Test generation
-│   ├── explain.py       # Explanations
-│   ├── synthesize.py    # Perspective synthesis
-│   ├── list_models.py   # Model listing
-│   ├── set_model.py     # Model switching
-│   └── server_info.py   # Server status
+│   ├── base.py          # MCPTool base class, ToolOutput
+│   ├── ask.py, code_review.py, brainstorm.py, test_cases.py, explain.py,
+│   ├── synthesize.py, debug.py, refactor.py   # Answer tools (cacheable)
+│   ├── conversation.py  # Multi-turn conversation tools
+│   ├── list_models.py, set_model.py, recommend_model.py, server_info.py
 ├── core/
-│   ├── registry.py      # Tool discovery
-│   └── orchestrator.py  # Tool execution
-├── services/
-│   ├── cache.py         # Response caching
-│   └── memory.py        # Conversation memory
-└── models/              # Legacy Gemini support
+│   ├── registry.py      # Tool discovery (concrete MCPTool subclasses)
+│   └── orchestrator.py  # Tool execution, response cache, execution counts
+└── services/
+    ├── cache.py         # Response cache (LRU + TTL)
+    └── session_manager.py  # Conversation sessions
 ```
 
 ### Core Components
 
 1. **ModelManager** (`src/council/manager.py`)
-   - Routes requests to OpenRouter API
+   - Routes GLM requests the Z.ai plan carries to the plan (one OpenRouter retry on failure), everything else to OpenRouter
    - Manages active model selection
    - Handles model override per-request
 
@@ -175,7 +176,9 @@ class MyNewTool(MCPTool):
         return ToolOutput(success=True, result=response)
 ```
 
-Then export it in `src/council/tools/__init__.py`.
+Then export it in `src/council/tools/__init__.py`. Discovery finds it automatically, both from source and in the bundle.
+
+If the tool's answer depends only on its input and the model, override `is_cacheable(parameters)` to return True so repeated calls are served from cache. Never do this for a tool that reads or changes server state.
 
 ## Configuration
 
@@ -216,13 +219,13 @@ COUNCIL_DEBUG=1                                     # Enable debug logging
 ### Running Tests
 ```bash
 # Run all tests
-pytest tests/ -v
+.venv/bin/python -m pytest tests/ -v
 
 # Run with coverage
-pytest tests/ --cov=council --cov-report=term-missing
+.venv/bin/python -m pytest tests/ --cov=council --cov-report=term-missing
 
 # Run specific test file
-pytest tests/unit/test_council/test_manager.py -v
+.venv/bin/python -m pytest tests/unit/test_council/test_manager.py -v
 ```
 
 ### Test Structure
@@ -242,7 +245,7 @@ tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
 ```
 
 ### Common Issues
-1. **"No API Key"** - Set OPENROUTER_API_KEY in .env
+1. **"No API Key"** - Store it: `scripts/set-secret.sh OPENROUTER_API_KEY`, then reconnect
 2. **Model not available** - Check model ID with list_models
 3. **Timeout errors** - Increase COUNCIL_TIMEOUT
 4. **Rate limits** - OpenRouter has per-model rate limits
@@ -252,10 +255,9 @@ tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
 ```bash
 # Development
 ./scripts/install.sh         # Deploy to MCP location
-./scripts/dev-link.sh        # Create development symlink
-pytest tests/ -v             # Run tests
+make test                    # Run tests (repo .venv)
 make check-models            # Find registry model IDs OpenRouter dropped
-python scripts/bundler.py    # Create single-file bundle
+.venv/bin/python scripts/bundler.py  # Create single-file bundle
 
 # Testing MCP Tools (from Claude)
 mcp__council__server_info          # Check status
@@ -268,8 +270,8 @@ mcp__council__list_models          # List available models
 mcp__council__set_model            # Change active model
 
 # Configuration
-cp .env.example .env         # Create config
-vim .env                     # Add OPENROUTER_API_KEY
+scripts/set-secret.sh OPENROUTER_API_KEY   # Store the key (encrypted)
+vim ~/.claude-mcp-servers/council/.env     # Optional settings (default model, TTL, timeout)
 ```
 
 ## Version History

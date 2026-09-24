@@ -42,14 +42,11 @@ class Bundler:
             "discovery/model_filter.py",  # Model filtering (new in v4)
             "discovery/model_registry.py",  # Curated model recommendations (new in v4)
             "manager.py",  # New OpenRouter-based ModelManager (v4)
-            "models/memory.py",  # Memory models (ConversationTurn, MemoryEntry)
             "services/cache.py",  # Cache service
-            "services/memory.py",  # Memory service
             "services/session_manager.py",  # Session manager for conversations
             "tools/base.py",  # Tool base class must come before tool implementations
             "core/registry.py",  # Registry needs tool base
             "core/orchestrator.py",  # Orchestrator uses registry
-            "protocols/debate.py",  # Protocols come last
             "credentials.py",  # systemd credential loading, used by main
             "main.py",  # Main server class (not server.py!)
         ]
@@ -119,7 +116,7 @@ class Bundler:
                 # Handle cases like module.BaseTool
                 base_names.append(base.attr)
 
-        return any(base in ["BaseTool", "MCPTool"] for base in base_names)
+        return "MCPTool" in base_names
 
     def _extract_tool_info(self, node: ast.ClassDef, file_path: Path) -> Optional[Dict[str, str]]:
         """Extract tool information from a class definition."""
@@ -319,51 +316,21 @@ def _apply_tool_registry_override():
             return self._simple_clean_content(content)
 
     def _fix_tool_imports(self, content: str, is_tool: bool) -> str:
-        """Fix tool imports for bundled operation."""
+        """Drop the tools' package imports; the bundle provides those names as globals.
+
+        main.py sets the module globals _server_instance and model_manager, so a
+        tool's usual manager lookup works unchanged in the bundle.
+        """
         if not is_tool:
             return content
-
-        # Look for the model manager access block and replace it
-        lines = content.split("\n")
-        new_lines = []
-        i = 0
-
-        while i < len(lines):
-            line = lines[i]
-
-            # Check if this is the start of the model manager access block
-            if "# Get model manager from server instance" in line:
-                # Skip lines until we find the generate_content call
-                new_lines.append("            # Access global model manager in bundled version")
-                new_lines.append("            global model_manager")
-                new_lines.append("")
-
-                # Skip ahead until we find the response_text line
-                while (
-                    i < len(lines)
-                    and "response_text, model_used = model_manager.generate_content" not in lines[i]
-                ):
-                    i += 1
-                # Now include the generate_content line
-                if i < len(lines):
-                    new_lines.append(lines[i])
-            else:
-                new_lines.append(line)
-            i += 1
-
-        content = "\n".join(new_lines)
-
-        # Also handle any remaining import attempts
         content = content.replace(
             "from .. import model_manager",
-            "# Model manager will be accessed as global in bundled version",
+            "# model_manager is a module global in the bundle",
         )
-        content = content.replace(
+        return content.replace(
             "from .. import _server_instance",
-            "# Server instance access not needed in bundled version",
+            "# _server_instance is a module global in the bundle",
         )
-
-        return content
 
     def _simple_clean_content(self, content: str):
         """Simple text-based content cleaning as fallback."""

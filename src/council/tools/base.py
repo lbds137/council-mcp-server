@@ -64,27 +64,3 @@ class MCPTool(ABC):
             "description": self.description,
             "inputSchema": self.input_schema,
         }
-
-
-# Keep the original BaseTool for backwards compatibility during migration
-class BaseTool(MCPTool):
-    """Legacy base class that wraps MCPTool for backwards compatibility."""
-
-    def __init__(self):
-        # No-op for legacy compatibility
-        pass
-
-    @property
-    def name(self) -> str:
-        """Default to empty string for legacy tools."""
-        return ""
-
-    @property
-    def description(self) -> str:
-        """Default to empty string for legacy tools."""
-        return ""
-
-    @property
-    def input_schema(self) -> Dict[str, Any]:
-        """Default to empty schema for legacy tools."""
-        return {"type": "object", "properties": {}, "required": []}

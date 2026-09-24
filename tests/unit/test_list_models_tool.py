@@ -179,17 +179,6 @@ class TestListModelsToolExecute:
         assert "Could not fetch the OpenRouter model list" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_prefers_council_manager(self, manager):
-        """A server exposing council_manager uses it over model_manager."""
-        other = Mock()
-        instance = SimpleNamespace(council_manager=manager, model_manager=other)
-        with patch("council._server_instance", instance):
-            result = await ListModelsTool().execute({})
-        assert result.success is True
-        manager.list_models.assert_called_once()
-        other.list_models.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_manager_without_list_models(self):
         """A manager that cannot list models is reported as unsupported."""
         with patch("council._server_instance", SimpleNamespace(model_manager=object())):

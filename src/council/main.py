@@ -15,7 +15,6 @@ from .credentials import load_credentials
 from .json_rpc import JsonRpcServer, create_result_response
 from .manager import ModelManager
 from .services.cache import ResponseCache
-from .services.memory import ConversationMemory
 
 # Protocol versions this server implements. The first entry is the default
 # returned when the client requests an unknown version (spec-compliant fallback).
@@ -72,7 +71,6 @@ class CouncilMCPServer:
         self.model_manager: Optional[ModelManager] = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
-        self.memory = ConversationMemory(max_turns=50, max_entries=100)
         self.orchestrator: Optional[ConversationOrchestrator] = None
 
         # Create JSON-RPC server
@@ -191,7 +189,6 @@ class CouncilMCPServer:
             self.orchestrator = ConversationOrchestrator(
                 tool_registry=self.tool_registry,
                 model_manager=self.model_manager,
-                memory=self.memory,
                 cache=self.cache,
             )
 
@@ -327,10 +324,6 @@ class CouncilMCPServer:
 
         # Run the JSON-RPC server
         self.server.run()
-
-
-# Keep GeminiMCPServer as alias for backwards compatibility
-GeminiMCPServer = CouncilMCPServer
 
 
 def main():
