@@ -34,8 +34,13 @@ def report_progress(progress: float, total: float | None = None, message: str | 
     progress must increase from one report to the next within a call.
     """
     callback = _progress_callback.get()
-    if callback is not None:
+    if callback is None:
+        return
+    try:
         callback(progress, total, message)
+    except Exception as e:
+        # Progress is a courtesy: losing a report must not lose the tool's work
+        logger.warning(f"Progress report not sent: {e}")
 
 
 def get_server() -> Any:
