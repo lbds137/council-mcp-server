@@ -65,12 +65,15 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 
 ### 2. Deploying Changes
 ```bash
-# Install or update (smart script that handles both)
+# Install or update: pip-installs the package from the working tree into
+# ~/.claude-mcp-servers/council/.venv and records the commit in INSTALLED there
 ./scripts/install.sh
 ```
+The install is a snapshot, not editable, so the running server doesn't follow branch
+switches. Roll back by checking out the earlier commit and running the script again.
 
 ### 3. Testing Changes
-1. After deploying, restart Claude Desktop/Code
+1. After deploying, reconnect council in each open session (`/mcp` → council → Reconnect)
 2. Test with: `mcp__council__server_info`
 3. Verify the server is running and models are available
 4. Test each tool to ensure functionality
@@ -172,7 +175,7 @@ class MyNewTool(MCPTool):
         return ToolOutput(success=True, result=response)
 ```
 
-Then export it in `src/council/tools/__init__.py`. Discovery finds it automatically, both from source and in the bundle.
+Then export it in `src/council/tools/__init__.py`. Discovery finds it automatically.
 
 If the tool's answer depends only on its input and the model, override `is_cacheable(parameters)` to return True so repeated calls are served from cache. Never do this for a tool that reads or changes server state.
 
@@ -255,7 +258,6 @@ tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
 ./scripts/install.sh         # Deploy to MCP location
 make test                    # Run tests (repo .venv)
 make check-models            # Find registry model IDs OpenRouter dropped
-.venv/bin/python scripts/bundler.py  # Create single-file bundle
 
 # Testing MCP Tools (from Claude)
 mcp__council__server_info          # Check status
@@ -284,6 +286,6 @@ vim ~/.claude-mcp-servers/council/.env     # Optional settings (default model, T
 1. **Multi-model collaboration** - Use different models for different tasks
 2. **Model override** - All tools support optional `model` parameter
 3. **OpenRouter pricing** - Some models are free, others are paid
-4. **Updates require restart** - Restart Claude Desktop/Code after changes
+4. **Updates require a reconnect** - Run `scripts/install.sh`, then `/mcp` → council → Reconnect
 
 Remember: Council enhances Claude's capabilities through collaboration with any AI model. Use the right model for each task!
