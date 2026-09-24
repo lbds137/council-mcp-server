@@ -184,14 +184,6 @@ class Bundler:
             except ImportError:
                 OpenAI = None
 
-            # Keep google SDK as optional fallback
-            try:
-                import google.generativeai as genai
-                from google.api_core import exceptions as google_exceptions
-            except ImportError:
-                genai = None
-                google_exceptions = None
-
             # HTTP client for model discovery
             try:
                 import httpx

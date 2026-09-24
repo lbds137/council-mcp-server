@@ -181,7 +181,7 @@ class TestTool(MCPTool):
 
         # Check key imports are present
         assert "import asyncio" in imports
-        assert "import google.generativeai as genai" in imports
+        assert "google" not in imports
         assert "__version__ = " in imports
         assert "model_manager = None" in imports
 

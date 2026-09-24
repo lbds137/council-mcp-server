@@ -14,7 +14,11 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "test",
+            "context": "test (3.12)",
+            "integration_id": null
+          },
+          {
+            "context": "test (3.13)",
             "integration_id": null
           }
         ],

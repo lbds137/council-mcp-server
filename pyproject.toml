@@ -44,24 +44,10 @@ warn_no_return = true
 warn_unreachable = false
 strict_equality = true
 
-[[tool.mypy.overrides]]
-module = "google.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "pytest"
-ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-addopts = "-v --tb=short --strict-markers"
+# pytest reads its settings from pytest.ini
 
 [tool.coverage.run]
-source = ["src/gemini_mcp"]
+source = ["council"]
 omit = ["*/tests/*", "*/__init__.py"]
 
 [tool.coverage.report]
