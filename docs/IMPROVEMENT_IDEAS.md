@@ -6,6 +6,15 @@ git history (`git log -- docs/IMPROVEMENT_IDEAS.md`).
 
 ## Maybe
 
+### Stream Z.ai responses
+Twice on 2026-09-24 a Z.ai plan call failed with "Connection error." exactly
+60.0 s after it started (glm-5.3-flash at 14:33:55, glm-5.3 at 16:30:05), well
+inside our 180 s timeout. Something on Z.ai's side appears to drop a connection
+that has sent nothing for 60 s. The OpenRouter retry covered both, but the retry
+costs money and a minute. Streaming the response (`stream=True`) would keep
+bytes flowing while GLM reasons. Worth doing if the log keeps showing it:
+`grep "Z.ai error" ~/.claude-mcp-servers/council/logs/council-mcp-server.log`.
+
 ### Conversations that survive a reconnect
 Conversation sessions live in memory, so `/mcp` → Reconnect ends them. Saving
 them to a small file under `~/.claude-mcp-servers/council/` would keep them.
