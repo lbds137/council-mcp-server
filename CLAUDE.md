@@ -73,6 +73,12 @@ mcp__council__ask(
 3. Verify the server is running and models are available
 4. Test each tool to ensure functionality
 
+### 4. Shipping Changes
+The owner doesn't read diffs; the pre-push hook and CI are the gates.
+- **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs flake8, black, isort, mypy and pytest.
+- **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
+- No ruleset is active on GitHub. Don't apply `.github/rulesets/main.json` as it stands: it requires a check named `test`, but CI reports `test (3.12)` and `test (3.13)`, so every merge would block.
+
 ## Code Architecture
 
 ### Directory Structure
