@@ -30,8 +30,8 @@ class SetModelTool(MCPTool):
                 "model": {
                     "type": "string",
                     "description": (
-                        "The model ID to use (e.g., 'google/gemini-3-pro-preview', "
-                        "'anthropic/claude-3-opus')"
+                        "The model ID to use (e.g., '~openai/gpt-sol-latest', "
+                        "'~moonshotai/kimi-latest')"
                     ),
                 },
             },

@@ -42,7 +42,7 @@ Edit `.env` to configure:
 OPENROUTER_API_KEY=sk-or-...
 
 # Model configuration (optional - defaults shown)
-COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview
+COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest
 COUNCIL_CACHE_TTL=3600
 COUNCIL_TIMEOUT=600000
 ```
@@ -83,40 +83,55 @@ claude mcp add council -s user -- ~/.claude-mcp-servers/council/.venv/bin/python
 All tools support an optional `model` parameter to use a specific model:
 
 ```python
-# Use Claude for code review
+# Use Kimi for code review
 mcp__council__code_review(
     code="def hello(): print('world')",
     focus="security",
-    model="anthropic/claude-3-opus"
+    model="~moonshotai/kimi-latest"
 )
 
-# Use GPT-4 for brainstorming
+# Use GLM for brainstorming
 mcp__council__brainstorm(
     topic="API design patterns",
-    model="openai/gpt-4-turbo"
+    model="~z-ai/glm-latest"
 )
 ```
 
 ## Popular Model Configurations
 
-### Google Gemini (Default)
+IDs that start with `~` are OpenRouter aliases that always point at the newest
+model in a family, so they don't go stale. Anthropic models work too, but Claude
+Code can already run its own Claude agents, so council is most useful for other
+model families.
+
+### OpenAI GPT (Default)
 ```bash
-COUNCIL_DEFAULT_MODEL=google/gemini-3-pro-preview
+COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest
 ```
 
-### Anthropic Claude
+### Moonshot Kimi
 ```bash
-COUNCIL_DEFAULT_MODEL=anthropic/claude-3.5-sonnet
+COUNCIL_DEFAULT_MODEL=~moonshotai/kimi-latest
 ```
 
-### OpenAI GPT-4
+### Z.ai GLM
 ```bash
-COUNCIL_DEFAULT_MODEL=openai/gpt-4-turbo
+COUNCIL_DEFAULT_MODEL=~z-ai/glm-latest
 ```
 
-### Meta Llama (Free)
+### DeepSeek
 ```bash
-COUNCIL_DEFAULT_MODEL=meta-llama/llama-3.3-70b-instruct:free
+COUNCIL_DEFAULT_MODEL=~deepseek/deepseek-pro-latest
+```
+
+### Google Gemini
+```bash
+COUNCIL_DEFAULT_MODEL=~google/gemini-pro-latest
+```
+
+### Qwen (Free)
+```bash
+COUNCIL_DEFAULT_MODEL=qwen/qwen3.8-27b:free
 ```
 
 ## Development

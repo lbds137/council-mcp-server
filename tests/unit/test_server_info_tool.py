@@ -5,6 +5,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from council.discovery.model_registry import (
+    FREE_TIER_MODELS,
+    TaskType,
+    get_recommendations_for_task,
+)
 from council.tools.server_info import ServerInfoTool
 
 
@@ -63,6 +68,14 @@ class TestServerInfoTool:
         assert schema["type"] == "object"
         assert schema["properties"] == {}
         assert schema["required"] == []
+
+    def test_quick_guide_follows_registry(self, tool):
+        """Test the quick guide lists the registry's current picks, not a hard-coded copy."""
+        guide = tool._get_quick_guide()
+
+        assert get_recommendations_for_task(TaskType.CODING, limit=1)[0] in guide
+        for model in FREE_TIER_MODELS:
+            assert model in guide
 
     @pytest.mark.asyncio
     async def test_execute_without_server_instance(self, tool):
