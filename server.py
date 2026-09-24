@@ -1895,17 +1895,25 @@ class ModelManager:
 
         zai = self.zai_provider
         zai_model = zai.resolve(model_to_use) if zai else None
+        # Read the reason now, next to the resolve that produced it: a parallel
+        # call (e.g. a debate) can fetch the list again and change list_error
+        # while this call waits on OpenRouter
+        unavailable = (
+            zai.list_error
+            if zai is not None and zai_model is None and zai.is_candidate(model_to_use)
+            else None
+        )
         try:
             if zai is None or zai_model is None:
                 response = self.provider.generate(
                     prompt, model=self._openrouter_id(model_to_use), **kwargs
                 )
                 model_used = response.model
-                if zai is not None and zai.list_error and zai.is_candidate(model_to_use):
+                if unavailable:
                     # A key is set but the plan couldn't be consulted: say so,
                     # or a broken key would silently bill every GLM call
                     self.zai_unavailable += 1
-                    model_used += f" · OpenRouter (Z.ai unavailable: {zai.list_error})"
+                    model_used += f" · OpenRouter (Z.ai unavailable: {unavailable})"
             else:
                 response, model_used = self._generate_on_plan(
                     zai, prompt, model_to_use, zai_model, **kwargs
