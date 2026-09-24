@@ -143,6 +143,8 @@ class OpenRouterProvider(LLMProvider):
 
     def _classify_error(self, error: Exception, model_id: str) -> LLMProviderError:
         """Map an API error to a provider error, by HTTP status when there is one."""
+        if isinstance(error, LLMProviderError):
+            return error
         error_msg = str(error)
         logger.error(f"OpenRouter error: {error_msg}")
         status = getattr(error, "status_code", None)

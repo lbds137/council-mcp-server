@@ -84,6 +84,17 @@ class TestCouncilMCPServer:
         mock_model_manager.assert_called_once()
         assert server.model_manager is not None
 
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-api-key"})
+    @patch("council.main.ModelManager")
+    def test_model_manager_is_published_as_a_module_global(self, mock_model_manager):
+        """Test the manager is set as a global, which is how bundled tools find it."""
+        import council.main
+
+        server = CouncilMCPServer()
+        server._initialize_model_manager()
+
+        assert council.main.model_manager is server.model_manager
+
     @patch.dict(os.environ, {}, clear=True)
     def test_initialize_model_manager_without_api_key(self):
         """Test model manager initialization without API key."""
