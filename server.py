@@ -682,7 +682,13 @@ ZAI_QUOTA_CODES = {"1308", "1310", "1316", "1317", "1318", "1319", "1320", "1321
 ZAI_BUSY_CODES = {"1302", "1305", "1313"}
 ZAI_ACCOUNT_CODES = {"1113", "1309"}
 ZAI_MODEL_NOT_FOUND_CODE = "1214"
-ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})""")
+ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})(?!\d)""")
+
+
+def _release_order(model: dict[str, Any]) -> tuple[float, str]:
+    """Sort key for newest-first alias resolution; a missing date sorts oldest."""
+    created = model.get("created")
+    return (created if isinstance(created, (int, float)) else 0, model["id"])
 
 
 class ZaiCodingProvider(LLMProvider):
@@ -752,17 +758,39 @@ class ZaiCodingProvider(LLMProvider):
                 timeout=ZAI_MODELS_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
-            self._models = [m for m in response.json().get("data", []) if m.get("id")]
+            self._models = self._parse_model_list(response.json())
             self._next_fetch = time.time() + self.cache_ttl
             self.list_error = None
-        except (httpx.HTTPError, ValueError) as e:
-            logger.warning(f"Could not list Z.ai models: {e}")
-            if isinstance(e, httpx.HTTPStatusError):
-                self.list_error = f"model list returned HTTP {e.response.status_code}"
-            else:
-                self.list_error = f"model list unreachable ({type(e).__name__})"
-            self._next_fetch = time.time() + ZAI_FAILED_FETCH_RETRY_SECONDS
+        except httpx.HTTPStatusError as e:
+            self._list_failed(f"model list returned HTTP {e.response.status_code}", e)
+        except httpx.HTTPError as e:
+            self._list_failed(f"model list unreachable ({type(e).__name__})", e)
+        except ValueError as e:
+            # Bad JSON, or a body with no usable model entries
+            self._list_failed(f"model list unreadable ({e})", e)
         return self._models
+
+    @staticmethod
+    def _parse_model_list(payload: Any) -> list[dict[str, Any]]:
+        """The usable entries of a /models body.
+
+        Raises:
+            ValueError: If the body lists no models, so an error envelope or a
+                lapsed plan is reported rather than cached as "carries nothing".
+        """
+        data = payload.get("data") if isinstance(payload, dict) else None
+        models = []
+        if isinstance(data, list):
+            models = [m for m in data if isinstance(m, dict) and isinstance(m.get("id"), str)]
+        if not models:
+            raise ValueError("no models listed")
+        return models
+
+    def _list_failed(self, reason: str, error: Exception) -> None:
+        """Record a failed model-list fetch and back off before retrying."""
+        logger.warning(f"Could not list Z.ai models: {error}")
+        self.list_error = reason
+        self._next_fetch = time.time() + ZAI_FAILED_FETCH_RETRY_SECONDS
 
     @staticmethod
     def is_candidate(model_id: str) -> bool:
@@ -796,7 +824,7 @@ class ZaiCodingProvider(LLMProvider):
             candidates = [m for m in self._model_list() if pattern.match(m["id"])]
             if not candidates:
                 return None
-            newest = max(candidates, key=lambda m: (m.get("created", 0), m["id"]))
+            newest = max(candidates, key=_release_order)
             return str(newest["id"])
 
         bare = lowered.removeprefix(ZAI_MODEL_PREFIX)
@@ -840,16 +868,25 @@ class ZaiCodingProvider(LLMProvider):
                 max_tokens=max_tokens,
                 **kwargs,
             )
+            # Inside the try: a malformed reply should fall back like any failure
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            reasoning = getattr(choice.message, "reasoning_content", None) or ""
         except AuthenticationError:
             raise
         except Exception as e:
             raise self._classify_error(e, model) from e
 
-        message = response.choices[0].message
-        content = message.content or ""
         if not content.strip():
+            if choice.finish_reason == "length":
+                # The token limit hit mid-reasoning; the reasoning isn't an answer
+                raise LLMProviderError(
+                    "reply cut off before the answer (max_tokens)",
+                    provider=self.name,
+                    model=model,
+                )
             # GLM sometimes returns the whole reply in the reasoning channel
-            content = getattr(message, "reasoning_content", None) or ""
+            content = reasoning
 
         usage = {}
         if response.usage:
@@ -886,11 +923,12 @@ class ZaiCodingProvider(LLMProvider):
             return RateLimitError(f"quota window exhausted{suffix}", self.name, model)
         if code in ZAI_BUSY_CODES or status == 429:
             return RateLimitError(f"busy or rate limited{suffix}", self.name, model)
+        lowered = raw.lower()
         return LLMProviderError(
             raw,
             provider=self.name,
             model=model,
-            is_retryable="timeout" in raw.lower(),
+            is_retryable="timeout" in lowered or "timed out" in lowered,
         )
 
     def list_models(self) -> list[ModelInfo]:
@@ -1718,8 +1756,9 @@ class ModelManager:
         self.total_calls = 0
         self.successful_calls = 0
         self.failed_calls = 0
-        self.zai_calls = 0
-        self.zai_fallbacks = 0
+        self.zai_calls = 0  # requests tried on the plan
+        self.zai_fallbacks = 0  # of those, retried on OpenRouter after failing
+        self.zai_unavailable = 0  # GLM requests sent to OpenRouter unchecked: no model list
 
         logger.info(f"ModelManager initialized with default model: {self.default_model}")
 
@@ -1738,7 +1777,7 @@ class ModelManager:
     def zai_provider(self) -> Optional[ZaiCodingProvider]:
         """Get the Z.ai coding-plan provider, or None when no key is configured."""
         if self._zai_provider is None and self.zai_api_key:
-            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key)
+            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key, timeout=self.timeout)
         return self._zai_provider
 
     @property
@@ -1829,7 +1868,7 @@ class ModelManager:
                 if zai is not None and zai.list_error and zai.is_candidate(model_to_use):
                     # A key is set but the plan couldn't be consulted: say so,
                     # or a broken key would silently bill every GLM call
-                    self.zai_fallbacks += 1
+                    self.zai_unavailable += 1
                     model_used += f" · OpenRouter (Z.ai unavailable: {zai.list_error})"
             else:
                 response, model_used = self._generate_on_plan(
@@ -1930,6 +1969,7 @@ class ModelManager:
             "zai_configured": bool(self.zai_api_key),
             "zai_calls": self.zai_calls,
             "zai_fallbacks": self.zai_fallbacks,
+            "zai_unavailable": self.zai_unavailable,
         }
 
 
@@ -2898,8 +2938,10 @@ def load_credentials(directory: str) -> list[str]:
             continue
 
         try:
+            # stdin is the MCP server's JSON-RPC channel: keep the child off it
             result = subprocess.run(
                 ["systemd-creds", "decrypt", "--user", f"--name={name}", str(path), "-"],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=DECRYPT_TIMEOUT_SECONDS,
             )
@@ -2912,7 +2954,12 @@ def load_credentials(directory: str) -> list[str]:
             logger.warning(f"Could not decrypt credential {name}: {error}")
             continue
 
-        os.environ[name] = result.stdout.decode().strip()
+        try:
+            value = result.stdout.decode().strip()
+        except UnicodeDecodeError:
+            logger.warning(f"Credential {name} is not valid UTF-8; skipping it")
+            continue
+        os.environ[name] = value
         loaded.append(name)
 
     if loaded:
@@ -3059,7 +3106,9 @@ class CouncilMCPServer:
                                         value.startswith("'") and value.endswith("'")
                                     ):
                                         value = value[1:-1]
-                                    os.environ[key] = value
+                                    # Like load_dotenv: don't override a variable
+                                    # that is already set (e.g. by a credential)
+                                    os.environ.setdefault(key, value)
                                     if key == "OPENROUTER_API_KEY":
                                         logger.info(
                                             f"Set OPENROUTER_API_KEY from .env file "

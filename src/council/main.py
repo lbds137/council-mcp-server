@@ -151,7 +151,9 @@ class CouncilMCPServer:
                                         value.startswith("'") and value.endswith("'")
                                     ):
                                         value = value[1:-1]
-                                    os.environ[key] = value
+                                    # Like load_dotenv: don't override a variable
+                                    # that is already set (e.g. by a credential)
+                                    os.environ.setdefault(key, value)
                                     if key == "OPENROUTER_API_KEY":
                                         logger.info(
                                             f"Set OPENROUTER_API_KEY from .env file "

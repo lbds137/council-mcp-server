@@ -388,7 +388,18 @@ class TestModelManagerZaiRouting:
         assert model_used == (
             "z-ai/glm-5.3 · OpenRouter (Z.ai unavailable: model list returned HTTP 401)"
         )
-        assert manager.get_stats()["zai_fallbacks"] == 1
+        stats = manager.get_stats()
+        assert (stats["zai_unavailable"], stats["zai_fallbacks"]) == (1, 0)
+
+    @patch("council.manager.ZaiCodingProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_plan_uses_the_council_timeout(self, _openrouter_class, zai_class):
+        """Test the plan gets COUNCIL_TIMEOUT, not a shorter default of its own."""
+        with patch.dict("os.environ", {"ZAI_CODING_API_KEY": "zai-key"}):
+            manager = ModelManager(api_key="or-key", timeout=600.0)
+            assert manager.zai_provider is not None
+
+        zai_class.assert_called_once_with(api_key="zai-key", timeout=600.0)
 
     def test_plan_failure_retries_once_on_openrouter(self, providers):
         """Test a Z.ai failure falls back to OpenRouter with the original ID."""

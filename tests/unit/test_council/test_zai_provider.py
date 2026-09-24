@@ -119,6 +119,28 @@ class TestResolve:
         assert provider.resolve("z-ai/glm-5.3") == "glm-5.3"
         assert provider.list_error is None
 
+    @pytest.mark.parametrize(
+        "payload",
+        [[{"id": "glm-5.3"}], {"data": None}, {"data": []}, {"error": {"code": "1309"}}],
+    )
+    @patch("council.providers.zai.httpx.get")
+    def test_unusable_model_list_is_reported_not_cached(self, mock_get, provider, payload):
+        """Test an odd or empty 200 body routes nothing and says the list is unreadable."""
+        mock_get.return_value = models_response(payload)
+
+        assert provider.resolve("~z-ai/glm-latest") is None
+        assert provider.list_error == "model list unreadable (no models listed)"
+
+    @patch("council.providers.zai.httpx.get")
+    def test_entries_with_missing_fields_are_tolerated(self, mock_get, provider):
+        """Test entries without an id or date don't break resolution."""
+        mock_get.return_value = models_response(
+            {"data": [{"id": "glm-5.2", "created": None}, {"object": "model"}, {"id": "glm-5.3"}]}
+        )
+
+        assert provider.resolve("~z-ai/glm-latest") in ("glm-5.2", "glm-5.3")
+        assert provider.list_error is None
+
     def test_is_candidate(self):
         """Test which IDs could be on the plan."""
         assert ZaiCodingProvider.is_candidate("~z-ai/glm-latest")
@@ -131,11 +153,13 @@ class TestResolve:
 class TestGenerate:
     """Tests for generation on the plan."""
 
-    def completion(self, content="Plan response", reasoning=None, model="glm-5.3") -> Mock:
+    def completion(
+        self, content="Plan response", reasoning=None, model="glm-5.3", finish_reason="stop"
+    ) -> Mock:
         """A chat completion as the OpenAI SDK returns it."""
         message = Mock(content=content, reasoning_content=reasoning)
         mock = Mock(id="req-1", created=1790000000, model=model)
-        mock.choices = [Mock(message=message)]
+        mock.choices = [Mock(message=message, finish_reason=finish_reason)]
         mock.usage = Mock(prompt_tokens=5, completion_tokens=7, total_tokens=12)
         return mock
 
@@ -164,6 +188,26 @@ class TestGenerate:
 
         assert provider.generate("Hello", model="glm-5.3").content == "The answer"
 
+    @patch("council.providers.zai.OpenAI")
+    def test_reasoning_cut_off_by_token_limit_is_an_error(self, mock_openai, provider):
+        """Test partial reasoning isn't passed off as the answer."""
+        mock_openai.return_value.chat.completions.create.return_value = self.completion(
+            content="", reasoning="Let me think about", finish_reason="length"
+        )
+
+        with pytest.raises(LLMProviderError, match="cut off"):
+            provider.generate("Hello", model="glm-5.3")
+
+    @patch("council.providers.zai.OpenAI")
+    def test_malformed_reply_becomes_a_provider_error(self, mock_openai, provider):
+        """Test a 200 with no choices raises a provider error, so the manager falls back."""
+        broken = self.completion()
+        broken.choices = []
+        mock_openai.return_value.chat.completions.create.return_value = broken
+
+        with pytest.raises(LLMProviderError):
+            provider.generate("Hello", model="glm-5.3")
+
     @pytest.mark.parametrize(
         "error,expected_class,expected_message",
         [
@@ -184,6 +228,11 @@ class TestGenerate:
             ),
             (FakeAPIError("Error code: 401 - unauthorized", 401), AuthenticationError, None),
             (FakeAPIError("connection reset", None), LLMProviderError, "connection reset"),
+            (
+                FakeAPIError("Error code: 429 - {'error': {'code': '13081'}}", 429),
+                RateLimitError,
+                "busy or rate limited",
+            ),
         ],
     )
     @patch("council.providers.zai.OpenAI")
@@ -200,6 +249,18 @@ class TestGenerate:
         assert exc_info.value.provider == "zai-coding"
         if expected_message:
             assert str(exc_info.value) == expected_message
+
+    @patch("council.providers.zai.OpenAI")
+    def test_sdk_timeout_is_retryable(self, mock_openai, provider):
+        """Test the SDK's "Request timed out." message counts as a timeout."""
+        mock_openai.return_value.chat.completions.create.side_effect = FakeAPIError(
+            "Request timed out."
+        )
+
+        with pytest.raises(LLMProviderError) as exc_info:
+            provider.generate("Hello", model="glm-5.3")
+
+        assert exc_info.value.is_retryable is True
 
     def test_generate_without_key_is_an_auth_error(self, monkeypatch):
         """Test a provider without a key fails clearly."""
