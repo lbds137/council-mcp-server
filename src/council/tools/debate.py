@@ -119,7 +119,7 @@ class DebateTool(MCPTool):
 
             topic = parameters["topic"].strip()
             rounds = parameters.get("rounds", 2)
-            if rounds not in (1, 2):
+            if isinstance(rounds, bool) or rounds not in (1, 2):
                 return ToolOutput(success=False, error="rounds must be 1 or 2")
 
             # Get model manager from server instance
@@ -166,7 +166,7 @@ class DebateTool(MCPTool):
             Debater(
                 number=i + 1,
                 model=models[i % len(models)],
-                stance=positions[i].strip() if positions else None,
+                stance=" ".join(positions[i].split()) if positions else None,
             )
             for i in range(count)
         ]
@@ -249,6 +249,9 @@ class DebateTool(MCPTool):
             text, model_used = await asyncio.to_thread(
                 model_manager.generate_content, prompt, model=model
             )
+            if not text or not text.strip():
+                # Providers turn a missing reply into "": that's a failed turn, not a speech
+                return Turn(text=None, model_used=model_used, error="empty reply")
             return Turn(text=text, model_used=model_used)
         except Exception as e:
             logger.warning(f"Debate call to {model or 'the active model'} failed: {e}")
