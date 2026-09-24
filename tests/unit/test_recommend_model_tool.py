@@ -248,3 +248,80 @@ class TestRecommendModelTool:
         assert result.success is True
         # Should include some description text (italicized)
         assert "_" in result.result  # Markdown italic markers
+
+
+def recommended_ids(result_text: str) -> list[str]:
+    """The model IDs of the numbered recommendation lines, in order."""
+    ids = []
+    for line in result_text.splitlines():
+        if line[:2] in {f"{n}." for n in range(1, 6)} and "**" in line:
+            ids.append(line.split("**")[1])
+    return ids
+
+
+class TestPreferFastAndMinContext:
+    """prefer_fast reorders toward flash-class models; min_context filters by window."""
+
+    @pytest.mark.asyncio
+    async def test_prefer_fast_puts_rated_flash_models_first_best_rating_first(self):
+        """For vision, the A-rated flash models come before the B-rated one."""
+        from council.discovery.model_registry import MODEL_REGISTRY, ModelClass
+
+        result = await RecommendModelTool().execute({"task": "vision", "prefer_fast": True})
+
+        ids = recommended_ids(result.result)
+        flash = [m for m in ids if MODEL_REGISTRY[m].model_class == ModelClass.FLASH]
+        assert ids[: len(flash)] == flash, "flash models lead the list"
+        ratings = [MODEL_REGISTRY[m].strengths[TaskType.VISION] for m in flash]
+        assert ratings == sorted(ratings, key="SABC".index)
+        assert "~z-ai/glm-flash-latest" in flash  # rated for vision, not on the vision list
+        assert "Fast (flash-class) models first" in result.result
+
+    @pytest.mark.asyncio
+    async def test_without_prefer_fast_the_curated_order_stands(self):
+        """The default output is the task's curated list, unchanged."""
+        result = await RecommendModelTool().execute({"task": "coding"})
+        assert recommended_ids(result.result) == get_recommendations_for_task(
+            TaskType.CODING, limit=5
+        )
+
+    @pytest.mark.asyncio
+    async def test_min_context_drops_smaller_windows_and_names_them(self):
+        """Models below the minimum are left out and listed with their windows."""
+        result = await RecommendModelTool().execute({"task": "general", "min_context": 1_049_000})
+
+        assert recommended_ids(result.result) == ["~openai/gpt-sol-latest"]
+        assert "Only models serving at least 1.049M" in result.result
+        assert "~moonshotai/kimi-latest (1.049M)" in result.result
+
+    @pytest.mark.asyncio
+    async def test_min_context_above_every_window_says_so(self):
+        """When nothing qualifies the tool says so and points at list_models."""
+        result = await RecommendModelTool().execute({"task": "coding", "min_context": 5_000_000})
+
+        assert result.success is True
+        assert recommended_ids(result.result) == []
+        assert "No recommended model serves 5M tokens" in result.result
+
+    @pytest.mark.asyncio
+    async def test_each_line_shows_the_context_window(self):
+        """Recommendation lines carry the model's served window."""
+        result = await RecommendModelTool().execute({"task": "general"})
+        assert "**~openai/gpt-sol-latest** [PRO] (Rating: A) · 1.05M context" in result.result
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", [0, -5, True, "1M", 1.5])
+    async def test_invalid_min_context_is_rejected(self, bad):
+        """min_context must be a positive integer."""
+        result = await RecommendModelTool().execute({"task": "general", "min_context": bad})
+        assert result.success is False
+        assert result.error == "min_context must be a positive number of tokens"
+
+    def test_token_labels_keep_near_values_apart(self):
+        """1,048,576 and 1,050,000 get different labels."""
+        from council.tools.recommend_model import _tokens
+
+        assert _tokens(1_048_576) == "1.049M"
+        assert _tokens(1_050_000) == "1.05M"
+        assert _tokens(1_000_000) == "1M"
+        assert _tokens(262_144) == "262K"

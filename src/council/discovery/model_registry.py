@@ -43,6 +43,9 @@ class ModelMetadata:
     """Curated metadata for a model."""
 
     model_class: ModelClass
+    # Tokens most providers serve: the median over OpenRouter's /endpoints
+    # listing, not the headline context_length (the largest any host serves)
+    context_window: int = 0
     strengths: dict[str, str] = field(default_factory=dict)  # TaskType -> S/A/B/C rating
     description: str = ""
     notes: str = ""
@@ -66,11 +69,13 @@ class ModelMetadata:
 # window, input modalities) and on the vendor's own tiering. A model's headline
 # context_length on OpenRouter is the largest window any one provider serves
 # (GLM-5.3 shows 1.3M because of one host; Z.ai serves 1M), so windows here
-# come from the per-provider /endpoints listing.
+# come from the per-provider /endpoints listing (measured 2026-09-24;
+# `make check-models` reports drift).
 MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === OpenAI ===
     "~openai/gpt-astra-latest": ModelMetadata(  # gpt-6-astra
         model_class=ModelClass.DEEP,
+        context_window=1_050_000,
         strengths={
             TaskType.CODING: "S",
             TaskType.CODE_REVIEW: "A",
@@ -85,6 +90,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "~openai/gpt-sol-latest": ModelMetadata(  # gpt-6-sol
         model_class=ModelClass.PRO,
+        context_window=1_050_000,
         strengths={
             TaskType.CODING: "A",
             TaskType.CODE_REVIEW: "A",
@@ -100,6 +106,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "~openai/gpt-luna-latest": ModelMetadata(  # gpt-6-luna
         model_class=ModelClass.FLASH,
+        context_window=1_050_000,
         strengths={
             TaskType.CODING: "B",
             TaskType.REASONING: "B",
@@ -111,6 +118,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === Google ===
     "~google/gemini-pro-latest": ModelMetadata(  # gemini-3.1-pro-preview
         model_class=ModelClass.PRO,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "S",
@@ -125,6 +133,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "~google/gemini-flash-latest": ModelMetadata(  # gemini-3.8-flash
         model_class=ModelClass.FLASH,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "B",
             TaskType.REASONING: "B",
@@ -137,6 +146,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === DeepSeek ===
     "~deepseek/deepseek-pro-latest": ModelMetadata(  # deepseek-v4-pro-0813
         model_class=ModelClass.PRO,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "A",
             TaskType.CODE_REVIEW: "A",
@@ -150,6 +160,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "~deepseek/deepseek-flash-latest": ModelMetadata(  # deepseek-v4.1-flash
         model_class=ModelClass.FLASH,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "B",
             TaskType.REASONING: "B",
@@ -161,6 +172,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === Moonshot ===
     "~moonshotai/kimi-latest": ModelMetadata(  # kimi-k3
         model_class=ModelClass.PRO,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "A",
             TaskType.CODE_REVIEW: "A",
@@ -177,6 +189,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === Z.ai ===
     "~z-ai/glm-latest": ModelMetadata(  # glm-5.3
         model_class=ModelClass.PRO,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "A",
             TaskType.CODE_REVIEW: "A",
@@ -190,6 +203,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "~z-ai/glm-flash-latest": ModelMetadata(  # glm-5.3-flash
         model_class=ModelClass.FLASH,
+        context_window=1_048_576,
         strengths={
             TaskType.CODING: "B",
             TaskType.VISION: "B",
@@ -202,6 +216,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === xAI ===
     "~x-ai/grok-latest": ModelMetadata(  # grok-4.7
         model_class=ModelClass.PRO,
+        context_window=500_000,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "A",
@@ -213,6 +228,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === Qwen (no alias on OpenRouter, pinned) ===
     "qwen/qwen3.8-max-0902": ModelMetadata(
         model_class=ModelClass.PRO,
+        context_window=1_000_000,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "A",
@@ -226,6 +242,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     "qwen/qwen3.8-flash": ModelMetadata(
         model_class=ModelClass.FLASH,
+        context_window=1_000_000,
         strengths={
             TaskType.CODING: "B",
             TaskType.VISION: "A",
@@ -237,6 +254,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === MiniMax (no alias on OpenRouter, pinned) ===
     "minimax/minimax-m3": ModelMetadata(
         model_class=ModelClass.PRO,
+        context_window=1_000_000,
         strengths={
             TaskType.CODING: "A",
             TaskType.VISION: "B",
@@ -249,6 +267,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     # === Mistral (no alias on OpenRouter, pinned) ===
     "mistralai/mistral-medium-3-5": ModelMetadata(
         model_class=ModelClass.PRO,
+        context_window=262_144,
         strengths={
             TaskType.CODING: "A",
             TaskType.REASONING: "B",

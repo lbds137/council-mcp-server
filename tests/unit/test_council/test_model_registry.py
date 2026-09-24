@@ -144,6 +144,7 @@ class TestModelRegistry:
         """Test all models have valid metadata."""
         for metadata in MODEL_REGISTRY.values():
             assert isinstance(metadata, ModelMetadata)
+            assert metadata.context_window >= 100_000, "every entry records its window"
             assert isinstance(metadata.model_class, ModelClass)
 
     def test_flash_class_models_exist(self):
