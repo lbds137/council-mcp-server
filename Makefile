@@ -1,3 +1,9 @@
+# The repo venv when there is one, so targets don't pick up the system Python
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+
+# Generated files to clean; find never descends into these
+PRUNE = -path ./.venv -prune -o -path ./.git -prune -o
+
 .PHONY: help install install-dev test test-cov lint format type-check clean pre-commit update-mcp check-models
 
 help:
@@ -11,51 +17,43 @@ help:
 	@echo "  make type-check    Run type checking with mypy"
 	@echo "  make pre-commit    Run all pre-commit hooks"
 	@echo "  make clean         Clean up generated files"
-	@echo "  make update-mcp    Update MCP installation"
+	@echo "  make update-mcp    Deploy to ~/.claude-mcp-servers/council (scripts/install.sh)"
 	@echo "  make check-models  Find registry model IDs OpenRouter no longer lists"
 
 install:
-	pip install -e .
+	$(PYTHON) -m pip install -e .
 
 install-dev:
-	pip install -e ".[dev]"
-	pre-commit install
+	$(PYTHON) -m pip install -e ".[dev]"
+	$(PYTHON) -m pre_commit install
 
 test:
-	python -m pytest tests/ -v
+	$(PYTHON) -m pytest tests/ -v
 
 test-cov:
-	python -m pytest tests/ -v --cov=gemini_mcp --cov-report=term-missing --cov-report=html
+	$(PYTHON) -m pytest tests/ -v --cov=council --cov-report=term-missing --cov-report=html
 
 lint:
-	flake8 src/ tests/
+	$(PYTHON) -m flake8 src/ tests/
 
 format:
-	black src/ tests/
-	isort src/ tests/
+	$(PYTHON) -m black src/ tests/
+	$(PYTHON) -m isort src/ tests/
 
 type-check:
-	mypy src/
+	$(PYTHON) -m mypy src/
 
 pre-commit:
-	pre-commit run --all-files
+	$(PYTHON) -m pre_commit run --all-files
 
 clean:
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	find . -type f -name "*.pyd" -delete
-	find . -type f -name ".coverage" -delete
-	find . -type d -name "*.egg-info" -exec rm -rf {} +
-	find . -type d -name "*.egg" -exec rm -rf {} +
-	find . -type d -name ".pytest_cache" -exec rm -rf {} +
-	find . -type d -name ".mypy_cache" -exec rm -rf {} +
-	find . -type d -name "htmlcov" -exec rm -rf {} +
-	find . -type d -name "dist" -exec rm -rf {} +
-	find . -type d -name "build" -exec rm -rf {} +
+	find . $(PRUNE) -type d -name "__pycache__" -exec rm -rf {} +
+	find . $(PRUNE) -type f \( -name "*.pyc" -o -name "*.pyo" -o -name ".coverage" -o -name "coverage.xml" \) -delete
+	find . $(PRUNE) -type d \( -name "*.egg-info" -o -name ".pytest_cache" -o -name ".mypy_cache" -o -name "htmlcov" \) -exec rm -rf {} +
+	rm -rf ./build ./dist
 
 update-mcp:
-	./scripts/update.sh
+	./scripts/install.sh
 
 check-models:
-	python scripts/check_models.py
+	$(PYTHON) scripts/check_models.py
