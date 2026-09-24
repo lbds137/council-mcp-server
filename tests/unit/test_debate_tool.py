@@ -11,21 +11,38 @@ from council.providers.base import RateLimitError
 from council.tools.debate import DEFAULT_PANEL, DebateTool
 
 
-def replying_manager(fail_models=(), delay=0.0):
-    """A manager whose reply names the model and prompt kind; some models fail."""
+def replying_manager(fail_models=(), delay=0.0, fail_rebuttals=(), empty_models=()):
+    """A manager whose reply names the model and prompt kind; some models fail.
+
+    It also records the most calls it had in flight at once.
+    """
     manager = Mock()
     lock = threading.Lock()
     manager.prompts = []
+    manager.in_flight = 0
+    manager.peak_in_flight = 0
 
     def generate_content(prompt, model=None):
         with lock:
             manager.prompts.append((model, prompt))
-        if delay:
-            time.sleep(delay)
-        if model in fail_models:
-            raise RateLimitError("busy or rate limited", "openrouter", model)
-        kind = "synthesis" if "judging" in prompt else "rebuttal" if "Respond" in prompt else "open"
-        return f"{kind} by {model}", f"{model} (served)"
+            manager.in_flight += 1
+            manager.peak_in_flight = max(manager.peak_in_flight, manager.in_flight)
+        try:
+            if delay:
+                time.sleep(delay)
+            kind = (
+                "synthesis"
+                if "judging" in prompt
+                else "rebuttal" if "Respond" in prompt else "open"
+            )
+            if model in fail_models or (kind == "rebuttal" and model in fail_rebuttals):
+                raise RateLimitError("busy or rate limited", "openrouter", model)
+            if model in empty_models:
+                return "", f"{model} (served)"
+            return f"{kind} by {model}", f"{model} (served)"
+        finally:
+            with lock:
+                manager.in_flight -= 1
 
     manager.generate_content.side_effect = generate_content
     return manager
@@ -64,6 +81,7 @@ class TestDebateValidation:
             ({"topic": "x", "positions": ["a", ""]}, "positions must be a list"),
             ({"topic": "x", "models": "~z-ai/glm-latest"}, "models must be a list"),
             ({"topic": "x", "rounds": 3}, "rounds must be 1 or 2"),
+            ({"topic": "x", "rounds": True}, "rounds must be 1 or 2"),
         ],
     )
     async def test_bad_input_is_rejected(self, server, manager, parameters, message):
@@ -118,6 +136,14 @@ class TestDebateRun:
         assert "Argue for this position: SQLite" in kimi[0]
 
     @pytest.mark.asyncio
+    async def test_multiline_stance_keeps_its_heading_on_one_line(self, server, manager):
+        """A stance with newlines is flattened so the transcript heading stays intact."""
+        result = await DebateTool().execute(
+            {"topic": "x", "positions": ["Use\nPostgres", "SQLite"], "rounds": 1}
+        )
+        assert "### Debater 1: Use Postgres" in result.result
+
+    @pytest.mark.asyncio
     async def test_without_positions_each_model_gives_its_own_view(self, server, manager):
         """Panel mode asks for each model's own answer, not an assigned stance."""
         await DebateTool().execute({"topic": "Tabs or spaces?", "rounds": 1})
@@ -167,16 +193,13 @@ class TestDebateRun:
 
     @pytest.mark.asyncio
     async def test_openings_run_concurrently(self):
-        """Three 0.2 s openings overlap instead of taking 0.6 s in a row."""
-        slow = replying_manager(delay=0.2)
+        """All three openings are in flight at the same time."""
+        slow = replying_manager(delay=0.1)
         with patch("council._server_instance", SimpleNamespace(model_manager=slow)):
-            started = time.monotonic()
             result = await DebateTool().execute({"topic": "x", "rounds": 1})
-            elapsed = time.monotonic() - started
 
         assert result.success is True
-        # Openings in parallel (~0.2 s) plus the synthesis (~0.2 s)
-        assert elapsed < 0.55
+        assert slow.peak_in_flight == 3
 
 
 class TestDebateFailures:
@@ -218,6 +241,30 @@ class TestDebateFailures:
         assert result.success is True
         assert "open by ~z-ai/glm-latest" in result.result
         assert "⚠️ The synthesis failed: busy or rate limited" in result.result
+        assert result.metadata["cacheable"] is False
+
+    @pytest.mark.asyncio
+    async def test_empty_reply_counts_as_a_failure(self):
+        """A blank opening is reported, sits out later rounds, and vetoes caching."""
+        manager = replying_manager(empty_models={"~moonshotai/kimi-latest"})
+        with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
+            result = await DebateTool().execute({"topic": "x"})
+
+        assert result.success is True
+        assert "⚠️ ~moonshotai/kimi-latest failed: empty reply" in result.result
+        assert len(prompts_to(manager, "~moonshotai/kimi-latest")) == 1
+        assert result.metadata["cacheable"] is False
+
+    @pytest.mark.asyncio
+    async def test_failed_rebuttal_is_noted_and_vetoes_caching(self):
+        """A rebuttal that fails after a good opening marks the debate incomplete."""
+        manager = replying_manager(fail_rebuttals={"~z-ai/glm-latest"})
+        with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
+            result = await DebateTool().execute({"topic": "x"})
+
+        assert result.success is True
+        assert "open by ~z-ai/glm-latest" in result.result
+        assert "⚠️ ~z-ai/glm-latest failed: busy or rate limited" in result.result
         assert result.metadata["cacheable"] is False
 
     @pytest.mark.asyncio
