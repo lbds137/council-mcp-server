@@ -3,7 +3,6 @@
     "allow": [
       "Read(*)",
       "Write(*)",
-      "Write(.claude/**)",
       "Edit(*)",
       "Edit(.claude/**)",
       "MultiEdit(*)",
