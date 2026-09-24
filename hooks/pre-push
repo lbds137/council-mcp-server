@@ -54,7 +54,7 @@ fi
 PYTHON="${VENV_BIN}python"
 
 # Run linting (fast)
-run_check "Ruff linting" "$PYTHON -m ruff check src/ tests/ --quiet 2>/dev/null || $PYTHON -m flake8 src/ tests/ --quiet"
+run_check "flake8 linting" "$PYTHON -m flake8 src/ tests/ --quiet"
 
 # Run formatting check (fast)
 run_check "Black formatting" "$PYTHON -m black --check src/ tests/ --quiet"
