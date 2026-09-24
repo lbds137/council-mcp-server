@@ -196,6 +196,11 @@ class TestProgressReporting:
         report_progress(1)
         callback.assert_not_called()
 
+    def test_a_failing_callback_does_not_fail_the_tool(self):
+        """A report that can't be sent is logged, not raised into the tool."""
+        with progress_reporter(Mock(side_effect=OSError("stdout closed"))):
+            report_progress(1, 2, "still fine")
+
     @pytest.mark.asyncio
     async def test_reaches_tasks_and_worker_threads(self):
         """gather's tasks and to_thread workers inherit the reporter."""
