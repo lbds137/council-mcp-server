@@ -391,6 +391,26 @@ class TestModelManagerZaiRouting:
         stats = manager.get_stats()
         assert (stats["zai_unavailable"], stats["zai_fallbacks"]) == (1, 0)
 
+    def test_label_uses_the_reason_from_this_calls_resolve(self, providers):
+        """Test a parallel call changing list_error mid-request doesn't change this label."""
+        openrouter, zai = providers
+        zai.resolve.side_effect = None
+        zai.resolve.return_value = None
+        zai.list_error = "model list returned HTTP 401"
+        zai.is_candidate.return_value = True
+
+        def generate_while_another_call_refetches(*args, **kwargs):
+            zai.list_error = None  # another thread's fetch succeeded meanwhile
+            return self.response("z-ai/glm-5.3")
+
+        openrouter.generate.side_effect = generate_while_another_call_refetches
+
+        _, model_used = ModelManager(api_key="or-key").generate_content(
+            "Hi", model="~z-ai/glm-latest"
+        )
+
+        assert model_used.endswith("(Z.ai unavailable: model list returned HTTP 401)")
+
     @patch("council.manager.ZaiCodingProvider")
     @patch("council.manager.OpenRouterProvider")
     def test_plan_uses_the_council_timeout(self, _openrouter_class, zai_class):
