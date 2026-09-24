@@ -7,7 +7,7 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 from os import PathLike
-from typing import IO, Any, Dict, Optional, Union
+from typing import IO, Any
 
 from .core.orchestrator import ConversationOrchestrator
 from .core.registry import ToolRegistry
@@ -29,12 +29,12 @@ except ImportError:
     HAS_DOTENV = False
 
     def load_dotenv(
-        dotenv_path: Optional[Union[str, PathLike[str]]] = None,
-        stream: Optional[IO[str]] = None,
+        dotenv_path: str | PathLike[str] | None = None,
+        stream: IO[str] | None = None,
         verbose: bool = False,
         override: bool = False,
         interpolate: bool = True,
-        encoding: Optional[str] = None,
+        encoding: str | None = None,
     ) -> bool:
         """Dummy function when dotenv is not available."""
         return False
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 __version__ = "4.0.0"
 
 
-def _tool_error(request_id: Any, message: str) -> Dict[str, Any]:
+def _tool_error(request_id: Any, message: str) -> dict[str, Any]:
     """Build a tools/call result that signals a tool-level failure.
 
     MCP spec: a tool failure is conveyed inside ``result`` with ``isError: true``
@@ -68,10 +68,10 @@ class CouncilMCPServer:
         self._load_credentials()
         self._load_env_file()
 
-        self.model_manager: Optional[ModelManager] = None
+        self.model_manager: ModelManager | None = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
-        self.orchestrator: Optional[ConversationOrchestrator] = None
+        self.orchestrator: ConversationOrchestrator | None = None
 
         # Create JSON-RPC server
         self.server = JsonRpcServer("council-mcp-server")
@@ -80,7 +80,7 @@ class CouncilMCPServer:
         # Make server instance available globally for tools
         import council
 
-        setattr(council, "_server_instance", self)
+        council._server_instance = self
 
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
@@ -136,7 +136,7 @@ class CouncilMCPServer:
                 if os.path.exists(env_path):
                     logger.info(f"Loading .env from {env_path} (manual mode)")
                     try:
-                        with open(env_path, "r") as f:
+                        with open(env_path) as f:
                             for line in f:
                                 line = line.strip()
                                 if line and not line.startswith("#") and "=" in line:
@@ -205,7 +205,7 @@ class CouncilMCPServer:
         self.server.register_handler("tools/call", self.handle_tool_call)
         self.server.register_handler("ping", self.handle_ping)
 
-    def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_initialize(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle initialization request."""
         self._load_env_file()
 
@@ -247,11 +247,11 @@ class CouncilMCPServer:
             },
         )
 
-    def handle_ping(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_ping(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle liveness ping (MCP spec: empty-object result)."""
         return create_result_response(request_id, {})
 
-    def handle_tools_list(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_tools_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle tool list request."""
         # Get tool definitions from registry
         tool_defs = self.tool_registry.get_mcp_tool_definitions()
@@ -269,7 +269,7 @@ class CouncilMCPServer:
 
         return create_result_response(request_id, {"tools": tools})
 
-    def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_tool_call(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle tool execution request.
 
         Returns a result with ``isError: true`` on any failure, per MCP spec.

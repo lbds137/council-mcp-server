@@ -1,7 +1,7 @@
 """Test case generation tool for suggesting comprehensive test scenarios."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -20,7 +20,7 @@ class TestCasesTool(MCPTool):
         return "Suggest test cases for code or features"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -44,11 +44,11 @@ class TestCasesTool(MCPTool):
             "required": ["code_or_feature"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             code_or_feature = parameters.get("code_or_feature")

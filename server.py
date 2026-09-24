@@ -63,7 +63,8 @@ council = _Council()
 # ========== Standalone JSON-RPC 2.0 implementation for MCP servers. ==========
 
 
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 
 # JSON-RPC 2.0 constants
@@ -94,7 +95,7 @@ class JsonRpcRequest:
 class JsonRpcResponse:
     """JSON-RPC 2.0 Response"""
 
-    def __init__(self, result: Any = None, error: Optional[Dict[str, Any]] = None, id: Any = None):
+    def __init__(self, result: Any = None, error: dict[str, Any] | None = None, id: Any = None):
         self.jsonrpc = JSONRPC_VERSION
         self.id = id
         if error is not None:
@@ -134,7 +135,7 @@ class JsonRpcServer:
 
     def __init__(self, server_name: str):
         self.server_name = server_name
-        self._handlers: Dict[str, Callable] = {}
+        self._handlers: dict[str, Callable] = {}
         self._running = False
 
     def register_handler(self, method: str, handler: Callable):
@@ -142,7 +143,7 @@ class JsonRpcServer:
         logger.info(f"Registering handler for method: {method}")
         self._handlers[method] = handler
 
-    def _read_message(self) -> Optional[str]:
+    def _read_message(self) -> str | None:
         """Read a single line from stdin."""
         try:
             line = sys.stdin.readline()
@@ -160,7 +161,7 @@ class JsonRpcServer:
         except Exception as e:
             logger.error(f"Error writing to stdout: {e}")
 
-    def _process_request(self, request_str: str) -> Optional[dict]:
+    def _process_request(self, request_str: str) -> dict | None:
         """Process a single JSON-RPC message. Returns None for notifications.
 
         Per JSON-RPC 2.0 §4.1, a message lacking the "id" member is a
@@ -301,7 +302,7 @@ def create_result_response(request_id: Any, result: Any) -> dict:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -374,9 +375,9 @@ class LLMProvider(ABC):
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate a response from the LLM.
@@ -457,7 +458,7 @@ class ModelNotFoundError(LLMProviderError):
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from openai import OpenAI
@@ -473,11 +474,11 @@ class OpenRouterProvider(LLMProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         default_model: str = "~openai/gpt-sol-latest",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
-        cache_ttl: Optional[float] = None,
+        cache_ttl: float | None = None,
     ):
         """Initialize the OpenRouter provider.
 
@@ -493,11 +494,11 @@ class OpenRouterProvider(LLMProvider):
         self.default_model = default_model
         self.timeout = timeout
         self.app_name = app_name
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
         self.cache_ttl = (
             cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
         )
-        self._models_cache: Optional[list[ModelInfo]] = None
+        self._models_cache: list[ModelInfo] | None = None
         self._next_fetch: float = 0.0
 
     @property
@@ -529,9 +530,9 @@ class OpenRouterProvider(LLMProvider):
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate a response using OpenRouter.
@@ -655,7 +656,7 @@ class OpenRouterProvider(LLMProvider):
         """
         return bool(self.api_key)
 
-    def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model_info(self, model_id: str) -> ModelInfo | None:
         """Get information about a specific model.
 
         Args:
@@ -680,7 +681,7 @@ class OpenRouterProvider(LLMProvider):
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from openai import OpenAI
@@ -718,9 +719,9 @@ class ZaiCodingProvider(LLMProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 180.0,
-        cache_ttl: Optional[float] = None,
+        cache_ttl: float | None = None,
     ):
         """Initialize the provider.
 
@@ -736,11 +737,11 @@ class ZaiCodingProvider(LLMProvider):
         self.cache_ttl = (
             cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
         )
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
         self._models: list[dict[str, Any]] = []
         self._next_fetch: float = 0.0
         # Why the last model-list fetch failed, or None after a success
-        self.list_error: Optional[str] = None
+        self.list_error: str | None = None
 
     @property
     def name(self) -> str:
@@ -826,7 +827,7 @@ class ZaiCodingProvider(LLMProvider):
             or lowered.startswith("glm-")
         )
 
-    def resolve(self, model_id: str) -> Optional[str]:
+    def resolve(self, model_id: str) -> str | None:
         """Return the bare Z.ai ID that serves model_id on the plan.
 
         Args:
@@ -858,9 +859,9 @@ class ZaiCodingProvider(LLMProvider):
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate a response on the coding plan.
@@ -970,7 +971,6 @@ class ZaiCodingProvider(LLMProvider):
 
 import os
 import time
-from typing import Optional
 
 import httpx
 
@@ -990,7 +990,7 @@ class ModelCache:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         ttl_seconds: float = 3600.0,  # 1 hour default
         timeout: float = 30.0,
     ):
@@ -1062,7 +1062,7 @@ class ModelCache:
             logger.error(f"Failed to fetch models from OpenRouter: {e}")
             # Keep existing cache on failure
 
-    def get_model(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model(self, model_id: str) -> ModelInfo | None:
         """Get a specific model by ID.
 
         Args:
@@ -1100,9 +1100,6 @@ class ModelCache:
 
 
 # ========== Model filtering for Council MCP server. ==========
-
-
-from typing import Optional
 
 
 class ModelFilter:
@@ -1254,7 +1251,7 @@ class ModelFilter:
         """
         return len(self.models)
 
-    def first(self) -> Optional[ModelInfo]:
+    def first(self) -> ModelInfo | None:
         """Get the first model in the filtered list.
 
         Returns:
@@ -1266,12 +1263,12 @@ class ModelFilter:
     def apply_filters(
         cls,
         models: list[ModelInfo],
-        provider: Optional[str] = None,
-        capability: Optional[str] = None,
+        provider: str | None = None,
+        capability: str | None = None,
         free_only: bool = False,
-        search: Optional[str] = None,
-        min_context: Optional[int] = None,
-        limit: Optional[int] = None,
+        search: str | None = None,
+        min_context: int | None = None,
+        limit: int | None = None,
     ) -> list[ModelInfo]:
         """Apply multiple filters at once.
 
@@ -1311,11 +1308,10 @@ class ModelFilter:
 
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class ModelClass(str, Enum):
+class ModelClass(StrEnum):
     """Model class/tier for quick selection."""
 
     FLASH = "flash"  # Fast, cheap, good for simple tasks
@@ -1323,7 +1319,7 @@ class ModelClass(str, Enum):
     DEEP = "deep"  # Maximum quality, complex reasoning
 
 
-class TaskType(str, Enum):
+class TaskType(StrEnum):
     """Task types for model recommendations."""
 
     CODING = "coding"
@@ -1627,7 +1623,7 @@ FREE_TIER_MODELS = [
 ]
 
 
-def get_model_metadata(model_id: str) -> Optional[ModelMetadata]:
+def get_model_metadata(model_id: str) -> ModelMetadata | None:
     """Get curated metadata for a model.
 
     Args:
@@ -1730,7 +1726,7 @@ def generate_model_guide() -> str:
 
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 
 class ModelManager:
@@ -1745,9 +1741,9 @@ class ModelManager:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        default_model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        api_key: str | None = None,
+        default_model: str | None = None,
+        timeout: float | None = None,
     ):
         """Initialize the model manager.
 
@@ -1768,9 +1764,9 @@ class ModelManager:
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
 
         # Initialize the providers
-        self._provider: Optional[OpenRouterProvider] = None
+        self._provider: OpenRouterProvider | None = None
         self.zai_api_key = os.getenv("ZAI_CODING_API_KEY")
-        self._zai_provider: Optional[ZaiCodingProvider] = None
+        self._zai_provider: ZaiCodingProvider | None = None
 
         # Current active model (can be changed with set_model)
         self._active_model: str = self.default_model
@@ -1797,7 +1793,7 @@ class ModelManager:
         return self._provider
 
     @property
-    def zai_provider(self) -> Optional[ZaiCodingProvider]:
+    def zai_provider(self) -> ZaiCodingProvider | None:
         """Get the Z.ai coding-plan provider, or None when no key is configured."""
         if self._zai_provider is None and self.zai_api_key:
             self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key, timeout=self.timeout)
@@ -1824,7 +1820,7 @@ class ModelManager:
     def generate_content(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, str]:
         """Generate content from the LLM.
@@ -1850,7 +1846,7 @@ class ModelManager:
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate content and return full response object.
@@ -1869,9 +1865,7 @@ class ModelManager:
         response, _ = self._generate(prompt, model, **kwargs)
         return response
 
-    def _generate(
-        self, prompt: str, model: Optional[str], **kwargs: Any
-    ) -> tuple[LLMResponse, str]:
+    def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
         """Route a request and return the response with a label naming its route.
 
         GLM models the Z.ai plan carries go there first; everything else, and
@@ -1953,7 +1947,7 @@ class ModelManager:
         """
         return self.provider.list_models(force_refresh=force_refresh)
 
-    def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model_info(self, model_id: str) -> ModelInfo | None:
         """Get information about a specific model.
 
         Args:
@@ -2002,7 +1996,7 @@ class ModelManager:
 import hashlib
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class ResponseCache:
@@ -2011,18 +2005,18 @@ class ResponseCache:
     def __init__(self, max_size: int = 100, ttl_seconds: int = 3600):
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
-    def create_key(self, tool_name: str, parameters: Dict[str, Any]) -> str:
+    def create_key(self, tool_name: str, parameters: dict[str, Any]) -> str:
         """Create a cache key from tool name and parameters."""
         # Sort parameters for consistent hashing
         params_str = json.dumps(parameters, sort_keys=True)
         key_data = f"{tool_name}:{params_str}"
         return hashlib.sha256(key_data.encode()).hexdigest()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get a value from cache if it exists and isn't expired."""
         if key not in self.cache:
             self.misses += 1
@@ -2055,7 +2049,7 @@ class ResponseCache:
         self.hits = 0
         self.misses = 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total_requests = self.hits + self.misses
         return {
@@ -2074,7 +2068,7 @@ class ResponseCache:
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -2093,17 +2087,17 @@ class ConversationSession:
     session_id: str
     model: str
     system_prompt: str
-    turns: List[ConversationTurn] = field(default_factory=list)
+    turns: list[ConversationTurn] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_turn(self, role: str, content: str) -> None:
         """Add a turn to the conversation."""
         self.turns.append(ConversationTurn(role=role, content=content))
         self.last_activity = datetime.now()
 
-    def get_message_history(self) -> List[Dict[str, str]]:
+    def get_message_history(self) -> list[dict[str, str]]:
         """Get conversation history in OpenAI message format."""
         messages = []
         if self.system_prompt:
@@ -2127,7 +2121,7 @@ class SessionManager:
     """Manages multiple conversation sessions."""
 
     def __init__(self, max_sessions: int = 20, max_turns_per_session: int = 50):
-        self.sessions: Dict[str, ConversationSession] = {}
+        self.sessions: dict[str, ConversationSession] = {}
         self.max_sessions = max_sessions
         self.max_turns_per_session = max_turns_per_session
 
@@ -2135,7 +2129,7 @@ class SessionManager:
         self,
         model: str,
         system_prompt: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Create a new conversation session.
 
@@ -2161,7 +2155,7 @@ class SessionManager:
         logger.info(f"Created session {session_id} with model {model}")
         return session_id
 
-    def get_session(self, session_id: str) -> Optional[ConversationSession]:
+    def get_session(self, session_id: str) -> ConversationSession | None:
         """Get a session by ID."""
         return self.sessions.get(session_id)
 
@@ -2209,7 +2203,7 @@ class SessionManager:
         logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")
         return response_text, model_used
 
-    def _format_prompt_with_history(self, messages: List[Dict[str, str]]) -> str:
+    def _format_prompt_with_history(self, messages: list[dict[str, str]]) -> str:
         """Format message history into a prompt string."""
         parts = []
         for msg in messages:
@@ -2224,7 +2218,7 @@ class SessionManager:
         parts.append("Assistant:")
         return "\n\n".join(parts)
 
-    def list_sessions(self) -> List[Dict[str, Any]]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all active sessions with summaries."""
         return [
             {
@@ -2242,7 +2236,7 @@ class SessionManager:
             )
         ]
 
-    def get_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, str]]:
+    def get_history(self, session_id: str, limit: int | None = None) -> list[dict[str, str]]:
         """Get conversation history for a session.
 
         Args:
@@ -2292,7 +2286,7 @@ class SessionManager:
         logger.warning(f"Cleaning up oldest session {oldest_id} to make room")
         del self.sessions[oldest_id]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get session manager statistics."""
         total_turns = sum(len(s.turns) for s in self.sessions.values())
         return {
@@ -2307,22 +2301,22 @@ class SessionManager:
 
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 # Simplified ToolOutput for bundled tools
 class ToolOutput:
     """Standard output format for tool execution."""
 
-    def __init__(self, success: bool, result: Optional[str] = None, error: Optional[str] = None):
+    def __init__(self, success: bool, result: str | None = None, error: str | None = None):
         self.success = success
         self.result = result
         self.error = error
-        self.metadata: Dict[str, Any] = {}
+        self.metadata: dict[str, Any] = {}
         # Add missing attributes for compatibility with orchestrator
         self.tool_name: str = ""
-        self.execution_time_ms: Optional[float] = None
-        self.model_used: Optional[str] = None
+        self.execution_time_ms: float | None = None
+        self.model_used: str | None = None
         self.timestamp = None
 
 
@@ -2343,16 +2337,16 @@ class MCPTool(ABC):
 
     @property
     @abstractmethod
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         """Return the JSON schema for tool inputs."""
         pass
 
     @abstractmethod
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         pass
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """Whether a successful result may be served again for the same input.
 
         Only tools whose answer depends on nothing but their input and the
@@ -2360,7 +2354,7 @@ class MCPTool(ABC):
         """
         return False
 
-    def get_mcp_definition(self) -> Dict[str, Any]:
+    def get_mcp_definition(self) -> dict[str, Any]:
         """Get the MCP tool definition."""
         return {
             "name": self.name,
@@ -2375,17 +2369,16 @@ class MCPTool(ABC):
 import importlib
 import inspect
 from pathlib import Path
-from typing import Dict, List, Optional, Type
 
 
 class ToolRegistry:
     """Registry for discovering and managing tools."""
 
     def __init__(self):
-        self._tools: Dict[str, MCPTool] = {}
-        self._tool_classes: Dict[str, Type[MCPTool]] = {}
+        self._tools: dict[str, MCPTool] = {}
+        self._tool_classes: dict[str, type[MCPTool]] = {}
 
-    def discover_tools(self, tools_path: Optional[Path] = None) -> None:
+    def discover_tools(self, tools_path: Path | None = None) -> None:
         """Discover and register all tools in the tools directory."""
         if tools_path is None:
             # Default to the tools package
@@ -2434,7 +2427,7 @@ class ToolRegistry:
             except Exception as e:
                 logger.error(f"Failed to import tool from {tool_file}: {e}")
 
-    def _register_tool_class(self, tool_class: Type[MCPTool]) -> None:
+    def _register_tool_class(self, tool_class: type[MCPTool]) -> None:
         """Register a tool class."""
         try:
             # Instantiate the tool to get its metadata
@@ -2453,23 +2446,23 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Failed to register tool {tool_class.__name__}: {e}")
 
-    def get_tool(self, name: str) -> Optional[MCPTool]:
+    def get_tool(self, name: str) -> MCPTool | None:
         """Get a tool instance by name."""
         return self._tools.get(name)
 
-    def get_tool_class(self, name: str) -> Optional[Type[MCPTool]]:
+    def get_tool_class(self, name: str) -> type[MCPTool] | None:
         """Get a tool class by name."""
         return self._tool_classes.get(name)
 
-    def list_tools(self) -> List[str]:
+    def list_tools(self) -> list[str]:
         """List all registered tool names."""
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> Dict[str, MCPTool]:
+    def get_all_tools(self) -> dict[str, MCPTool]:
         """Get all registered tools."""
         return self._tools.copy()
 
-    def get_mcp_tool_definitions(self) -> List[Dict]:
+    def get_mcp_tool_definitions(self) -> list[dict]:
         """Get MCP tool definitions for all registered tools."""
         definitions = []
         for tool in self._tools.values():
@@ -2486,7 +2479,7 @@ class ToolRegistry:
 
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class ConversationOrchestrator:
@@ -2496,7 +2489,7 @@ class ConversationOrchestrator:
         self,
         tool_registry: ToolRegistry,
         model_manager: Any,
-        cache: Optional[ResponseCache] = None,
+        cache: ResponseCache | None = None,
     ):
         self.tool_registry = tool_registry
         self.model_manager = model_manager
@@ -2506,7 +2499,7 @@ class ConversationOrchestrator:
         self.total_execution_ms = 0.0
 
     async def execute_tool(
-        self, tool_name: str, parameters: Dict[str, Any], request_id: Optional[str] = None
+        self, tool_name: str, parameters: dict[str, Any], request_id: str | None = None
     ) -> ToolOutput:
         """Execute a single tool, serving a cached result when the tool allows it."""
         tool = self.tool_registry.get_tool(tool_name)
@@ -2537,7 +2530,7 @@ class ConversationOrchestrator:
 
         return output
 
-    def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
+    def _cache_key(self, tool: Any, tool_name: str, parameters: dict[str, Any]) -> str | None:
         """The cache key for this call, or None when the result must not be cached.
 
         The key names the model that will answer, so switching the active
@@ -2548,7 +2541,7 @@ class ConversationOrchestrator:
         model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
         return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
 
-    def get_execution_stats(self) -> Dict[str, Any]:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Get statistics about tool executions."""
         total = self.total_executions
         successful = self.successful_executions
@@ -2640,7 +2633,7 @@ def load_credentials(directory: str) -> list[str]:
 import os
 from logging.handlers import RotatingFileHandler
 from os import PathLike
-from typing import IO, Any, Dict, Optional, Union
+from typing import IO, Any
 
 
 # Protocol versions this server implements. The first entry is the default
@@ -2656,12 +2649,12 @@ except ImportError:
     HAS_DOTENV = False
 
     def load_dotenv(
-        dotenv_path: Optional[Union[str, PathLike[str]]] = None,
-        stream: Optional[IO[str]] = None,
+        dotenv_path: str | PathLike[str] | None = None,
+        stream: IO[str] | None = None,
         verbose: bool = False,
         override: bool = False,
         interpolate: bool = True,
-        encoding: Optional[str] = None,
+        encoding: str | None = None,
     ) -> bool:
         """Dummy function when dotenv is not available."""
         return False
@@ -2670,7 +2663,7 @@ except ImportError:
 __version__ = "4.0.0"
 
 
-def _tool_error(request_id: Any, message: str) -> Dict[str, Any]:
+def _tool_error(request_id: Any, message: str) -> dict[str, Any]:
     """Build a tools/call result that signals a tool-level failure.
 
     MCP spec: a tool failure is conveyed inside ``result`` with ``isError: true``
@@ -2693,10 +2686,10 @@ class CouncilMCPServer:
         self._load_credentials()
         self._load_env_file()
 
-        self.model_manager: Optional[ModelManager] = None
+        self.model_manager: ModelManager | None = None
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
-        self.orchestrator: Optional[ConversationOrchestrator] = None
+        self.orchestrator: ConversationOrchestrator | None = None
 
         # Create JSON-RPC server
         self.server = JsonRpcServer("council-mcp-server")
@@ -2704,7 +2697,7 @@ class CouncilMCPServer:
 
         # Make server instance available globally for tools
 
-        setattr(council, "_server_instance", self)
+        council._server_instance = self
 
         # Also set as global for bundled mode
         globals()["_server_instance"] = self
@@ -2760,7 +2753,7 @@ class CouncilMCPServer:
                 if os.path.exists(env_path):
                     logger.info(f"Loading .env from {env_path} (manual mode)")
                     try:
-                        with open(env_path, "r") as f:
+                        with open(env_path) as f:
                             for line in f:
                                 line = line.strip()
                                 if line and not line.startswith("#") and "=" in line:
@@ -2829,7 +2822,7 @@ class CouncilMCPServer:
         self.server.register_handler("tools/call", self.handle_tool_call)
         self.server.register_handler("ping", self.handle_ping)
 
-    def handle_initialize(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_initialize(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle initialization request."""
         self._load_env_file()
 
@@ -2871,11 +2864,11 @@ class CouncilMCPServer:
             },
         )
 
-    def handle_ping(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_ping(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle liveness ping (MCP spec: empty-object result)."""
         return create_result_response(request_id, {})
 
-    def handle_tools_list(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_tools_list(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle tool list request."""
         # Get tool definitions from registry
         tool_defs = self.tool_registry.get_mcp_tool_definitions()
@@ -2893,7 +2886,7 @@ class CouncilMCPServer:
 
         return create_result_response(request_id, {"tools": tools})
 
-    def handle_tool_call(self, request_id: Any, params: Dict[str, Any]) -> Dict[str, Any]:
+    def handle_tool_call(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """Handle tool execution request.
 
         Returns a result with ``isError: true`` on any failure, per MCP spec.
@@ -2996,7 +2989,7 @@ def main():
 # ========== Tool for asking general questions via Council. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class AskTool(MCPTool):
@@ -3011,7 +3004,7 @@ class AskTool(MCPTool):
         return "Ask a general question or for help with a problem"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3035,11 +3028,11 @@ class AskTool(MCPTool):
             "required": ["question"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             # Get parameters
@@ -3080,7 +3073,7 @@ class AskTool(MCPTool):
 # ========== Brainstorming tool for generating ideas and solutions. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class BrainstormTool(MCPTool):
@@ -3095,7 +3088,7 @@ class BrainstormTool(MCPTool):
         return "Brainstorm ideas or solutions"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3119,11 +3112,11 @@ class BrainstormTool(MCPTool):
             "required": ["topic"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             topic = parameters.get("topic")
@@ -3176,7 +3169,7 @@ Be creative but practical. Think outside the box while considering feasibility."
 # ========== Code review tool for analyzing code quality and suggesting improvements. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class CodeReviewTool(MCPTool):
@@ -3191,7 +3184,7 @@ class CodeReviewTool(MCPTool):
         return "Review code for issues, improvements, or best practices"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3218,11 +3211,11 @@ class CodeReviewTool(MCPTool):
             "required": ["code"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             code = parameters.get("code")
@@ -3292,7 +3285,7 @@ Be constructive and specific in your feedback."""
 # ========== Tools for multi-turn conversations with AI models. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 # Global session manager instance (initialized by server)
@@ -3322,7 +3315,7 @@ class StartConversationTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3349,7 +3342,7 @@ class StartConversationTool(MCPTool):
             "required": ["model"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Start a new conversation session."""
         try:
             model = parameters.get("model")
@@ -3423,7 +3416,7 @@ class ContinueConversationTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3439,7 +3432,7 @@ class ContinueConversationTool(MCPTool):
             "required": ["session_id", "message"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Continue a conversation."""
         try:
             session_id = parameters.get("session_id")
@@ -3501,14 +3494,14 @@ class ListConversationsTool(MCPTool):
         return "List all active conversation sessions with their status and preview."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {},
             "required": [],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """List active conversations."""
         try:
             session_manager = get_session_manager()
@@ -3562,7 +3555,7 @@ class EndConversationTool(MCPTool):
         return "End a conversation session. Optionally get a summary of the conversation."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3579,7 +3572,7 @@ class EndConversationTool(MCPTool):
             "required": ["session_id"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """End a conversation session."""
         try:
             session_id = parameters.get("session_id")
@@ -3615,7 +3608,7 @@ class GetConversationHistoryTool(MCPTool):
         return "Get the full message history of a conversation session."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3631,7 +3624,7 @@ class GetConversationHistoryTool(MCPTool):
             "required": ["session_id"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Get conversation history."""
         try:
             session_id = parameters.get("session_id")
@@ -3664,7 +3657,7 @@ class GetConversationHistoryTool(MCPTool):
                     ]
                 )
 
-            for i, turn in enumerate(history):
+            for turn in history:
                 role = "You" if turn["role"] == "user" else session.model
                 result_lines.append(f"**{role}:** {turn['content']}")
                 result_lines.append("")
@@ -3683,7 +3676,7 @@ class GetConversationHistoryTool(MCPTool):
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 
 # Three families, so the debate isn't one model agreeing with itself.
@@ -3700,9 +3693,9 @@ class Debater:
 
     number: int
     model: str
-    stance: Optional[str]
-    opening: Optional[str] = None
-    rebuttal: Optional[str] = None
+    stance: str | None
+    opening: str | None = None
+    rebuttal: str | None = None
 
     @property
     def title(self) -> str:
@@ -3716,9 +3709,9 @@ class Debater:
 class Turn:
     """The result of one model call."""
 
-    text: Optional[str]
+    text: str | None
     model_used: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class DebateTool(MCPTool):
@@ -3740,7 +3733,7 @@ class DebateTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -3782,11 +3775,11 @@ class DebateTool(MCPTool):
             "required": ["topic"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the models."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             debaters_or_error = self._seat_debaters(parameters)
@@ -3817,7 +3810,7 @@ class DebateTool(MCPTool):
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     @staticmethod
-    def _seat_debaters(parameters: Dict[str, Any]) -> Union[List[Debater], str]:
+    def _seat_debaters(parameters: dict[str, Any]) -> list[Debater] | str:
         """The debaters for this request, or an error message."""
         topic = parameters.get("topic")
         if not isinstance(topic, str) or not topic.strip():
@@ -3850,9 +3843,9 @@ class DebateTool(MCPTool):
         self,
         model_manager: Any,
         topic: str,
-        debaters: List[Debater],
+        debaters: list[Debater],
         rounds: int,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
     ) -> ToolOutput:
         """Run the rounds and assemble the transcript."""
         calls = 0
@@ -3864,14 +3857,16 @@ class DebateTool(MCPTool):
         )
         calls += len(debaters)
         sections.append("## Round 1: Opening statements")
-        for debater, turn in zip(debaters, openings):
+        for debater, turn in zip(debaters, openings, strict=True):
             debater.opening = turn.text
             sections.append(self._format_turn(debater, turn))
 
         speaking = [d for d in debaters if d.opening]
         if len(speaking) < MIN_DEBATERS:
             failures = "; ".join(
-                f"{d.title} ({d.model}): {t.error}" for d, t in zip(debaters, openings) if t.error
+                f"{d.title} ({d.model}): {t.error}"
+                for d, t in zip(debaters, openings, strict=True)
+                if t.error
             )
             return ToolOutput(
                 success=False,
@@ -3888,7 +3883,7 @@ class DebateTool(MCPTool):
             )
             calls += len(speaking)
             sections.append("## Round 2: Rebuttals")
-            for debater, turn in zip(speaking, rebuttals):
+            for debater, turn in zip(speaking, rebuttals, strict=True):
                 debater.rebuttal = turn.text
                 sections.append(self._format_turn(debater, turn))
 
@@ -3918,7 +3913,7 @@ class DebateTool(MCPTool):
         return output
 
     @staticmethod
-    async def _call(model_manager: Any, prompt: str, model: Optional[str]) -> Turn:
+    async def _call(model_manager: Any, prompt: str, model: str | None) -> Turn:
         """One model call on a worker thread, so the debaters' calls overlap."""
         try:
             text, model_used = await asyncio.to_thread(
@@ -3961,7 +3956,7 @@ class DebateTool(MCPTool):
         )
 
     @staticmethod
-    def _rebuttal_prompt(topic: str, debater: Debater, speaking: List[Debater]) -> str:
+    def _rebuttal_prompt(topic: str, debater: Debater, speaking: list[Debater]) -> str:
         """The rebuttal prompt: this debater's opening plus everyone else's."""
         others = "\n\n".join(
             f"**{other.title}:**\n{other.opening}"
@@ -3977,7 +3972,7 @@ class DebateTool(MCPTool):
         )
 
     @staticmethod
-    def _synthesis_prompt(topic: str, speaking: List[Debater]) -> str:
+    def _synthesis_prompt(topic: str, speaking: list[Debater]) -> str:
         """The synthesis prompt, carrying the whole transcript."""
         transcript = []
         for debater in speaking:
@@ -4000,7 +3995,7 @@ class DebateTool(MCPTool):
 # ========== Debug tool for structured debugging with hypothesis tracking. ==========
 
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class DebugTool(MCPTool):
@@ -4019,7 +4014,7 @@ class DebugTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -4063,11 +4058,11 @@ class DebugTool(MCPTool):
             "required": ["error_message", "code_context"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """Cacheable unless it reads a conversation session, which keeps changing."""
         return not parameters.get("session_id")
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute structured debugging analysis."""
         try:
             error_message = parameters.get("error_message")
@@ -4154,7 +4149,7 @@ class DebugTool(MCPTool):
         error_message: str,
         code_context: str,
         stack_trace: str,
-        previous_attempts: List[str],
+        previous_attempts: list[str],
         environment: str,
         session_context: str,
     ) -> str:
@@ -4248,7 +4243,7 @@ class DebugTool(MCPTool):
         self,
         response_text: str,
         model_used: str,
-        session_id: Optional[str],
+        session_id: str | None,
         attempt_count: int,
     ) -> str:
         """Format the debugging response."""
@@ -4268,7 +4263,7 @@ class DebugTool(MCPTool):
 # ========== Explanation tool for understanding complex code or concepts. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class ExplainTool(MCPTool):
@@ -4283,7 +4278,7 @@ class ExplainTool(MCPTool):
         return "Explain complex code or concepts"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -4304,11 +4299,11 @@ class ExplainTool(MCPTool):
             "required": ["topic"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             topic = parameters.get("topic")
@@ -4381,7 +4376,7 @@ Structure your explanation with:
 # ========== Tool for listing available LLM models. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class ListModelsTool(MCPTool):
@@ -4399,7 +4394,7 @@ class ListModelsTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -4434,7 +4429,7 @@ class ListModelsTool(MCPTool):
             "required": [],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             # Get parameters
@@ -4540,7 +4535,7 @@ class ListModelsTool(MCPTool):
 # ========== Tool for recommending models based on task type. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class RecommendModelTool(MCPTool):
@@ -4559,7 +4554,7 @@ class RecommendModelTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -4597,7 +4592,7 @@ class RecommendModelTool(MCPTool):
             "required": ["task"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             task_str = parameters.get("task", "general")
@@ -4703,7 +4698,7 @@ class RecommendModelTool(MCPTool):
 # ========== Refactor tool for atomic refactoring plans with before/after examples. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class RefactorTool(MCPTool):
@@ -4733,7 +4728,7 @@ class RefactorTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -4773,11 +4768,11 @@ class RefactorTool(MCPTool):
             "required": ["code", "goal"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the refactoring analysis."""
         try:
             code = parameters.get("code")
@@ -4950,7 +4945,7 @@ class RefactorTool(MCPTool):
 # ========== Server information tool for checking status and configuration. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 __version__ = "4.0.0"
@@ -4968,10 +4963,10 @@ class ServerInfoTool(MCPTool):
         return "Get server version and status"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}, "required": []}
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             # Access the server components through global context
@@ -4989,7 +4984,7 @@ class ServerInfoTool(MCPTool):
                 server = globals().get("_server_instance", None)
 
             # Declare info variable
-            info: Dict[str, Any]
+            info: dict[str, Any]
 
             if not server:
                 # Fallback to basic info if server instance not available
@@ -5031,16 +5026,16 @@ class ServerInfoTool(MCPTool):
             return ToolOutput(success=False, error=f"Error getting server info: {str(e)}")
 
     @staticmethod
-    def _conversation_stats() -> Dict[str, Any]:
+    def _conversation_stats() -> dict[str, Any]:
         """How many conversation sessions are open."""
         return {"active": len(get_session_manager().sessions)}
 
-    def _get_model_info(self, model_manager) -> Dict[str, Any]:
+    def _get_model_info(self, model_manager) -> dict[str, Any]:
         """Get model manager information."""
         if not model_manager:
             return {"initialized": False}
 
-        info: Dict[str, Any] = {
+        info: dict[str, Any] = {
             "initialized": True,
             "default_model": getattr(model_manager, "default_model", None),
             "active_model": getattr(model_manager, "active_model", None),
@@ -5089,7 +5084,7 @@ class ServerInfoTool(MCPTool):
 # ========== Tool for setting the active LLM model. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class SetModelTool(MCPTool):
@@ -5107,7 +5102,7 @@ class SetModelTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -5122,7 +5117,7 @@ class SetModelTool(MCPTool):
             "required": ["model"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             model_id = (parameters.get("model") or "").strip()
@@ -5179,7 +5174,7 @@ class SetModelTool(MCPTool):
 # ========== Synthesis tool for combining multiple perspectives into cohesive insights. ==========
 
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 class SynthesizeTool(MCPTool):
@@ -5194,7 +5189,7 @@ class SynthesizeTool(MCPTool):
         return "Synthesize multiple viewpoints or pieces of information into a coherent summary"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -5228,11 +5223,11 @@ class SynthesizeTool(MCPTool):
             "required": ["topic", "perspectives"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             topic = parameters.get("topic")
@@ -5273,7 +5268,7 @@ class SynthesizeTool(MCPTool):
             logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
-    def _build_prompt(self, topic: str, perspectives: List[Dict[str, str]]) -> str:
+    def _build_prompt(self, topic: str, perspectives: list[dict[str, str]]) -> str:
         """Build the synthesis prompt."""
         perspectives_text = "\n\n".join(
             [
@@ -5299,7 +5294,7 @@ Be objective and fair to all viewpoints while providing critical analysis."""
 # ========== Test case generation tool for suggesting comprehensive test scenarios. ==========
 
 
-from typing import Any, Dict
+from typing import Any
 
 
 class TestCasesTool(MCPTool):
@@ -5314,7 +5309,7 @@ class TestCasesTool(MCPTool):
         return "Suggest test cases for code or features"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -5338,11 +5333,11 @@ class TestCasesTool(MCPTool):
             "required": ["code_or_feature"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             code_or_feature = parameters.get("code_or_feature")

@@ -1,7 +1,7 @@
 """Tools for multi-turn conversations with AI models."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -36,7 +36,7 @@ class StartConversationTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ class StartConversationTool(MCPTool):
             "required": ["model"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Start a new conversation session."""
         try:
             model = parameters.get("model")
@@ -139,7 +139,7 @@ class ContinueConversationTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -155,7 +155,7 @@ class ContinueConversationTool(MCPTool):
             "required": ["session_id", "message"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Continue a conversation."""
         try:
             session_id = parameters.get("session_id")
@@ -219,14 +219,14 @@ class ListConversationsTool(MCPTool):
         return "List all active conversation sessions with their status and preview."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {},
             "required": [],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """List active conversations."""
         try:
             session_manager = get_session_manager()
@@ -280,7 +280,7 @@ class EndConversationTool(MCPTool):
         return "End a conversation session. Optionally get a summary of the conversation."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -297,7 +297,7 @@ class EndConversationTool(MCPTool):
             "required": ["session_id"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """End a conversation session."""
         try:
             session_id = parameters.get("session_id")
@@ -333,7 +333,7 @@ class GetConversationHistoryTool(MCPTool):
         return "Get the full message history of a conversation session."
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -349,7 +349,7 @@ class GetConversationHistoryTool(MCPTool):
             "required": ["session_id"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Get conversation history."""
         try:
             session_id = parameters.get("session_id")
@@ -382,7 +382,7 @@ class GetConversationHistoryTool(MCPTool):
                     ]
                 )
 
-            for i, turn in enumerate(history):
+            for turn in history:
                 role = "You" if turn["role"] == "user" else session.model
                 result_lines.append(f"**{role}:** {turn['content']}")
                 result_lines.append("")

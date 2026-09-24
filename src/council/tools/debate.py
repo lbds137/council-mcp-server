@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -23,9 +23,9 @@ class Debater:
 
     number: int
     model: str
-    stance: Optional[str]
-    opening: Optional[str] = None
-    rebuttal: Optional[str] = None
+    stance: str | None
+    opening: str | None = None
+    rebuttal: str | None = None
 
     @property
     def title(self) -> str:
@@ -39,9 +39,9 @@ class Debater:
 class Turn:
     """The result of one model call."""
 
-    text: Optional[str]
+    text: str | None
     model_used: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class DebateTool(MCPTool):
@@ -63,7 +63,7 @@ class DebateTool(MCPTool):
         )
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -105,11 +105,11 @@ class DebateTool(MCPTool):
             "required": ["topic"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the models."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             debaters_or_error = self._seat_debaters(parameters)
@@ -142,7 +142,7 @@ class DebateTool(MCPTool):
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     @staticmethod
-    def _seat_debaters(parameters: Dict[str, Any]) -> Union[List[Debater], str]:
+    def _seat_debaters(parameters: dict[str, Any]) -> list[Debater] | str:
         """The debaters for this request, or an error message."""
         topic = parameters.get("topic")
         if not isinstance(topic, str) or not topic.strip():
@@ -175,9 +175,9 @@ class DebateTool(MCPTool):
         self,
         model_manager: Any,
         topic: str,
-        debaters: List[Debater],
+        debaters: list[Debater],
         rounds: int,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
     ) -> ToolOutput:
         """Run the rounds and assemble the transcript."""
         calls = 0
@@ -189,14 +189,16 @@ class DebateTool(MCPTool):
         )
         calls += len(debaters)
         sections.append("## Round 1: Opening statements")
-        for debater, turn in zip(debaters, openings):
+        for debater, turn in zip(debaters, openings, strict=True):
             debater.opening = turn.text
             sections.append(self._format_turn(debater, turn))
 
         speaking = [d for d in debaters if d.opening]
         if len(speaking) < MIN_DEBATERS:
             failures = "; ".join(
-                f"{d.title} ({d.model}): {t.error}" for d, t in zip(debaters, openings) if t.error
+                f"{d.title} ({d.model}): {t.error}"
+                for d, t in zip(debaters, openings, strict=True)
+                if t.error
             )
             return ToolOutput(
                 success=False,
@@ -213,7 +215,7 @@ class DebateTool(MCPTool):
             )
             calls += len(speaking)
             sections.append("## Round 2: Rebuttals")
-            for debater, turn in zip(speaking, rebuttals):
+            for debater, turn in zip(speaking, rebuttals, strict=True):
                 debater.rebuttal = turn.text
                 sections.append(self._format_turn(debater, turn))
 
@@ -243,7 +245,7 @@ class DebateTool(MCPTool):
         return output
 
     @staticmethod
-    async def _call(model_manager: Any, prompt: str, model: Optional[str]) -> Turn:
+    async def _call(model_manager: Any, prompt: str, model: str | None) -> Turn:
         """One model call on a worker thread, so the debaters' calls overlap."""
         try:
             text, model_used = await asyncio.to_thread(
@@ -286,7 +288,7 @@ class DebateTool(MCPTool):
         )
 
     @staticmethod
-    def _rebuttal_prompt(topic: str, debater: Debater, speaking: List[Debater]) -> str:
+    def _rebuttal_prompt(topic: str, debater: Debater, speaking: list[Debater]) -> str:
         """The rebuttal prompt: this debater's opening plus everyone else's."""
         others = "\n\n".join(
             f"**{other.title}:**\n{other.opening}"
@@ -302,7 +304,7 @@ class DebateTool(MCPTool):
         )
 
     @staticmethod
-    def _synthesis_prompt(topic: str, speaking: List[Debater]) -> str:
+    def _synthesis_prompt(topic: str, speaking: list[Debater]) -> str:
         """The synthesis prompt, carrying the whole transcript."""
         transcript = []
         for debater in speaking:

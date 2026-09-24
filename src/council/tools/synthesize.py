@@ -1,7 +1,7 @@
 """Synthesis tool for combining multiple perspectives into cohesive insights."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -20,7 +20,7 @@ class SynthesizeTool(MCPTool):
         return "Synthesize multiple viewpoints or pieces of information into a coherent summary"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -54,11 +54,11 @@ class SynthesizeTool(MCPTool):
             "required": ["topic", "perspectives"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             topic = parameters.get("topic")
@@ -100,7 +100,7 @@ class SynthesizeTool(MCPTool):
             logger.error(f"API error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
-    def _build_prompt(self, topic: str, perspectives: List[Dict[str, str]]) -> str:
+    def _build_prompt(self, topic: str, perspectives: list[dict[str, str]]) -> str:
         """Build the synthesis prompt."""
         perspectives_text = "\n\n".join(
             [

@@ -1,7 +1,7 @@
 """Explanation tool for understanding complex code or concepts."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -20,7 +20,7 @@ class ExplainTool(MCPTool):
         return "Explain complex code or concepts"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -41,11 +41,11 @@ class ExplainTool(MCPTool):
             "required": ["topic"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             topic = parameters.get("topic")

@@ -4,7 +4,6 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Type
 
 from ..tools.base import MCPTool
 
@@ -15,10 +14,10 @@ class ToolRegistry:
     """Registry for discovering and managing tools."""
 
     def __init__(self):
-        self._tools: Dict[str, MCPTool] = {}
-        self._tool_classes: Dict[str, Type[MCPTool]] = {}
+        self._tools: dict[str, MCPTool] = {}
+        self._tool_classes: dict[str, type[MCPTool]] = {}
 
-    def discover_tools(self, tools_path: Optional[Path] = None) -> None:
+    def discover_tools(self, tools_path: Path | None = None) -> None:
         """Discover and register all tools in the tools directory."""
         if tools_path is None:
             # Default to the tools package
@@ -67,7 +66,7 @@ class ToolRegistry:
             except Exception as e:
                 logger.error(f"Failed to import tool from {tool_file}: {e}")
 
-    def _register_tool_class(self, tool_class: Type[MCPTool]) -> None:
+    def _register_tool_class(self, tool_class: type[MCPTool]) -> None:
         """Register a tool class."""
         try:
             # Instantiate the tool to get its metadata
@@ -86,23 +85,23 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"Failed to register tool {tool_class.__name__}: {e}")
 
-    def get_tool(self, name: str) -> Optional[MCPTool]:
+    def get_tool(self, name: str) -> MCPTool | None:
         """Get a tool instance by name."""
         return self._tools.get(name)
 
-    def get_tool_class(self, name: str) -> Optional[Type[MCPTool]]:
+    def get_tool_class(self, name: str) -> type[MCPTool] | None:
         """Get a tool class by name."""
         return self._tool_classes.get(name)
 
-    def list_tools(self) -> List[str]:
+    def list_tools(self) -> list[str]:
         """List all registered tool names."""
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> Dict[str, MCPTool]:
+    def get_all_tools(self) -> dict[str, MCPTool]:
         """Get all registered tools."""
         return self._tools.copy()
 
-    def get_mcp_tool_definitions(self) -> List[Dict]:
+    def get_mcp_tool_definitions(self) -> list[dict]:
         """Get MCP tool definitions for all registered tools."""
         definitions = []
         for tool in self._tools.values():

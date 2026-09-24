@@ -311,7 +311,7 @@ SPACES_VALUE = value with spaces"""
         # Create a minimal server and test _load_env_file directly
         server = object.__new__(CouncilMCPServer)
 
-        with patch("builtins.open", side_effect=IOError("Permission denied")):
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
             server._load_env_file()
 
         # Verify error was logged

@@ -3,7 +3,6 @@
 import logging
 import os
 import time
-from typing import Optional
 
 import httpx
 
@@ -26,7 +25,7 @@ class ModelCache:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         ttl_seconds: float = 3600.0,  # 1 hour default
         timeout: float = 30.0,
     ):
@@ -98,7 +97,7 @@ class ModelCache:
             logger.error(f"Failed to fetch models from OpenRouter: {e}")
             # Keep existing cache on failure
 
-    def get_model(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model(self, model_id: str) -> ModelInfo | None:
         """Get a specific model by ID.
 
         Args:
