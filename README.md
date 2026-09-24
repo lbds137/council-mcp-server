@@ -53,8 +53,8 @@ COUNCIL_TIMEOUT=600000
 # Install to MCP location
 ./scripts/install.sh
 
-# Or manually register
-claude mcp add council python3 ~/.claude-mcp-servers/council/launcher.py
+# Or manually register (use the venv's python, not the system python3)
+claude mcp add council -s user -- ~/.claude-mcp-servers/council/.venv/bin/python ~/.claude-mcp-servers/council/launcher.py
 ```
 
 ## Available Tools

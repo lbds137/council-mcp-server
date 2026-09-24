@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 MCP_DIR="$HOME/.claude-mcp-servers/council"
 VENV_DIR="$MCP_DIR/.venv"
+PYTHON_VERSION="3.13"
 
 # Determine if this is first install or update
 if [ -d "$MCP_DIR" ]; then
@@ -57,7 +58,13 @@ cp "$PROJECT_ROOT/requirements.txt" "$MCP_DIR/"
 # Create/update virtual environment
 if [ ! -d "$VENV_DIR" ]; then
     echo "🐍 Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+    if command -v uv >/dev/null 2>&1; then
+        # uv's own standalone Python, so an OS Python upgrade can't break the server.
+        # --seed adds pip, which the dependency install below uses.
+        uv venv --managed-python --python "$PYTHON_VERSION" --seed "$VENV_DIR"
+    else
+        python3 -m venv "$VENV_DIR"
+    fi
 fi
 
 # Install/update dependencies
@@ -93,8 +100,12 @@ echo "   2. Update Claude Desktop config to point to council server"
 echo "   3. Restart Claude Desktop"
 echo "   4. Test with: mcp__council__server_info"
 echo ""
-echo "📝 Claude Desktop/Code config example:"
+# Launch with the venv's own python, not whatever python3 is first on PATH.
+echo "📝 Claude Code registration:"
+echo "   claude mcp add council -s user -- $VENV_DIR/bin/python $MCP_DIR/launcher.py"
+echo ""
+echo "📝 Claude Desktop config example:"
 echo "   \"council\": {"
-echo "     \"command\": \"python3\","
+echo "     \"command\": \"$VENV_DIR/bin/python\","
 echo "     \"args\": [\"$MCP_DIR/launcher.py\"]"
 echo "   }"
