@@ -50,8 +50,10 @@ Each key becomes `~/.claude-mcp-servers/council/credentials/NAME.cred`, which
 only your user on that machine can decrypt. Council decrypts them at startup.
 A key set as an environment variable before council starts takes priority over
 a stored credential; a stored credential takes priority over a `.env` line, so
-a stale `.env` can't shadow a new key. Set `COUNCIL_CREDENTIALS_DIR` to keep
-the credentials somewhere else.
+a stale `.env` can't shadow a new key. To keep the credentials somewhere else,
+set `COUNCIL_CREDENTIALS_DIR` in the server's environment (for example in the
+MCP server entry of your Claude config). It is read before `.env` loads, so a
+`.env` line for it has no effect.
 
 **Other settings** go in `.env` (optional; defaults shown):
 

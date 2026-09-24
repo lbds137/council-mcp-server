@@ -44,7 +44,13 @@ ZAI_QUOTA_CODES = {"1308", "1310", "1316", "1317", "1318", "1319", "1320", "1321
 ZAI_BUSY_CODES = {"1302", "1305", "1313"}
 ZAI_ACCOUNT_CODES = {"1113", "1309"}
 ZAI_MODEL_NOT_FOUND_CODE = "1214"
-ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})""")
+ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})(?!\d)""")
+
+
+def _release_order(model: dict[str, Any]) -> tuple[float, str]:
+    """Sort key for newest-first alias resolution; a missing date sorts oldest."""
+    created = model.get("created")
+    return (created if isinstance(created, (int, float)) else 0, model["id"])
 
 
 class ZaiCodingProvider(LLMProvider):
@@ -114,17 +120,39 @@ class ZaiCodingProvider(LLMProvider):
                 timeout=ZAI_MODELS_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
-            self._models = [m for m in response.json().get("data", []) if m.get("id")]
+            self._models = self._parse_model_list(response.json())
             self._next_fetch = time.time() + self.cache_ttl
             self.list_error = None
-        except (httpx.HTTPError, ValueError) as e:
-            logger.warning(f"Could not list Z.ai models: {e}")
-            if isinstance(e, httpx.HTTPStatusError):
-                self.list_error = f"model list returned HTTP {e.response.status_code}"
-            else:
-                self.list_error = f"model list unreachable ({type(e).__name__})"
-            self._next_fetch = time.time() + ZAI_FAILED_FETCH_RETRY_SECONDS
+        except httpx.HTTPStatusError as e:
+            self._list_failed(f"model list returned HTTP {e.response.status_code}", e)
+        except httpx.HTTPError as e:
+            self._list_failed(f"model list unreachable ({type(e).__name__})", e)
+        except ValueError as e:
+            # Bad JSON, or a body with no usable model entries
+            self._list_failed(f"model list unreadable ({e})", e)
         return self._models
+
+    @staticmethod
+    def _parse_model_list(payload: Any) -> list[dict[str, Any]]:
+        """The usable entries of a /models body.
+
+        Raises:
+            ValueError: If the body lists no models, so an error envelope or a
+                lapsed plan is reported rather than cached as "carries nothing".
+        """
+        data = payload.get("data") if isinstance(payload, dict) else None
+        models = []
+        if isinstance(data, list):
+            models = [m for m in data if isinstance(m, dict) and isinstance(m.get("id"), str)]
+        if not models:
+            raise ValueError("no models listed")
+        return models
+
+    def _list_failed(self, reason: str, error: Exception) -> None:
+        """Record a failed model-list fetch and back off before retrying."""
+        logger.warning(f"Could not list Z.ai models: {error}")
+        self.list_error = reason
+        self._next_fetch = time.time() + ZAI_FAILED_FETCH_RETRY_SECONDS
 
     @staticmethod
     def is_candidate(model_id: str) -> bool:
@@ -158,7 +186,7 @@ class ZaiCodingProvider(LLMProvider):
             candidates = [m for m in self._model_list() if pattern.match(m["id"])]
             if not candidates:
                 return None
-            newest = max(candidates, key=lambda m: (m.get("created", 0), m["id"]))
+            newest = max(candidates, key=_release_order)
             return str(newest["id"])
 
         bare = lowered.removeprefix(ZAI_MODEL_PREFIX)
@@ -202,16 +230,25 @@ class ZaiCodingProvider(LLMProvider):
                 max_tokens=max_tokens,
                 **kwargs,
             )
+            # Inside the try: a malformed reply should fall back like any failure
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            reasoning = getattr(choice.message, "reasoning_content", None) or ""
         except AuthenticationError:
             raise
         except Exception as e:
             raise self._classify_error(e, model) from e
 
-        message = response.choices[0].message
-        content = message.content or ""
         if not content.strip():
+            if choice.finish_reason == "length":
+                # The token limit hit mid-reasoning; the reasoning isn't an answer
+                raise LLMProviderError(
+                    "reply cut off before the answer (max_tokens)",
+                    provider=self.name,
+                    model=model,
+                )
             # GLM sometimes returns the whole reply in the reasoning channel
-            content = getattr(message, "reasoning_content", None) or ""
+            content = reasoning
 
         usage = {}
         if response.usage:
@@ -248,11 +285,12 @@ class ZaiCodingProvider(LLMProvider):
             return RateLimitError(f"quota window exhausted{suffix}", self.name, model)
         if code in ZAI_BUSY_CODES or status == 429:
             return RateLimitError(f"busy or rate limited{suffix}", self.name, model)
+        lowered = raw.lower()
         return LLMProviderError(
             raw,
             provider=self.name,
             model=model,
-            is_retryable="timeout" in raw.lower(),
+            is_retryable="timeout" in lowered or "timed out" in lowered,
         )
 
     def list_models(self) -> list[ModelInfo]:

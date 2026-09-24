@@ -61,8 +61,9 @@ class ModelManager:
         self.total_calls = 0
         self.successful_calls = 0
         self.failed_calls = 0
-        self.zai_calls = 0
-        self.zai_fallbacks = 0
+        self.zai_calls = 0  # requests tried on the plan
+        self.zai_fallbacks = 0  # of those, retried on OpenRouter after failing
+        self.zai_unavailable = 0  # GLM requests sent to OpenRouter unchecked: no model list
 
         logger.info(f"ModelManager initialized with default model: {self.default_model}")
 
@@ -81,7 +82,7 @@ class ModelManager:
     def zai_provider(self) -> Optional[ZaiCodingProvider]:
         """Get the Z.ai coding-plan provider, or None when no key is configured."""
         if self._zai_provider is None and self.zai_api_key:
-            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key)
+            self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key, timeout=self.timeout)
         return self._zai_provider
 
     @property
@@ -172,7 +173,7 @@ class ModelManager:
                 if zai is not None and zai.list_error and zai.is_candidate(model_to_use):
                     # A key is set but the plan couldn't be consulted: say so,
                     # or a broken key would silently bill every GLM call
-                    self.zai_fallbacks += 1
+                    self.zai_unavailable += 1
                     model_used += f" · OpenRouter (Z.ai unavailable: {zai.list_error})"
             else:
                 response, model_used = self._generate_on_plan(
@@ -273,4 +274,5 @@ class ModelManager:
             "zai_configured": bool(self.zai_api_key),
             "zai_calls": self.zai_calls,
             "zai_fallbacks": self.zai_fallbacks,
+            "zai_unavailable": self.zai_unavailable,
         }
