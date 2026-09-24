@@ -121,3 +121,108 @@ class TestLoadCredentials:
 
         assert "OPENROUTER_API_KEY" in caplog.text
         assert SECRET not in caplog.text
+
+
+ZAI_SECRET = "zai-test-secret-value"
+
+
+@pytest.fixture
+def bundle_dir(tmp_path):
+    """A credentials directory holding the combined keys.cred."""
+    (tmp_path / "keys.cred").write_bytes(b"ciphertext")
+    return tmp_path
+
+
+def bundle(text: str) -> Mock:
+    """A decrypt result for keys.cred carrying NAME=value lines."""
+    return Mock(returncode=0, stdout=text.encode(), stderr=b"")
+
+
+class TestCombinedKeysFile:
+    """keys.cred holds every key, so startup needs one decrypt."""
+
+    @patch("council.credentials.subprocess.run")
+    def test_one_decrypt_loads_every_key(self, mock_run, bundle_dir):
+        """Test both keys load from a single systemd-creds call."""
+        mock_run.return_value = bundle(
+            f"OPENROUTER_API_KEY={SECRET}\nZAI_CODING_API_KEY={ZAI_SECRET}\n"
+        )
+
+        loaded = load_credentials(str(bundle_dir))
+
+        assert loaded == ["OPENROUTER_API_KEY", "ZAI_CODING_API_KEY"]
+        assert os.environ["ZAI_CODING_API_KEY"] == ZAI_SECRET
+        assert mock_run.call_count == 1
+        assert "--name=council-keys" in mock_run.call_args[0][0]
+
+    @patch("council.credentials.subprocess.run")
+    def test_old_per_key_file_is_not_decrypted_when_the_bundle_has_it(self, mock_run, bundle_dir):
+        """Test a leftover NAME.cred costs no decrypt once keys.cred provides NAME."""
+        (bundle_dir / "OPENROUTER_API_KEY.cred").write_bytes(b"old ciphertext")
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        load_credentials(str(bundle_dir))
+
+        assert mock_run.call_count == 1
+        assert os.environ["OPENROUTER_API_KEY"] == SECRET
+
+    @patch("council.credentials.subprocess.run")
+    def test_per_key_file_fills_a_name_the_bundle_lacks(self, mock_run, bundle_dir):
+        """Test a NAME.cred still loads when keys.cred doesn't carry that name."""
+        (bundle_dir / "ZAI_CODING_API_KEY.cred").write_bytes(b"ciphertext")
+        mock_run.side_effect = [bundle(f"OPENROUTER_API_KEY={SECRET}\n"), decrypted(ZAI_SECRET)]
+
+        loaded = load_credentials(str(bundle_dir))
+
+        assert loaded == ["OPENROUTER_API_KEY", "ZAI_CODING_API_KEY"]
+        assert os.environ["ZAI_CODING_API_KEY"] == ZAI_SECRET
+
+    @patch("council.credentials.subprocess.run")
+    def test_environment_beats_the_bundle(self, mock_run, bundle_dir, monkeypatch):
+        """Test a variable set before startup isn't replaced by keys.cred."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "explicit")
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\nZAI_CODING_API_KEY=z\n")
+
+        loaded = load_credentials(str(bundle_dir))
+
+        assert loaded == ["ZAI_CODING_API_KEY"]
+        assert os.environ["OPENROUTER_API_KEY"] == "explicit"
+
+    @patch("council.credentials.subprocess.run")
+    def test_value_containing_equals_is_kept_whole(self, mock_run, bundle_dir):
+        """Test only the first = separates name from value."""
+        mock_run.return_value = bundle("OPENROUTER_API_KEY=abc=def==\n")
+
+        load_credentials(str(bundle_dir))
+
+        assert os.environ["OPENROUTER_API_KEY"] == "abc=def=="
+
+    @patch("council.credentials.subprocess.run")
+    def test_malformed_lines_are_skipped_without_logging_them(self, mock_run, bundle_dir, caplog):
+        """Test bad lines are reported by number only, since they may hold a key."""
+        mock_run.return_value = bundle(
+            f"{SECRET}\nlower_case={SECRET}\n\nOPENROUTER_API_KEY={SECRET}\n"
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            loaded = load_credentials(str(bundle_dir))
+
+        assert loaded == ["OPENROUTER_API_KEY"]
+        assert "malformed line 1" in caplog.text
+        assert "malformed line 2" in caplog.text
+        assert SECRET not in caplog.text
+
+    @patch("council.credentials.subprocess.run")
+    def test_bundle_decrypt_failure_falls_back_to_per_key_files(self, mock_run, bundle_dir, caplog):
+        """Test a keys.cred that won't decrypt is logged, and per-key files still load."""
+        (bundle_dir / "OPENROUTER_API_KEY.cred").write_bytes(b"ciphertext")
+        mock_run.side_effect = [
+            Mock(returncode=1, stdout=b"", stderr=b"TPM unavailable"),
+            decrypted(),
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            loaded = load_credentials(str(bundle_dir))
+
+        assert loaded == ["OPENROUTER_API_KEY"]
+        assert "Could not decrypt credential keys.cred: TPM unavailable" in caplog.text

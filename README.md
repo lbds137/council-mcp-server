@@ -43,8 +43,10 @@ On a Linux machine with systemd 256 or newer, run:
 ./scripts/set-secret.sh ZAI_CODING_API_KEY
 ```
 
-Each key becomes `~/.claude-mcp-servers/council/credentials/NAME.cred`, which
-only your user on that machine can decrypt. Council decrypts them at startup.
+The keys live together in one encrypted file,
+`~/.claude-mcp-servers/council/credentials/keys.cred`, which only your user on
+that machine can decrypt. Running `set-secret.sh` again for a name replaces that
+key and keeps the others. Council decrypts the file once at startup.
 A key set as an environment variable before council starts takes priority over
 a stored credential; a stored credential takes priority over a `.env` line, so
 a stale `.env` can't shadow a new key. To keep the credentials somewhere else,
@@ -117,16 +119,11 @@ All tools support an optional `model` parameter to use a specific model:
 ```python
 # Use Kimi for code review
 mcp__council__code_review(
-    code="def hello(): print('world')",
-    focus="security",
-    model="~moonshotai/kimi-latest"
+    code="def hello(): print('world')", focus="security", model="~moonshotai/kimi-latest"
 )
 
 # Use GLM for brainstorming
-mcp__council__brainstorm(
-    topic="API design patterns",
-    model="~z-ai/glm-latest"
-)
+mcp__council__brainstorm(topic="API design patterns", model="~z-ai/glm-latest")
 ```
 
 ## Popular Model Configurations
