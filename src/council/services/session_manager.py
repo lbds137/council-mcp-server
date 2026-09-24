@@ -138,7 +138,7 @@ class SessionManager:
         # Add assistant response
         session.add_turn("assistant", response_text)
 
-        logger.info(f"Session {session_id}: Turn {len(session.turns)//2} completed")
+        logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")
         return response_text, model_used
 
     def _format_prompt_with_history(self, messages: List[Dict[str, str]]) -> str:

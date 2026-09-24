@@ -5,7 +5,9 @@ Works with the modular architecture to combine all components into a single depl
 """
 
 import ast
+import importlib.util
 import logging
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -422,18 +424,16 @@ def _apply_tool_registry_override():
         """Create the complete bundled server."""
         logger.info("Starting bundle creation...")
 
-        # Try to import astor for better AST handling
-        try:
-            import astor
-
+        if importlib.util.find_spec("astor"):
             logger.info("Using AST-based cleaning (astor available)")
-        except ImportError:
+        else:
             logger.warning("astor not available, using text-based cleaning")
 
         # Discover all components and tools
         self.discover_all()
         logger.info(
-            f"Discovered {len(self.discovered_components)} components and {len(self.discovered_tools)} tools"
+            f"Discovered {len(self.discovered_components)} components "
+            f"and {len(self.discovered_tools)} tools"
         )
 
         # Start building the output
@@ -473,7 +473,7 @@ def _apply_tool_registry_override():
                     safe_description = safe_description[:77] + "..."
 
                 output_parts.append("")
-                output_parts.append(f"# {'='*10} {safe_description} {'='*10}")
+                output_parts.append(f"# {'=' * 10} {safe_description} {'=' * 10}")
                 output_parts.append("")
 
                 output_parts.append(cleaned_content)
@@ -507,6 +507,20 @@ if __name__ == "__main__":
         ).strip()
 
 
+def format_bundle(path: Path) -> None:
+    """Sort imports and format the bundle, so a rebuild matches the committed copy."""
+    for args in (["check", "--fix", "--select", "I", "--quiet"], ["format", "--quiet"]):
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "ruff", *args, str(path)], check=True, capture_output=True
+            )
+        except (OSError, subprocess.CalledProcessError) as e:
+            # ruff is a dev dependency; without it the bundle still works, just unformatted
+            logger.warning(f"Could not format the bundle with ruff: {e}")
+            return
+    logger.info("✓ Bundle formatted with ruff")
+
+
 def main():
     """Main bundling function."""
     logger.info("Bundler for Council MCP Server")
@@ -535,6 +549,8 @@ def main():
             logger.error(f"✗ Syntax error in generated bundle: {e}")
             logger.error(f"  Line {e.lineno}: {e.text}")
             return 1
+
+        format_bundle(OUTPUT_FILE)
 
     except Exception as e:
         logger.error(f"Failed to create bundle: {e}")

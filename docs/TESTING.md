@@ -28,5 +28,5 @@ thing end to end, build the bundle and drive it over stdio (see
 
 ## Gates
 
-The pre-push hook and CI (Python 3.12 and 3.13) both run flake8, black, isort,
-mypy and the full suite. A push or merge with a failing gate doesn't go out.
+The pre-push hook and CI (Python 3.12 and 3.13) both run ruff (lint and format
+check), mypy and the full suite. A push or merge with a failing gate doesn't go out.
