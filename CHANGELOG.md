@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
+- All API keys live in one encrypted credential, `keys.cred`, so startup needs one TPM decrypt (about 3.5 s instead of about 7 s with two keys). `set-secret.sh NAME` adds or replaces one key in it; older per-key `NAME.cred` files still load for names it lacks
 - Linting and formatting moved from flake8, black and isort to ruff, which also runs bugbear and pyupgrade rules; annotations use the Python 3.12 forms (`dict[...]`, `X | None`), and the two `str, Enum` classes are `StrEnum`
 - Model registry refreshed to September 2026 and keyed on OpenRouter's floating `~vendor/family-latest` aliases, so new releases are picked up without edits
 - Anthropic models removed from the registry and all recommendations: Claude Code can spawn its own Claude agents, so council covers other families. Recommendations draw on OpenAI, Google, DeepSeek, Kimi, GLM and Qwen; xAI, MiniMax and Mistral are rated for `list_models`

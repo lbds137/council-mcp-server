@@ -180,9 +180,11 @@ If the tool's answer depends only on its input and the model, override `is_cache
 
 ### API Keys
 Keys are stored as encrypted systemd user credentials, not in `.env`:
-`scripts/set-secret.sh NAME` writes `~/.claude-mcp-servers/council/credentials/NAME.cred`
-(host key + TPM2, not bound to firmware state), and `src/council/credentials.py` decrypts
-them at startup. An environment variable set before startup beats a credential; a credential
+`scripts/set-secret.sh NAME` adds or replaces NAME in `~/.claude-mcp-servers/council/credentials/keys.cred`
+(one credential holding every key as NAME=value lines; host key + TPM2, not bound to firmware
+state), and `src/council/credentials.py` decrypts it at startup. One file means one TPM decrypt
+(about 3 s; the TPM serializes them, so separate files would cost 3 s each). Older per-key
+`NAME.cred` files still load for names keys.cred lacks, and cost nothing otherwise. An environment variable set before startup beats a credential; a credential
 beats a `.env` line.
 Never print a key. Pipe it straight into `set-secret.sh` instead.
 - `OPENROUTER_API_KEY` (required)
