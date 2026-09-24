@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
+- Linting and formatting moved from flake8, black and isort to ruff, which also runs bugbear and pyupgrade rules; annotations use the Python 3.12 forms (`dict[...]`, `X | None`), and the two `str, Enum` classes are `StrEnum`
 - Model registry refreshed to September 2026 and keyed on OpenRouter's floating `~vendor/family-latest` aliases, so new releases are picked up without edits
 - Anthropic models removed from the registry and all recommendations: Claude Code can spawn its own Claude agents, so council covers other families. Recommendations draw on OpenAI, Google, DeepSeek, Kimi, GLM and Qwen; xAI, MiniMax and Mistral are rated for `list_models`
 - Default model is now `~openai/gpt-sol-latest` (GPT-6 Sol)

@@ -1,7 +1,7 @@
 """Unit tests for the base tool."""
 
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -24,14 +24,14 @@ class ConcreteTestTool(MCPTool):
         return "A test tool"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {"input": {"type": "string", "description": "Test input"}},
             "required": ["input"],
         }
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         self.execution_count += 1
         if self.should_fail:
             return ToolOutput(success=False, error="Test error")
@@ -54,10 +54,10 @@ class InvalidTool(MCPTool):
         return "Test"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {}
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         return ToolOutput(success=True, result="test")
 
 

@@ -4,7 +4,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +25,17 @@ class ConversationSession:
     session_id: str
     model: str
     system_prompt: str
-    turns: List[ConversationTurn] = field(default_factory=list)
+    turns: list[ConversationTurn] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_turn(self, role: str, content: str) -> None:
         """Add a turn to the conversation."""
         self.turns.append(ConversationTurn(role=role, content=content))
         self.last_activity = datetime.now()
 
-    def get_message_history(self) -> List[Dict[str, str]]:
+    def get_message_history(self) -> list[dict[str, str]]:
         """Get conversation history in OpenAI message format."""
         messages = []
         if self.system_prompt:
@@ -59,7 +59,7 @@ class SessionManager:
     """Manages multiple conversation sessions."""
 
     def __init__(self, max_sessions: int = 20, max_turns_per_session: int = 50):
-        self.sessions: Dict[str, ConversationSession] = {}
+        self.sessions: dict[str, ConversationSession] = {}
         self.max_sessions = max_sessions
         self.max_turns_per_session = max_turns_per_session
 
@@ -67,7 +67,7 @@ class SessionManager:
         self,
         model: str,
         system_prompt: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Create a new conversation session.
 
@@ -93,7 +93,7 @@ class SessionManager:
         logger.info(f"Created session {session_id} with model {model}")
         return session_id
 
-    def get_session(self, session_id: str) -> Optional[ConversationSession]:
+    def get_session(self, session_id: str) -> ConversationSession | None:
         """Get a session by ID."""
         return self.sessions.get(session_id)
 
@@ -141,7 +141,7 @@ class SessionManager:
         logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")
         return response_text, model_used
 
-    def _format_prompt_with_history(self, messages: List[Dict[str, str]]) -> str:
+    def _format_prompt_with_history(self, messages: list[dict[str, str]]) -> str:
         """Format message history into a prompt string."""
         parts = []
         for msg in messages:
@@ -156,7 +156,7 @@ class SessionManager:
         parts.append("Assistant:")
         return "\n\n".join(parts)
 
-    def list_sessions(self) -> List[Dict[str, Any]]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all active sessions with summaries."""
         return [
             {
@@ -174,7 +174,7 @@ class SessionManager:
             )
         ]
 
-    def get_history(self, session_id: str, limit: Optional[int] = None) -> List[Dict[str, str]]:
+    def get_history(self, session_id: str, limit: int | None = None) -> list[dict[str, str]]:
         """Get conversation history for a session.
 
         Args:
@@ -224,7 +224,7 @@ class SessionManager:
         logger.warning(f"Cleaning up oldest session {oldest_id} to make room")
         del self.sessions[oldest_id]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get session manager statistics."""
         total_turns = sum(len(s.turns) for s in self.sessions.values())
         return {

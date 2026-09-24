@@ -1,6 +1,6 @@
 """Integration tests for the orchestrator."""
 
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -28,13 +28,13 @@ class MockTestTool(MCPTool):
         return f"Test tool {self._name}"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {}}
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         return self.cacheable
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         self.call_count += 1
         # In the new architecture, model_manager is injected globally
         # For testing, we'll return a simple result
@@ -117,7 +117,7 @@ class TestConversationOrchestrator:
         orchestrator, registry, _, cache = setup_orchestrator
 
         class PartialTool(MockTestTool):
-            async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+            async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
                 self.call_count += 1
                 output = ToolOutput(success=True, result="partial")
                 output.metadata["cacheable"] = False
@@ -187,10 +187,10 @@ class TestConversationOrchestrator:
                 return "Test"
 
             @property
-            def input_schema(self) -> Dict[str, Any]:
+            def input_schema(self) -> dict[str, Any]:
                 return {"type": "object"}
 
-            async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+            async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
                 # In bundled mode, model_manager would be global
                 # For testing, we'll just verify the orchestrator has it
                 assert orchestrator.model_manager is not None
@@ -211,7 +211,7 @@ class TestConversationOrchestrator:
 
         # Create a failing tool
         class FailingTool(MockTestTool):
-            async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+            async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
                 self.call_count += 1
                 return ToolOutput(success=False, error="Tool failed")
 

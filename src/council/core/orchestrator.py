@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..services.cache import ResponseCache
 from ..tools.base import ToolOutput
@@ -18,7 +18,7 @@ class ConversationOrchestrator:
         self,
         tool_registry: ToolRegistry,
         model_manager: Any,
-        cache: Optional[ResponseCache] = None,
+        cache: ResponseCache | None = None,
     ):
         self.tool_registry = tool_registry
         self.model_manager = model_manager
@@ -28,7 +28,7 @@ class ConversationOrchestrator:
         self.total_execution_ms = 0.0
 
     async def execute_tool(
-        self, tool_name: str, parameters: Dict[str, Any], request_id: Optional[str] = None
+        self, tool_name: str, parameters: dict[str, Any], request_id: str | None = None
     ) -> ToolOutput:
         """Execute a single tool, serving a cached result when the tool allows it."""
         tool = self.tool_registry.get_tool(tool_name)
@@ -59,7 +59,7 @@ class ConversationOrchestrator:
 
         return output
 
-    def _cache_key(self, tool: Any, tool_name: str, parameters: Dict[str, Any]) -> Optional[str]:
+    def _cache_key(self, tool: Any, tool_name: str, parameters: dict[str, Any]) -> str | None:
         """The cache key for this call, or None when the result must not be cached.
 
         The key names the model that will answer, so switching the active
@@ -70,7 +70,7 @@ class ConversationOrchestrator:
         model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
         return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
 
-    def get_execution_stats(self) -> Dict[str, Any]:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Get statistics about tool executions."""
         total = self.total_executions
         successful = self.successful_executions

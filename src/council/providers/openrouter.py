@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from openai import OpenAI
@@ -30,11 +30,11 @@ class OpenRouterProvider(LLMProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         default_model: str = "~openai/gpt-sol-latest",
         timeout: float = 600.0,
         app_name: str = "council-mcp",
-        cache_ttl: Optional[float] = None,
+        cache_ttl: float | None = None,
     ):
         """Initialize the OpenRouter provider.
 
@@ -50,11 +50,11 @@ class OpenRouterProvider(LLMProvider):
         self.default_model = default_model
         self.timeout = timeout
         self.app_name = app_name
-        self._client: Optional[OpenAI] = None
+        self._client: OpenAI | None = None
         self.cache_ttl = (
             cache_ttl if cache_ttl is not None else float(os.getenv("COUNCIL_CACHE_TTL", "3600"))
         )
-        self._models_cache: Optional[list[ModelInfo]] = None
+        self._models_cache: list[ModelInfo] | None = None
         self._next_fetch: float = 0.0
 
     @property
@@ -86,9 +86,9 @@ class OpenRouterProvider(LLMProvider):
     def generate(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Generate a response using OpenRouter.
@@ -212,7 +212,7 @@ class OpenRouterProvider(LLMProvider):
         """
         return bool(self.api_key)
 
-    def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
+    def get_model_info(self, model_id: str) -> ModelInfo | None:
         """Get information about a specific model.
 
         Args:

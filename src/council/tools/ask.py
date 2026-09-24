@@ -1,7 +1,7 @@
 """Tool for asking general questions via Council."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -20,7 +20,7 @@ class AskTool(MCPTool):
         return "Ask a general question or for help with a problem"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -44,11 +44,11 @@ class AskTool(MCPTool):
             "required": ["question"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             # Get parameters

@@ -1,7 +1,6 @@
 """Test fixtures for the Council MCP server tests."""
 
 from dataclasses import dataclass, field
-from typing import List
 from unittest.mock import Mock
 
 
@@ -12,7 +11,7 @@ class ToolMetadata:
     name: str
     description: str
     version: str = "1.0.0"
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 def create_mock_model_manager():

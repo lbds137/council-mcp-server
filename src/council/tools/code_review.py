@@ -1,7 +1,7 @@
 """Code review tool for analyzing code quality and suggesting improvements."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from .base import MCPTool, ToolOutput
 
@@ -20,7 +20,7 @@ class CodeReviewTool(MCPTool):
         return "Review code for issues, improvements, or best practices"
 
     @property
-    def input_schema(self) -> Dict[str, Any]:
+    def input_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
@@ -47,11 +47,11 @@ class CodeReviewTool(MCPTool):
             "required": ["code"],
         }
 
-    def is_cacheable(self, parameters: Dict[str, Any]) -> bool:
+    def is_cacheable(self, parameters: dict[str, Any]) -> bool:
         """The answer depends only on the input and the model."""
         return True
 
-    async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
+    async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
             code = parameters.get("code")

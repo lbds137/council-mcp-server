@@ -8,8 +8,9 @@ target-version = "py312"
 src = ["src", "."]
 
 [tool.ruff.lint]
-# pycodestyle, pyflakes and isort: what flake8 + isort checked before
-select = ["E", "F", "W", "I"]
+# pycodestyle, pyflakes and isort (what flake8 + isort checked before),
+# plus bugbear (likely bugs) and pyupgrade (syntax for our Python 3.12 floor)
+select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
