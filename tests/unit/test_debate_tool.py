@@ -33,7 +33,9 @@ def replying_manager(fail_models=(), delay=0.0, fail_rebuttals=(), empty_models=
             kind = (
                 "synthesis"
                 if "judging" in prompt
-                else "rebuttal" if "Respond" in prompt else "open"
+                else "rebuttal"
+                if "Respond" in prompt
+                else "open"
             )
             if model in fail_models or (kind == "rebuttal" and model in fail_rebuttals):
                 raise RateLimitError("busy or rate limited", "openrouter", model)

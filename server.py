@@ -19,8 +19,7 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict, deque
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -65,6 +64,7 @@ council = _Council()
 
 
 from typing import Any, Callable, Dict, Optional
+
 
 # JSON-RPC 2.0 constants
 JSONRPC_VERSION = "2.0"
@@ -462,6 +462,7 @@ from typing import Any, Optional
 import httpx
 from openai import OpenAI
 
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 FAILED_FETCH_RETRY_SECONDS = 300.0
@@ -683,6 +684,7 @@ from typing import Any, Optional
 
 import httpx
 from openai import OpenAI
+
 
 ZAI_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 ZAI_MODEL_PREFIX = "z-ai/"
@@ -971,6 +973,7 @@ import time
 from typing import Optional
 
 import httpx
+
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
@@ -2203,7 +2206,7 @@ class SessionManager:
         # Add assistant response
         session.add_turn("assistant", response_text)
 
-        logger.info(f"Session {session_id}: Turn {len(session.turns)//2} completed")
+        logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")
         return response_text, model_used
 
     def _format_prompt_with_history(self, messages: List[Dict[str, str]]) -> str:
@@ -2418,7 +2421,6 @@ class ToolRegistry:
                 continue
 
             try:
-
                 # Concrete tools defined in this module, not ones it imports
                 for name, obj in inspect.getmembers(module, inspect.isclass):
                     if (
@@ -2571,6 +2573,7 @@ import re
 import subprocess
 from pathlib import Path
 
+
 CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DECRYPT_TIMEOUT_SECONDS = 20
 
@@ -2638,6 +2641,7 @@ import os
 from logging.handlers import RotatingFileHandler
 from os import PathLike
 from typing import IO, Any, Dict, Optional, Union
+
 
 # Protocol versions this server implements. The first entry is the default
 # returned when the client requests an unknown version (spec-compliant fallback).
@@ -3290,6 +3294,7 @@ Be constructive and specific in your feedback."""
 
 from typing import Any, Dict
 
+
 # Global session manager instance (initialized by server)
 _session_manager = None
 
@@ -3298,7 +3303,6 @@ def get_session_manager():
     """Get or create the session manager instance."""
     global _session_manager
     if _session_manager is None:
-
         _session_manager = SessionManager()
     return _session_manager
 
@@ -3374,7 +3378,6 @@ class StartConversationTool(MCPTool):
             # If initial message provided, send it
             if initial_message:
                 try:
-
                     if _server_instance and _server_instance.model_manager:
                         response, model_used = session_manager.send_message(
                             session_id, initial_message, _server_instance.model_manager
@@ -3459,7 +3462,6 @@ class ContinueConversationTool(MCPTool):
 
             # Get model manager
             try:
-
                 if not _server_instance or not _server_instance.model_manager:
                     raise AttributeError("Model manager not available")
                 model_manager = _server_instance.model_manager
@@ -3683,6 +3685,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
+
 # Three families, so the debate isn't one model agreeing with itself.
 # GLM runs on the flat-rate Z.ai plan when its key is set.
 DEFAULT_PANEL = ["~openai/gpt-sol-latest", "~z-ai/glm-latest", "~moonshotai/kimi-latest"]
@@ -3798,7 +3801,6 @@ class DebateTool(MCPTool):
 
             # Get model manager from server instance
             try:
-
                 if _server_instance and _server_instance.model_manager:
                     model_manager = _server_instance.model_manager
                 else:
@@ -4099,7 +4101,6 @@ class DebugTool(MCPTool):
 
             # Get model manager
             try:
-
                 if _server_instance and _server_instance.model_manager:
                     model_manager = _server_instance.model_manager
                 else:
@@ -4128,7 +4129,6 @@ class DebugTool(MCPTool):
     def _get_session_context(self, session_id: str) -> str:
         """Get previous debugging context from session if available."""
         try:
-
             session_manager = get_session_manager()
             session = session_manager.get_session(session_id)
 
@@ -4446,7 +4446,6 @@ class ListModelsTool(MCPTool):
 
             # Get model manager from server instance
             try:
-
                 if _server_instance and _server_instance.model_manager:
                     manager = _server_instance.model_manager
                 else:
@@ -4487,7 +4486,6 @@ class ListModelsTool(MCPTool):
             # Import model registry for enhanced metadata
             has_registry = False
             try:
-
                 has_registry = True
             except ImportError:
                 pass
@@ -4602,7 +4600,6 @@ class RecommendModelTool(MCPTool):
     async def execute(self, parameters: Dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-
             task_str = parameters.get("task", "general")
             prefer_free = parameters.get("prefer_free", False)
             # TODO: Implement prefer_fast and min_context filtering
@@ -4805,7 +4802,6 @@ class RefactorTool(MCPTool):
 
             # Get model manager
             try:
-
                 if _server_instance and _server_instance.model_manager:
                     model_manager = _server_instance.model_manager
                 else:
@@ -4956,6 +4952,7 @@ class RefactorTool(MCPTool):
 
 from typing import Any, Dict
 
+
 __version__ = "4.0.0"
 
 
@@ -4983,7 +4980,6 @@ class ServerInfoTool(MCPTool):
 
             # Try modular approach first
             try:
-
                 server = getattr(council, "_server_instance", None)
             except ImportError:
                 pass
@@ -5136,7 +5132,6 @@ class SetModelTool(MCPTool):
 
             # Get model manager from server instance
             try:
-
                 if _server_instance and _server_instance.model_manager:
                     manager = _server_instance.model_manager
                 else:
@@ -5249,7 +5244,7 @@ class SynthesizeTool(MCPTool):
                 return ToolOutput(success=False, error="At least one perspective is required")
             for i, perspective in enumerate(perspectives):
                 if not isinstance(perspective, dict) or not perspective.get("content"):
-                    return ToolOutput(success=False, error=f"Perspective {i+1} has no content")
+                    return ToolOutput(success=False, error=f"Perspective {i + 1} has no content")
 
             model_override = parameters.get("model")
 
@@ -5282,7 +5277,7 @@ class SynthesizeTool(MCPTool):
         """Build the synthesis prompt."""
         perspectives_text = "\n\n".join(
             [
-                f"**{p.get('source') or f'Perspective {i+1}'}:**\n{p['content']}"
+                f"**{p.get('source') or f'Perspective {i + 1}'}:**\n{p['content']}"
                 for i, p in enumerate(perspectives)
             ]
         )

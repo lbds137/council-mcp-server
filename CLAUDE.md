@@ -49,14 +49,11 @@ All tools support an optional `model` parameter to override the default model:
 mcp__council__code_review(
     code="def hello(): print('world')",
     focus="security",
-    model="~moonshotai/kimi-latest"  # Override default model
+    model="~moonshotai/kimi-latest",  # Override default model
 )
 
 # Ask a specific model
-mcp__council__ask(
-    question="Explain quantum computing",
-    model="~z-ai/glm-latest"
-)
+mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest")
 ```
 
 ## Development Workflow
@@ -80,7 +77,7 @@ mcp__council__ask(
 
 ### 4. Shipping Changes
 The owner doesn't read diffs; the pre-push hook and CI are the gates.
-- **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs flake8, black, isort, mypy and pytest.
+- **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs ruff (lint and format), mypy and pytest.
 - **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
 - No ruleset is active on GitHub. `.github/rulesets/main.json` requires the checks CI reports, `test (3.12)` and `test (3.13)`; activating it is the owner's call.
 
@@ -140,6 +137,7 @@ Create a new file in `src/council/tools/`:
 ```python
 from .base import MCPTool, ToolOutput
 
+
 class MyNewTool(MCPTool):
     @property
     def name(self) -> str:
@@ -155,25 +153,21 @@ class MyNewTool(MCPTool):
             "type": "object",
             "properties": {
                 "param1": {"type": "string", "description": "..."},
-                "model": {
-                    "type": "string",
-                    "description": "Optional model override"
-                }
+                "model": {"type": "string", "description": "Optional model override"},
             },
-            "required": ["param1"]
+            "required": ["param1"],
         }
 
     async def execute(self, parameters: dict) -> ToolOutput:
         # Get model manager
         from .. import _server_instance
+
         model_manager = _server_instance.model_manager
 
         # Generate content
         prompt = f"Your prompt: {parameters['param1']}"
         model_override = parameters.get("model")
-        response, model_used = model_manager.generate_content(
-            prompt, model=model_override
-        )
+        response, model_used = model_manager.generate_content(prompt, model=model_override)
 
         return ToolOutput(success=True, result=response)
 ```

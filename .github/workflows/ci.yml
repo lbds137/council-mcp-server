@@ -39,18 +39,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Lint with flake8
+    - name: Lint with ruff
       run: |
-        flake8 src/ tests/
+        ruff --version
+        ruff check src/ tests/ scripts/
 
-    - name: Check formatting with black
+    - name: Check formatting with ruff
       run: |
-        black --version
-        black --check --diff src/ tests/
-
-    - name: Check import order with isort
-      run: |
-        isort --check-only src/ tests/
+        ruff format --check --diff src/ tests/ scripts/
 
     - name: Type check with mypy
       run: |

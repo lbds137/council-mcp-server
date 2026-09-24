@@ -53,14 +53,11 @@ fi
 # Python command
 PYTHON="${VENV_BIN}python"
 
-# Run linting (fast)
-run_check "flake8 linting" "$PYTHON -m flake8 src/ tests/ --quiet"
+# Run linting, including import order (fast)
+run_check "ruff linting" "$PYTHON -m ruff check src/ tests/ scripts/ --quiet"
 
 # Run formatting check (fast)
-run_check "Black formatting" "$PYTHON -m black --check src/ tests/ --quiet"
-
-# Run import order check (fast)
-run_check "isort import order" "$PYTHON -m isort --check-only src/ tests/ --quiet"
+run_check "ruff formatting" "$PYTHON -m ruff format --check src/ tests/ scripts/ --quiet"
 
 # Run type checking (medium)
 run_check "mypy type checking" "$PYTHON -m mypy src/ --no-error-summary"

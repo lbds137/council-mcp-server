@@ -54,7 +54,6 @@ class ToolRegistry:
                 continue
 
             try:
-
                 # Concrete tools defined in this module, not ones it imports
                 for name, obj in inspect.getmembers(module, inspect.isclass):
                     if (
