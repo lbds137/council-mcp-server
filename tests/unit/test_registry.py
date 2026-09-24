@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from council.core.registry import ToolRegistry
 from council.tools.base import MCPTool, ToolOutput
@@ -50,21 +50,26 @@ class TestToolRegistry:
         assert isinstance(registry._tools["mock_tool"], MockTool)
         assert registry._tool_classes["mock_tool"] == MockTool
 
-    def test_register_duplicate_tool(self):
-        """Test that duplicate tools log a warning."""
+    def test_discover_tools_finds_the_real_tools(self):
+        """Test discovery from source registers every concrete tool."""
         registry = ToolRegistry()
+        registry.discover_tools()
 
-        # Register once
-        tool = MockTool()
-        registry._tools[tool.name] = tool
-        registry._tool_classes[tool.name] = MockTool
+        tools = registry.list_tools()
+        assert len(tools) == 17
+        for name in ("ask", "set_model", "debug", "start_conversation", "server_info"):
+            assert name in tools
 
-        # Try to register again with a mock logger to check warning
+    def test_discovering_twice_skips_duplicates(self):
+        """Test a second discovery warns about each tool and registers nothing new."""
+        registry = ToolRegistry()
+        registry.discover_tools()
+
         with patch("council.core.registry.logger") as mock_logger:
-            # Simulate discover_tools finding the same tool again
             registry.discover_tools()
-            # The warning should be logged when trying to register duplicate
-            assert mock_logger.warning.called or len(registry._tools) == 1
+
+        assert len(registry.list_tools()) == 17
+        assert mock_logger.warning.call_count == 17
 
     def test_get_tool(self):
         """Test getting a tool by name."""
@@ -128,39 +133,6 @@ class TestToolRegistry:
         assert definitions[0]["name"] == "mock_tool"
         assert definitions[0]["description"] == "Mock tool for testing"
         assert "inputSchema" in definitions[0]
-
-    @patch("council.core.registry.Path")
-    def test_discover_tools(self, mock_path_class):
-        """Test tool discovery from directory."""
-        # Create a temporary test module with our MockTool
-        import types
-
-        test_module = types.ModuleType("test_tool_module")
-        test_module.MockTool = MockTool
-
-        # Mock the path operations
-        mock_tools_path = Mock()
-        mock_path_class.return_value.parent.parent.__truediv__.return_value = mock_tools_path
-
-        # Mock glob to return a test file
-        mock_tool_file = Mock()
-        mock_tool_file.name = "test_tool.py"
-        mock_tool_file.stem = "test_tool"
-        mock_tools_path.glob.return_value = [mock_tool_file]
-
-        # Patch import_module to return our test module
-        with patch("importlib.import_module") as mock_import:
-            mock_import.return_value = test_module
-
-            # Since MockTool inherits from MCPTool which inherits from BaseTool
-            registry = ToolRegistry()
-
-            # Manually call the register method since the inheritance check is complex to mock
-            registry._register_tool_class(MockTool)
-
-            # Tool should be registered
-            assert "mock_tool" in registry._tools
-            assert isinstance(registry._tools["mock_tool"], MockTool)
 
     def test_discover_tools_handles_errors(self):
         """Test that discovery handles import errors gracefully."""

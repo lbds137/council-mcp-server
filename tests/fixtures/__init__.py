@@ -19,6 +19,7 @@ def create_mock_model_manager():
     """Create a mock model manager for testing."""
     mock_manager = Mock()
     mock_manager.primary_model_name = "test-primary-model"
+    mock_manager.active_model = "test-primary-model"
     mock_manager.fallback_model_name = "test-fallback-model"
     mock_manager.generate_content = Mock(return_value=("Test response", "test-primary-model"))
     mock_manager.get_status = Mock(
