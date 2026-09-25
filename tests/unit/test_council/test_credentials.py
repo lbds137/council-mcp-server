@@ -255,7 +255,7 @@ class TestTpmGuard:
             assert load_credentials(str(bundle_dir)) == []
 
         assert mock_run.call_count == 1
-        assert "TPM is likely stuck" in caplog.text
+        assert "TPM is busy or stuck" in caplog.text
 
     @patch("council.credentials.subprocess.run")
     def test_stall_marker_expires(self, mock_run, bundle_dir, state_dir):
@@ -292,7 +292,7 @@ class TestTpmGuard:
                 assert load_credentials(str(bundle_dir)) == []
 
         mock_run.assert_not_called()
-        assert "another council process held the TPM" in caplog.text
+        assert "TPM is busy or stuck" in caplog.text
 
     @patch("council.credentials.subprocess.run")
     def test_lock_is_released_after_each_decrypt(self, mock_run, bundle_dir, monkeypatch):
@@ -305,3 +305,40 @@ class TestTpmGuard:
         load_credentials(str(bundle_dir))
 
         assert mock_run.call_count == 2
+
+    @patch("council.credentials.subprocess.run")
+    def test_waiter_rechecks_the_marker_after_getting_the_lock(
+        self, mock_run, bundle_dir, state_dir, monkeypatch
+    ):
+        """Test a startup that waited out a holder's timeout doesn't decrypt on the stuck TPM."""
+        state_dir.mkdir()
+        marker = state_dir / "tpm-stalled"
+        real_acquire = credentials._acquire
+
+        def acquire_after_holder_timed_out(lock):
+            marker.touch()
+            return real_acquire(lock)
+
+        monkeypatch.setattr(credentials, "_acquire", acquire_after_holder_timed_out)
+
+        assert load_credentials(str(bundle_dir)) == []
+        mock_run.assert_not_called()
+
+    @patch("council.credentials.subprocess.run")
+    def test_unusable_lock_file_falls_back_to_an_unguarded_decrypt(
+        self, mock_run, bundle_dir, state_dir
+    ):
+        """Test a lock that can't be opened costs the guard, not the keys."""
+        state_dir.mkdir()
+        (state_dir / "decrypt.lock").mkdir()  # open(..., "w") raises IsADirectoryError
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        assert load_credentials(str(bundle_dir)) == ["OPENROUTER_API_KEY"]
+
+    @patch("council.credentials.subprocess.run")
+    def test_marker_write_failure_is_not_fatal(self, mock_run, bundle_dir, monkeypatch):
+        """Test a runtime dir that vanishes mid-decrypt doesn't crash startup."""
+        mock_run.side_effect = subprocess.TimeoutExpired("systemd-creds", 20)
+        monkeypatch.setattr(credentials.Path, "touch", Mock(side_effect=FileNotFoundError("gone")))
+
+        assert load_credentials(str(bundle_dir)) == []
