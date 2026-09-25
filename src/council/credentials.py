@@ -30,8 +30,9 @@ logger = logging.getLogger(__name__)
 
 CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 DECRYPT_TIMEOUT_SECONDS = 20
-# Long enough for a handful of sessions starting together (about 3 s each)
-LOCK_WAIT_SECONDS = 30
+# Room for a few sessions starting together (about 3 s each), while wait plus
+# decrypt stays under Claude Code's MCP connect timeout
+LOCK_WAIT_SECONDS = 15
 STALL_BACKOFF_SECONDS = 300
 BUNDLE_FILE = "keys.cred"
 BUNDLE_CREDENTIAL_NAME = "council-keys"
@@ -106,27 +107,27 @@ def _state_dir() -> Path:
 
 
 def _decrypt(path: Path, credential_name: str) -> str | None:
-    """Decrypt one credential file, taking turns on the TPM with other council processes."""
+    """Decrypt one credential file, taking turns on the TPM with other council processes.
+
+    The guard is best-effort: a file-system error in it falls back to an
+    unguarded decrypt, never to a server that can't start.
+    """
     try:
         state = _state_dir()
+        lock = open(state / "decrypt.lock", "w")
     except OSError as e:
-        logger.warning(f"No state directory for the decrypt lock ({e}); decrypting unguarded")
+        logger.warning(f"No decrypt lock ({e}); decrypting unguarded")
         return _run_decrypt(path, credential_name, None)
 
     stall_marker = state / "tpm-stalled"
-    if _stalled_recently(stall_marker):
-        logger.warning(
-            f"Skipping {path.name}: a decrypt timed out in the last "
-            f"{STALL_BACKOFF_SECONDS // 60} min, so the TPM is likely stuck "
-            "(a reboot clears it). Reconnect council later to retry."
-        )
-        return None
-
-    with open(state / "decrypt.lock", "w") as lock:
-        if not _acquire(lock):
+    with lock:
+        # Checked again after the wait: the holder may have timed out meanwhile
+        if _stalled_recently(stall_marker) or not _acquire(lock) or _stalled_recently(stall_marker):
             logger.warning(
-                f"Skipping {path.name}: another council process held the TPM for "
-                f"{LOCK_WAIT_SECONDS} s. Reconnect council later to retry."
+                f"Skipping {path.name}: the TPM is busy or stuck (a decrypt timed out in "
+                f"the last {STALL_BACKOFF_SECONDS // 60} min, or another council process "
+                f"held it for {LOCK_WAIT_SECONDS} s). Reconnect council later to retry; "
+                "a reboot clears a stuck TPM."
             )
             return None
         return _run_decrypt(path, credential_name, stall_marker)
@@ -135,8 +136,21 @@ def _decrypt(path: Path, credential_name: str) -> str | None:
 def _stalled_recently(marker: Path) -> bool:
     try:
         return time.time() - marker.stat().st_mtime < STALL_BACKOFF_SECONDS
-    except FileNotFoundError:
+    except OSError:
         return False
+
+
+def _mark(marker: Path | None, stalled: bool) -> None:
+    """Set or clear the stall marker; failing to is logged, not fatal."""
+    if marker is None:
+        return
+    try:
+        if stalled:
+            marker.touch()
+        else:
+            marker.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(f"Could not update {marker}: {e}")
 
 
 def _acquire(lock: IO[str]) -> bool:
@@ -164,15 +178,13 @@ def _run_decrypt(path: Path, credential_name: str, stall_marker: Path | None) ->
         )
     except subprocess.TimeoutExpired as e:
         logger.warning(f"Could not run systemd-creds for {path.name}: {e}")
-        if stall_marker is not None:
-            stall_marker.touch()
+        _mark(stall_marker, stalled=True)
         return None
     except OSError as e:
         logger.warning(f"Could not run systemd-creds for {path.name}: {e}")
         return None
 
-    if stall_marker is not None:
-        stall_marker.unlink(missing_ok=True)
+    _mark(stall_marker, stalled=False)
 
     if result.returncode != 0:
         error = result.stderr.decode(errors="replace").strip()
