@@ -1,12 +1,15 @@
 """Tests for loading API keys from systemd user credentials."""
 
+import fcntl
 import logging
 import os
 import subprocess
+import time
 from unittest.mock import Mock, patch
 
 import pytest
 
+from council import credentials
 from council.credentials import load_credentials
 
 SECRET = "sk-test-secret-value"
@@ -31,6 +34,15 @@ def clean_env():
         for name in ("OPENROUTER_API_KEY", "ZAI_CODING_API_KEY"):
             os.environ.pop(name, None)
         yield
+
+
+@pytest.fixture(autouse=True)
+def state_dir(tmp_path, monkeypatch):
+    """Keep the decrypt lock and stall marker out of the real runtime dir."""
+    run = tmp_path / "run"
+    run.mkdir()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
+    return run / "council"
 
 
 class TestLoadCredentials:
@@ -226,3 +238,70 @@ class TestCombinedKeysFile:
 
         assert loaded == ["OPENROUTER_API_KEY"]
         assert "Could not decrypt credential keys.cred: TPM unavailable" in caplog.text
+
+
+class TestTpmGuard:
+    """Council processes take turns on the TPM and back off after a stalled decrypt."""
+
+    @patch("council.credentials.subprocess.run")
+    def test_timeout_marks_the_tpm_stalled_and_later_startups_skip_it(
+        self, mock_run, bundle_dir, caplog
+    ):
+        """Test the startup after a timed-out decrypt doesn't queue another one."""
+        mock_run.side_effect = subprocess.TimeoutExpired("systemd-creds", 20)
+        assert load_credentials(str(bundle_dir)) == []
+
+        with caplog.at_level(logging.WARNING):
+            assert load_credentials(str(bundle_dir)) == []
+
+        assert mock_run.call_count == 1
+        assert "TPM is likely stuck" in caplog.text
+
+    @patch("council.credentials.subprocess.run")
+    def test_stall_marker_expires(self, mock_run, bundle_dir, state_dir):
+        """Test an old stall marker no longer blocks, and a success clears it."""
+        state_dir.mkdir()
+        marker = state_dir / "tpm-stalled"
+        marker.touch()
+        old = time.time() - credentials.STALL_BACKOFF_SECONDS - 1
+        os.utime(marker, (old, old))
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        assert load_credentials(str(bundle_dir)) == ["OPENROUTER_API_KEY"]
+        assert not marker.exists()
+
+    @patch("council.credentials.subprocess.run")
+    def test_missing_systemd_creds_does_not_mark_a_stall(self, mock_run, cred_dir, state_dir):
+        """Test only a timeout counts as a stuck TPM."""
+        mock_run.side_effect = FileNotFoundError("systemd-creds")
+
+        load_credentials(str(cred_dir))
+
+        assert not (state_dir / "tpm-stalled").exists()
+
+    @patch("council.credentials.subprocess.run")
+    def test_gives_up_when_another_process_holds_the_tpm(
+        self, mock_run, bundle_dir, state_dir, monkeypatch, caplog
+    ):
+        """Test a startup waits a bounded time for the lock, then skips instead of piling on."""
+        monkeypatch.setattr(credentials, "LOCK_WAIT_SECONDS", 0.2)
+        state_dir.mkdir()
+        with open(state_dir / "decrypt.lock", "w") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            with caplog.at_level(logging.WARNING):
+                assert load_credentials(str(bundle_dir)) == []
+
+        mock_run.assert_not_called()
+        assert "another council process held the TPM" in caplog.text
+
+    @patch("council.credentials.subprocess.run")
+    def test_lock_is_released_after_each_decrypt(self, mock_run, bundle_dir, monkeypatch):
+        """Test back-to-back startups both decrypt."""
+        monkeypatch.setattr(credentials, "LOCK_WAIT_SECONDS", 0.2)
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        load_credentials(str(bundle_dir))
+        os.environ.pop("OPENROUTER_API_KEY")
+        load_credentials(str(bundle_dir))
+
+        assert mock_run.call_count == 2
