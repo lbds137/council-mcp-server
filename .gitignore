@@ -155,4 +155,8 @@ ehthumbs.db
 server_original.py
 *.log
 
+# Claude Code agent worktrees and delegation specs
+.claude/worktrees/
+.claude/dispatch/
+
 # Development symlinks
