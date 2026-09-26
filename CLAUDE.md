@@ -86,10 +86,10 @@ The owner doesn't read diffs; the pre-push hook and CI are the gates.
 - **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs ruff (lint and format), mypy and pytest.
 - **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
 - The GitHub ruleset in `.github/rulesets/main.json` (active since 2026-09-24) blocks force-pushes to `main` and its deletion, with no bypass. It doesn't require CI, so direct small-fix pushes still work. Never rewrite `main`'s history.
-- Implementation over ~5 lines, prose included, goes through delegation (§ 5); delegated units
-  always get the fresh-context review. Delegation decides who writes the diff; the small/bigger
-  split above decides how it ships, so a 20-line docs fix is delegated and then committed
-  straight to `main`.
+- Code changes over ~5 lines go through delegation (§ 5); docs and CLAUDE.md edits stay inline
+  with the driver (owner's ruling 2026-09-25). Delegated units always get the fresh-context
+  review. Delegation decides who writes the diff; the small/bigger split above decides how it
+  ships, so a 20-line one-file code fix is delegated and then committed straight to `main`.
 
 ### 5. Delegation
 This repo has adopted the harness `delegation` skill: the driver grounds and specs each unit,
