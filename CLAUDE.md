@@ -72,7 +72,8 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 Only committed code ships: the script warns about uncommitted changes and leaves them
 out, so commit (and normally merge) first. The install is a snapshot, not editable, so the
 running server doesn't follow branch switches. Roll back by checking out the earlier
-commit and running the script again.
+commit and running the script again; `~/.claude-mcp-servers/council/INSTALLED` records the
+live sha and time.
 
 ### 3. Testing Changes
 1. After deploying, reconnect council in each open session (`/mcp` → council → Reconnect)
@@ -217,6 +218,7 @@ COUNCIL_DEBUG=1                                     # Enable debug logging
    `src/council/discovery/model_registry.py`. It leaves out Anthropic models on purpose:
    Claude Code can spawn its own Claude agents, so council is for other families.
    `make check-models` lists registry IDs that OpenRouter has dropped.
+   When refreshing the registry, rank OpenAI, Google, DeepSeek, Kimi, GLM, Qwen, MiniMax, xAI and Mistral, and give the Chinese open-weight families (GLM, Kimi, Qwen, DeepSeek, MiniMax) full entries, not free-tier footnotes: the owner leans on them across her projects. Never propose a Claude default; `test_no_anthropic_models` enforces the exclusion, and an explicit `model="~anthropic/..."` override still works. Prefer OpenRouter's floating `~vendor/family-latest` aliases so entries don't go stale. The default stays `~openai/gpt-sol-latest` by the owner's choice; GLM on the Z.ai plan is close to free (her plan use peaks around 60% a week).
 
 ## Testing Guidelines
 
@@ -253,6 +255,10 @@ tail -f ~/.claude-mcp-servers/council/logs/council-mcp-server.log
 2. **Model not available** - Check model ID with list_models
 3. **Timeout errors** - Increase COUNCIL_TIMEOUT
 4. **Rate limits** - OpenRouter has per-model rate limits
+5. **Council starts without keys** - Check `$XDG_RUNTIME_DIR/council/tpm-stalled`. Decrypts take turns through the lock `$XDG_RUNTIME_DIR/council/decrypt.lock` (15 s wait, then the server starts without keys). A timed-out decrypt writes `tpm-stalled`, and startups then skip the TPM for 5 minutes; a reboot clears it. Cause seen 2026-09-24: parallel headless `claude -p` workers each started council and wedged the TPM queue (16+ D-state kworkers). Headless `claude -p` calls must pass `--strict-mcp-config` so they load no MCP servers.
+6. **Stale server in a long-lived session** - If `server_info` shows a default model other than `COUNCIL_DEFAULT_MODEL` in the installed `.env` (e.g. `anthropic/claude-opus-4.6`), the process predates the current install. Its GLM calls then go through billed OpenRouter (the `[Model: …]` label lacks `· Z.ai plan`). Pass `model:` explicitly, or reconnect (`/mcp` → council → Reconnect).
+7. **Old server process after a reconnect** - Claude Code keeps the replaced server process alive, idle, until the session exits. Stopping it by PID with `kill -TERM <pid>` is safe; council keeps working (tested 2026-09-23). List first and kill by PID, never by pattern.
+8. **Context windows** - OpenRouter's headline `context_length` is the largest window ANY provider serves (GLM-5.3 shows 1.31M because of Cloudflare; Z.ai and most hosts serve 1M). Read real per-provider windows from `/api/v1/models/<id>/endpoints`. Registry `context_window` is the median across providers.
 
 ## Quick Command Reference
 
