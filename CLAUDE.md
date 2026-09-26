@@ -87,7 +87,9 @@ The owner doesn't read diffs; the pre-push hook and CI are the gates.
 - **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
 - The GitHub ruleset in `.github/rulesets/main.json` (active since 2026-09-24) blocks force-pushes to `main` and its deletion, with no bypass. It doesn't require CI, so direct small-fix pushes still work. Never rewrite `main`'s history.
 - Implementation over ~5 lines, prose included, goes through delegation (§ 5); delegated units
-  always get the fresh-context review.
+  always get the fresh-context review. Delegation decides who writes the diff; the small/bigger
+  split above decides how it ships, so a 20-line docs fix is delegated and then committed
+  straight to `main`.
 
 ### 5. Delegation
 This repo has adopted the harness `delegation` skill: the driver grounds and specs each unit,
@@ -114,7 +116,8 @@ fills its project slots.
   check form; `make format` rewrites files), `make type-check`, `make test` (about 600 tests,
   about 10 s, no key or TPM needed: provider calls are patched), `make pre-commit` (the
   installed commit hook's checks over every file: trailing whitespace, final newline,
-  yaml/json/toml syntax, ruff; its cached hook environments live under `~/.cache/pre-commit`).
+  yaml/json/toml syntax, ruff; its ruff-format hook rewrites rather than checks, so run it
+  after the check form; its cached hook environments live under `~/.cache/pre-commit`).
 - **Ceilings:** ruff `line-length = 100`, rules E/F/W/I/B/UP, `tests/**` exempt from E501;
   mypy checks `src/` only, with `warn_unused_ignores`, so a stale `# type: ignore` fails it.
   No file or function length caps, no coverage threshold.
