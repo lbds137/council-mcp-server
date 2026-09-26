@@ -86,41 +86,51 @@ The owner doesn't read diffs; the pre-push hook and CI are the gates.
 - **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs ruff (lint and format), mypy and pytest.
 - **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
 - The GitHub ruleset in `.github/rulesets/main.json` (active since 2026-09-24) blocks force-pushes to `main` and its deletion, with no bypass. It doesn't require CI, so direct small-fix pushes still work. Never rewrite `main`'s history.
-- Implementation over ~5 lines goes through delegation (§ 5).
+- Implementation over ~5 lines, prose included, goes through delegation (§ 5); delegated units
+  always get the fresh-context review.
 
 ### 5. Delegation
 This repo has adopted the harness `delegation` skill: the driver grounds and specs each unit,
 a `harness:implementer` executes it in a worktree under `.claude/worktrees/` (gitignored), the
 driver reads the full diff, runs a fresh-context review agent, transfers the patch with the
-skill's block, then runs the gates from the main checkout and ships per § 4. Specs and cloud
-session ids live in `.claude/dispatch/` (gitignored). The skill's own text is the procedure;
-this section only fills its project slots.
+skill's block, then runs the gates from the main checkout and ships per § 4. Specs live in
+`.claude/dispatch/` (gitignored). The skill's own text is the procedure; this section only
+fills its project slots.
 - **Worktree base.** `.claude/settings.json` sets `worktree.baseRef` to `head`, so the agent
   tree is cut from the main checkout's HEAD at spawn time: park the main checkout on the unit's
   branch at the spec's SHA before the Agent call. A driver session that is itself
   worktree-isolated (a background job) cannot reach a second worktree: there the worker edits
   the driver's tree directly, dispatched without the isolation flag, and the transfer step is
   skipped.
-- **Step 0 for a bare worktree:** `python -m venv .venv && .venv/bin/pip install -e ".[dev]"`
-  (about a minute). The Makefile and the pre-push hook fall back to the system `python` when
-  there is no `.venv`, and it has no ruff, so without this the first gate fails for reasons
-  unrelated to the diff. The dev extras are declared in `setup.py`, not `pyproject.toml`.
+- **Step 0 for a bare worktree:** `python -m venv .venv && .venv/bin/pip install -e ".[dev]"`.
+  The Makefile falls back to the system `python` when there is no `.venv`, and it has no ruff,
+  so without this the first gate fails for reasons unrelated to the diff. The dev extras are
+  declared in `setup.py`, not `pyproject.toml`. Step 0 builds on the system Python 3.13; 3.12
+  compatibility is checked only by CI.
 - **The step-0 self-heal block in the delegation skill is the one sanctioned `git reset --hard`
   in this repo.**
-- **Gate** (what the pre-push hook and CI run; copy into every spec, run one at a time):
-  `make lint`, `.venv/bin/python -m ruff format --check src/ tests/ scripts/` (the check form;
-  `make format` rewrites files), `make type-check`, `make test` (about 600 tests, about 10 s).
+- **Gate** (what the commit hook, the pre-push hook and CI run; copy into every spec, run one
+  at a time): `make lint`, `.venv/bin/python -m ruff format --check src/ tests/ scripts/` (the
+  check form; `make format` rewrites files), `make type-check`, `make test` (about 600 tests,
+  about 10 s, no key or TPM needed: provider calls are patched), `make pre-commit` (the
+  installed commit hook's checks over every file: trailing whitespace, final newline,
+  yaml/json/toml syntax, ruff; its cached hook environments live under `~/.cache/pre-commit`).
 - **Ceilings:** ruff `line-length = 100`, rules E/F/W/I/B/UP, `tests/**` exempt from E501;
   mypy checks `src/` only, with `warn_unused_ignores`, so a stale `# type: ignore` fails it.
   No file or function length caps, no coverage threshold.
 - **Landmines:** tool discovery (`src/council/core/registry.py`) imports every `tools/*.py`
-  file not starting with `_` and registers each concrete `MCPTool` subclass defined there, so
-  a helper class in a tool file becomes a live tool. `is_cacheable` must stay False for any
-  tool that reads or changes server state. CI runs on Python 3.12 and 3.13.
+  file except `base.py` and `_`-prefixed ones, and registers each concrete `MCPTool` subclass
+  defined there, so a second concrete subclass in a tool file (a shared base that implements
+  every abstract member, a copy left behind) becomes a live tool; plain helper classes are
+  fine. `is_cacheable` must stay False for any tool that reads or changes server state.
 - **Local-only list** (the driver keeps these; never in a spec): the TPM-sealed keys under
   `~/.claude-mcp-servers/council/credentials`, the installed server and `scripts/install.sh`
   (an install is machine-wide), and anything that calls OpenRouter or Z.ai live (the
   `mcp__council__*` tools, `make check-models`).
+- **Not adopted yet:** cloud units (no cloud step-0 script exists; units run locally until one
+  is written, starting from the local step 0 on a 3.12 or 3.13 toolchain, no secrets needed)
+  and the `dispatch-posture-gate` hook (`HARNESS_DISPATCH_SRC_RE` unset; enable it if inline
+  edits keep slipping past the ~5-line rule).
 
 ## Code Architecture
 
@@ -212,7 +222,8 @@ class MyNewTool(MCPTool):
         return ToolOutput(success=True, result=response)
 ```
 
-Then export it in `src/council/tools/__init__.py`. Discovery finds it automatically.
+Then export it in `src/council/tools/__init__.py` for the package API; discovery
+(`src/council/core/registry.py`) finds it by file, not by that export.
 
 If the tool's answer depends only on its input and the model, override `is_cacheable(parameters)` to return True so repeated calls are served from cache. Never do this for a tool that reads or changes server state.
 
