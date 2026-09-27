@@ -43,7 +43,7 @@ ZAI_ALIAS_PATTERNS = {
 ZAI_QUOTA_CODES = {"1308", "1310", "1316", "1317", "1318", "1319", "1320", "1321"}
 ZAI_BUSY_CODES = {"1302", "1305", "1313"}
 ZAI_ACCOUNT_CODES = {"1113", "1309"}
-ZAI_MODEL_NOT_FOUND_CODE = "1214"
+ZAI_MODEL_NOT_FOUND_CODES = {"1211", "1214"}
 ZAI_CODE_PATTERN = re.compile(r"""['"]code['"]\s*:\s*['"]?(\d{4})(?!\d)""")
 
 
@@ -66,8 +66,11 @@ class ZaiCodingProvider(LLMProvider):
 
         Args:
             api_key: Z.ai coding-plan key. If None, reads ZAI_CODING_API_KEY.
-            timeout: Request timeout in seconds. GLM reasoning can run past a
-                minute, and one rate-limited attempt can take nearly two.
+            timeout: Both the SDK's per-read timeout and the overall deadline
+                for one streamed reply, in seconds. The deadline is checked as
+                each chunk arrives, so a silent server is bounded by the
+                per-read timeout instead. GLM reasoning can run past a minute,
+                and one rate-limited attempt can take nearly two.
             cache_ttl: How long to trust Z.ai's model list, in seconds. If None,
                 reads COUNCIL_CACHE_TTL (default 1 hour).
         """
@@ -222,25 +225,73 @@ class ZaiCodingProvider(LLMProvider):
             raise ModelNotFoundError("No Z.ai model given", provider=self.name)
 
         logger.info(f"Generating with Z.ai coding plan model: {model}")
+        reply_id: str | None = None
+        created: int | None = None
+        served_model: str | None = None
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        finish_reason: str | None = None
+        usage_obj: Any = None
+        saw_choices = False
+        start = time.monotonic()
+        # This provider always streams; drop any caller-supplied values so they
+        # don't collide with the ones we set explicitly below.
+        kwargs.pop("stream", None)
+        kwargs.pop("stream_options", None)
         try:
-            response = self.client.chat.completions.create(
+            # Z.ai's coding endpoint drops a non-streamed call at 60 s; streaming
+            # keeps bytes flowing so a longer reply survives.
+            with self.client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
                 max_tokens=max_tokens,
+                stream=True,
+                stream_options={"include_usage": True},
                 **kwargs,
-            )
-            # Inside the try: a malformed reply should fall back like any failure
-            choice = response.choices[0]
-            content = choice.message.content or ""
-            reasoning = getattr(choice.message, "reasoning_content", None) or ""
+            ) as stream:
+                for chunk in stream:
+                    if time.monotonic() - start > self.timeout:
+                        raise LLMProviderError(
+                            f"no complete reply within {self.timeout:.0f} s",
+                            provider=self.name,
+                            model=model,
+                            is_retryable=True,
+                        )
+                    if reply_id is None and chunk.id is not None:
+                        reply_id = chunk.id
+                    if created is None and chunk.created is not None:
+                        created = chunk.created
+                    if served_model is None and chunk.model is not None:
+                        served_model = chunk.model
+                    if chunk.usage is not None:
+                        usage_obj = chunk.usage
+                    if chunk.choices:
+                        saw_choices = True
+                        delta = chunk.choices[0].delta
+                        content_parts.append(delta.content or "")
+                        reasoning_parts.append(getattr(delta, "reasoning_content", None) or "")
+                        if chunk.choices[0].finish_reason is not None:
+                            finish_reason = chunk.choices[0].finish_reason
         except AuthenticationError:
+            raise
+        except LLMProviderError:
             raise
         except Exception as e:
             raise self._classify_error(e, model) from e
 
+        if not saw_choices:
+            # No chunk ever carried a choice: a malformed reply should fall back
+            # like any failure
+            raise LLMProviderError(
+                "malformed reply: no choices in the stream", provider=self.name, model=model
+            )
+
+        content = "".join(content_parts)
+        reasoning = "".join(reasoning_parts)
+
         if not content.strip():
-            if choice.finish_reason == "length":
+            if finish_reason == "length":
                 # The token limit hit mid-reasoning; the reasoning isn't an answer
                 raise LLMProviderError(
                     "reply cut off before the answer (max_tokens)",
@@ -251,21 +302,21 @@ class ZaiCodingProvider(LLMProvider):
             content = reasoning
 
         usage = {}
-        if response.usage:
+        if usage_obj:
             usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
+                "prompt_tokens": usage_obj.prompt_tokens,
+                "completion_tokens": usage_obj.completion_tokens,
+                "total_tokens": usage_obj.total_tokens,
             }
 
-        served = response.model or model
+        served = served_model or model
         if not served.startswith(ZAI_MODEL_PREFIX):
             served = f"{ZAI_MODEL_PREFIX}{served}"
         return LLMResponse(
             content=content,
             model=served,
             usage=usage,
-            metadata={"id": response.id, "created": response.created, "route": self.name},
+            metadata={"id": reply_id, "created": created, "route": self.name},
         )
 
     def _classify_error(self, error: Exception, model: str) -> LLMProviderError:
@@ -275,11 +326,17 @@ class ZaiCodingProvider(LLMProvider):
         status = getattr(error, "status_code", None)
         match = ZAI_CODE_PATTERN.search(raw)
         code = match.group(1) if match else None
+        if code is None:
+            # A mid-stream SSE error (openai._streaming) has no status_code and
+            # str(error) is only the message; the business code is on .code.
+            attr_code = getattr(error, "code", None)
+            if isinstance(attr_code, str) and re.fullmatch(r"\d{4}", attr_code):
+                code = attr_code
         suffix = f" (Z.ai code {code})" if code else ""
 
         if code in ZAI_ACCOUNT_CODES or status in (401, 403):
             return AuthenticationError(f"account or key problem{suffix}", self.name, model)
-        if code == ZAI_MODEL_NOT_FOUND_CODE or status == 404:
+        if code in ZAI_MODEL_NOT_FOUND_CODES or status == 404:
             return ModelNotFoundError(f"model not on the plan{suffix}", self.name, model)
         if code in ZAI_QUOTA_CODES:
             return RateLimitError(f"quota window exhausted{suffix}", self.name, model)
