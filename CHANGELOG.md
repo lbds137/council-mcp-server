@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test coverage increased from 49% to 80%, and every tool now has its own tests
 
 ### Removed
+- xAI (Grok) models: the `~x-ai/grok-latest` registry entry is gone, and `test_no_xai_models` keeps xAI out of the registry, the recommendations and the free tier. The owner doesn't use Grok, on ethical grounds. An explicit `model=` override still reaches any OpenRouter model
 - The Gemini-era debate protocol (it called a tool that no longer existed and nothing could reach it)
 - `ConversationMemory` and its models: nothing wrote to it, so `server_info` always showed zero turns. `server_info` now reports the number of open conversations instead
 - The `BaseTool` compatibility class, the `GeminiMCPServer` alias, and the unused `council_manager` lookups in `list_models` and `set_model`

@@ -213,18 +213,6 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         notes="Runs on the Z.ai coding plan when ZAI_CODING_API_KEY is set",
         recommended_for=["quick_tasks", "quick_vision", "cost_effective"],
     ),
-    # === xAI ===
-    "~x-ai/grok-latest": ModelMetadata(  # grok-4.7
-        model_class=ModelClass.PRO,
-        context_window=500_000,
-        strengths={
-            TaskType.CODING: "A",
-            TaskType.REASONING: "A",
-            TaskType.GENERAL: "A",
-        },
-        description="xAI flagship for coding and agentic work; 500K context",
-        recommended_for=["coding", "second_opinion"],
-    ),
     # === Qwen (no alias on OpenRouter, pinned) ===
     "qwen/qwen3.8-max-0902": ModelMetadata(
         model_class=ModelClass.PRO,
