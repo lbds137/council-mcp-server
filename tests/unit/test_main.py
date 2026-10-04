@@ -388,17 +388,99 @@ SPACES_VALUE = value with spaces"""
         assert response["id"] == 2
         assert response["result"]["tools"] == mock_tools
 
-    def test_handle_tools_call_without_orchestrator(self):
+    def test_handle_tools_call_without_orchestrator(self, monkeypatch):
         """Tool calls before orchestrator is ready must return isError: true."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         server = CouncilMCPServer()
         server.orchestrator = None
 
-        response = server.handle_tool_call(3, {"name": "test_tool"})
+        with patch.object(CouncilMCPServer, "_load_credentials"):
+            response = server.handle_tool_call(3, {"name": "test_tool"})
 
         assert response["jsonrpc"] == "2.0"
         assert response["id"] == 3
         assert response["result"]["isError"] is True
-        assert "not initialized" in response["result"]["content"][0]["text"]
+        assert "Reconnect council" in response["result"]["content"][0]["text"]
+
+    def test_keyless_tool_call_recovers_when_decrypt_succeeds(self, monkeypatch):
+        """A keyless server retries the decrypt on a tool call and then runs the tool."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        server = CouncilMCPServer()
+        server.orchestrator = None
+
+        def _decrypt_now_works():
+            monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+
+        mock_output = MagicMock()
+        mock_output.success = True
+        mock_output.result = "Tool result"
+
+        async def _fake_exec(**_kw):
+            return mock_output
+
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials", side_effect=_decrypt_now_works),
+            patch("council.main.ModelManager"),
+            patch("council.main.ConversationOrchestrator") as mock_orch_cls,
+        ):
+            mock_orch_cls.return_value.execute_tool = _fake_exec
+            response = server.handle_tool_call(11, {"name": "test_tool"})
+
+        assert server.orchestrator is mock_orch_cls.return_value
+        assert response["result"]["isError"] is False
+        assert response["result"]["content"] == [{"type": "text", "text": "Tool result"}]
+
+    def test_keyless_retry_respects_cooldown(self, monkeypatch):
+        """Retries are spaced by the cooldown, and resume once it has passed."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        server = CouncilMCPServer()
+        server.orchestrator = None
+
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials") as mock_load,
+            patch("council.main.time") as mock_time,
+        ):
+            mock_time.monotonic.return_value = 1000.0
+            first = server.handle_tool_call(12, {"name": "test_tool"})
+            mock_time.monotonic.return_value = 1010.0
+            second = server.handle_tool_call(13, {"name": "test_tool"})
+            assert mock_load.call_count == 1
+            mock_time.monotonic.return_value = 1031.0
+            third = server.handle_tool_call(15, {"name": "test_tool"})
+
+        assert mock_load.call_count == 2
+        for response in (first, second, third):
+            assert response["result"]["isError"] is True
+
+    def test_keyless_error_when_key_present_but_init_failed(self, monkeypatch):
+        """A key that exists but whose ModelManager fails must not blame a missing key."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+        server = CouncilMCPServer()
+        server.orchestrator = None
+
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials"),
+            patch("council.main.ModelManager", side_effect=ValueError("bad timeout")),
+        ):
+            response = server.handle_tool_call(16, {"name": "test_tool"})
+
+        text = response["result"]["content"][0]["text"]
+        assert response["result"]["isError"] is True
+        assert "council log has the error" in text
+        assert "set-secret.sh" not in text
+
+    def test_keyless_tool_call_error_names_the_fix(self, monkeypatch):
+        """The still-keyless error says how to recover instead of blaming the env var."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        server = CouncilMCPServer()
+        server.orchestrator = None
+
+        with patch.object(CouncilMCPServer, "_load_credentials"):
+            response = server.handle_tool_call(14, {"name": "test_tool"})
+
+        text = response["result"]["content"][0]["text"]
+        assert "Reconnect council" in text
+        assert "set-secret.sh" in text
 
     def test_handle_tools_call_with_orchestrator(self):
         """Successful tool calls must set isError: false."""
