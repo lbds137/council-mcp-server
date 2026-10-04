@@ -1,6 +1,6 @@
 # Council MCP Server
 
-A Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. Access OpenAI, Google, DeepSeek, Moonshot (Kimi), Z.ai (GLM), Qwen, xAI, Mistral and many more.
+A Model Context Protocol (MCP) server that enables Claude to collaborate with multiple AI models via OpenRouter. Access OpenAI, Google, DeepSeek, Moonshot (Kimi), Z.ai (GLM), Qwen, Mistral and many more.
 
 ## Features
 

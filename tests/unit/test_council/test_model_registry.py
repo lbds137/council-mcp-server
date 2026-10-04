@@ -125,6 +125,15 @@ class TestModelRegistry:
         curated = [*MODEL_REGISTRY, *recommended, *FREE_TIER_MODELS]
         assert not [m for m in curated if "anthropic" in m]
 
+    def test_no_xai_models(self):
+        """Test xAI (Grok) models are left out of every curated list.
+
+        The owner doesn't use Grok, on ethical grounds; benchmarks don't change that.
+        """
+        recommended = [m for models in TASK_RECOMMENDATIONS.values() for m in models]
+        curated = [*MODEL_REGISTRY, *recommended, *FREE_TIER_MODELS]
+        assert not [m for m in curated if "x-ai/" in m or "grok" in m.lower()]
+
     def test_google_models_present(self):
         """Test Google models are in registry."""
         google_models = [k for k in MODEL_REGISTRY.keys() if "google" in k]
