@@ -1,8 +1,20 @@
 # Council MCP Server: Improvement Ideas
 
-Open ideas, as of 2026-09-24; re-evaluated 2026-09-27. Done and dropped items
-are in git history (`git log -- docs/IMPROVEMENT_IDEAS.md`); streaming Z.ai
-responses shipped 2026-09-27.
+Open ideas, as of 2026-09-24; re-evaluated 2026-09-27 and 2026-10-04. Done and
+dropped items are in git history (`git log -- docs/IMPROVEMENT_IDEAS.md`);
+streaming Z.ai responses shipped 2026-09-27.
+
+## Next
+
+### Retry the key decrypt when a keyless server gets a tool call
+If the TPM decrypt fails at startup, the server runs without keys until someone
+reconnects it, and every tool call returns "Please set OPENROUTER_API_KEY",
+which points at the wrong fix. This happened on 2026-10-02 at 20:24, 11 minutes
+after a reboot, when many sessions started at once ("TPM is busy or stuck"). No
+tool call reached that process, so nobody saw a failure. The fix: on a tool
+call with no orchestrator, retry `load_credentials` once (it honours the lock
+and the stall marker), initialise if the keys arrive, and otherwise return an
+error naming the TPM cause and the reconnect fix.
 
 ## Maybe
 
@@ -11,7 +23,7 @@ Conversation sessions live in memory, so `/mcp` → Reconnect ends them. Saving
 them to a small file under `~/.claude-mcp-servers/council/` would keep them.
 Worth doing only if multi-turn conversations become a regular habit. Checked
 2026-09-27: 11 starts and 2 continues, all on 2026-09-24 (rollout testing), none
-since.
+since; still none on 2026-10-04.
 
 ### Structured request logs
 One log line per tool call, with the tool, the model it resolved to, the route
@@ -19,7 +31,7 @@ One log line per tool call, with the tool, the model it resolved to, the route
 questions like "how often does the plan fall back?" answerable from the log.
 The `server_info` counters cover the basics today, and on 2026-09-27 one pass
 over the existing log answered the fallback question. Worth doing if fallback
-rates need regular tracking.
+rates need regular tracking. 2026-10-04: the week since had 4 tool calls in all.
 
 ## Decided against
 
