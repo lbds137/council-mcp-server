@@ -4,18 +4,6 @@ Open ideas, as of 2026-09-24; re-evaluated 2026-09-27 and 2026-10-04. Done and
 dropped items are in git history (`git log -- docs/IMPROVEMENT_IDEAS.md`);
 streaming Z.ai responses shipped 2026-09-27.
 
-## Next
-
-### Retry the key decrypt when a keyless server gets a tool call
-If the TPM decrypt fails at startup, the server runs without keys until someone
-reconnects it, and every tool call returns "Please set OPENROUTER_API_KEY",
-which points at the wrong fix. This happened on 2026-10-02 at 20:24, 11 minutes
-after a reboot, when many sessions started at once ("TPM is busy or stuck"). No
-tool call reached that process, so nobody saw a failure. The fix: on a tool
-call with no orchestrator, retry `load_credentials` once (it honours the lock
-and the stall marker), initialise if the keys arrive, and otherwise return an
-error naming the TPM cause and the reconnect fix.
-
 ## Maybe
 
 ### Conversations that survive a reconnect

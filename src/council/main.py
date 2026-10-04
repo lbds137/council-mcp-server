@@ -5,6 +5,7 @@ Main MCP server implementation that orchestrates all modular components.
 import logging
 import os
 import sys
+import time
 from contextlib import nullcontext
 from logging.handlers import RotatingFileHandler
 from os import PathLike
@@ -44,6 +45,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Handlers run serially on the stdin thread, and a lock-wait failure can cost 15 s per retry.
+KEY_RETRY_COOLDOWN_SECONDS = 30
+
 __version__ = "4.0.0"
 
 
@@ -74,6 +78,7 @@ class CouncilMCPServer:
         self.tool_registry = ToolRegistry()
         self.cache = ResponseCache(max_size=100, ttl_seconds=3600)
         self.orchestrator: ConversationOrchestrator | None = None
+        self._last_key_retry: float | None = None
 
         # Create JSON-RPC server
         self.server = JsonRpcServer("council-mcp-server")
@@ -280,10 +285,32 @@ class CouncilMCPServer:
         if not tool_name:
             return _tool_error(request_id, "Tool name is required")
 
+        if not self.orchestrator and (
+            self._last_key_retry is None
+            or time.monotonic() - self._last_key_retry >= KEY_RETRY_COOLDOWN_SECONDS
+        ):
+            # A keyless start (e.g. the TPM was busy at startup) can recover once the
+            # credentials decrypt, so retry (at most once per cooldown) instead of
+            # waiting for a reconnect.
+            self._last_key_retry = time.monotonic()
+            logger.info(f"No model manager; retrying credential load before running {tool_name}")
+            self._load_credentials()
+            self._initialize_model_manager()
+
         if not self.orchestrator:
+            if os.getenv("OPENROUTER_API_KEY"):
+                return _tool_error(
+                    request_id,
+                    "Council has an OpenRouter API key but could not start its model manager; "
+                    "the council log has the error. Fix it, then reconnect council "
+                    "(/mcp → council → Reconnect).",
+                )
             return _tool_error(
                 request_id,
-                "Models not initialized. Please set OPENROUTER_API_KEY environment variable.",
+                "Council has no OpenRouter API key. Decrypting the stored credentials failed "
+                "(the council log names the cause), or none are stored "
+                "(scripts/set-secret.sh OPENROUTER_API_KEY). Reconnect council "
+                "(/mcp → council → Reconnect) to retry; if the TPM is stuck, a reboot clears it.",
             )
 
         import asyncio

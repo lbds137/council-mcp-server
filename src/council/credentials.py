@@ -126,8 +126,8 @@ def _decrypt(path: Path, credential_name: str) -> str | None:
             logger.warning(
                 f"Skipping {path.name}: the TPM is busy or stuck (a decrypt timed out in "
                 f"the last {STALL_BACKOFF_SECONDS // 60} min, or another council process "
-                f"held it for {LOCK_WAIT_SECONDS} s). Reconnect council later to retry; "
-                "a reboot clears a stuck TPM."
+                f"held it for {LOCK_WAIT_SECONDS} s). The next tool call retries the "
+                "decrypt; a reboot clears a stuck TPM."
             )
             return None
         return _run_decrypt(path, credential_name, stall_marker)
