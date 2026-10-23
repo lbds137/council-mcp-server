@@ -246,9 +246,10 @@ Never print a key. Pipe it straight into `set-secret.sh` instead.
 - `OPENROUTER_API_KEY` (required)
 - `ZAI_CODING_API_KEY` (optional): GLM models the Z.ai coding plan carries are routed
   there (`src/council/providers/zai.py`), with one OpenRouter retry on failure. On this
-  Deck it comes from Tzurot's Railway dev env:
-  `railway variables --environment development --service ai-worker --json | jq -er .ZAI_CODING_API_KEY | ~/Projects/council-mcp-server/scripts/set-secret.sh ZAI_CODING_API_KEY`
-  (run from `~/Projects/tzurot`, which Railway is linked to; `jq -e` fails instead of storing "null").
+  Deck it is council's own key, stored by hand into the keys store (Lila, 2026-10-23;
+  council no longer borrows Tzurot's Railway key):
+  `printf %s "$ZAI_CODING_API_KEY" | ~/Projects/council-mcp-server/scripts/set-secret.sh ZAI_CODING_API_KEY`
+  (the key is never printed and never read out of Railway; rotate it there on a breach).
 
 ### Environment Variables
 ```bash
