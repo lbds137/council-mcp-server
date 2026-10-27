@@ -14,12 +14,14 @@ updates:
     # hijacked release is usually caught. Security updates ignore the cooldown.
     cooldown:
       default-days: 3
-    reviewers:
-      - 'lbds137'
     commit-message:
       prefix: 'chore(ci)'
       include: 'scope'
-  # Python dependencies (pyproject.toml, setup.py). Same cooldown reason as above.
+  # Python dependencies in setup.py. Most are open floors (>=), which the newest release
+  # already satisfies, so this entry mostly opens PRs for exact pins. ruff is pinned twice
+  # (setup.py and .pre-commit-config.yaml's ruff-pre-commit rev) and this ecosystem can
+  # only rewrite setup.py, so ruff is bumped by hand in both files together.
+  # The cooldown is longer than for actions: a PyPI package runs arbitrary code at install.
   - package-ecosystem: 'pip'
     directory: '/'
     schedule:
@@ -30,6 +32,8 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: 'ruff'
     commit-message:
       prefix: 'chore(deps)'
       include: 'scope'
