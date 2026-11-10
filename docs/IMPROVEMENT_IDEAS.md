@@ -6,7 +6,11 @@ streaming Z.ai responses shipped 2026-09-27. Performance review 2026-11-10
 (measured, then one read-only Fable review) added the deferred and ruled-out
 items below.
 
-## Deferred (trigger: Lila un-parks council)
+## Deferred (trigger: z.ai weekly reset, Wed 2026-11-11 11:25)
+
+Lila approved these two 2026-11-10 without un-parking council: the server starts
+in every session that loads it, parked or not. They wait for z.ai because the
+repo has no agy gates file and Anthropic's week is kept for drivers and Fable.
 
 ### Decrypt the keys on the first tool call, not at startup
 `main.py:74` decrypts `keys.cred` in `CouncilMCPServer.__init__`. Measured
