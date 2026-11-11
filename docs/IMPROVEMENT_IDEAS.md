@@ -11,13 +11,20 @@ items below.
 Lila approved these two 2026-11-10 without un-parking council: the server starts
 in every session that loads it, parked or not. They ran on z.ai's old week at
 Deck's ask (wind-down stop 98%) and merged the same day (see git log for the PR).
-Follow-up, deferred (trigger: the next unit touching credentials or
-initialize): pin the degradation path with a test — a .env-introduced key whose
-decrypt fails at the first tool call must leave the manager building from the
-.env key (review note N1, 2026-11-11; behavior verified by code-reading only).
-Also accepted (behavior-neutral, reviewed 2026-11-11): a same-process
-re-initialize after a successful decrypt logs the deferred-INFO line once more;
-reconnects are new processes, so nothing observes it.
+Follow-ups, deferred (trigger: the next unit touching credentials or
+initialize): (a) pin the degradation path — a .env-introduced key whose decrypt
+fails at the first tool call must leave the manager building from the .env key
+(review note N1, 2026-11-11; behavior verified by code-reading only); (b) a
+test where a .env-introduced ZAI_CODING_API_KEY is replaced by the credential
+before ModelManager reads it at initialize (CI review of PR #43, finding 3);
+(c) optionally skip the decrypt-and-rebuild on a same-process re-initialize
+when the orchestrator already exists, or replace the test-only hasattr
+fallback in _load_env_file with a class-level default (CI findings 1-2).
+Known edge, accepted 2026-11-11 (CI finding 1): in a credential-only setup a
+same-process re-initialize treats the credential-set key as pre-startup,
+decrypts again (~3 s) and rebuilds the manager and orchestrator — more than
+the one extra INFO line a .env-key setup produces. Rare: reconnects are new
+processes.
 
 ### Decrypt the keys on the first tool call, not at startup
 `main.py:74` decrypts `keys.cred` in `CouncilMCPServer.__init__`. Measured
