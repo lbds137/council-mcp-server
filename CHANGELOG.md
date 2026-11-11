@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `recommend_model` honours `prefer_fast` (flash-class models rated for the task first, best rating first) and `min_context` (drops models whose window is too small and names them). Each registry entry records the window most providers serve, and each recommendation shows it; `make check-models` reports windows that have drifted
 - `debate` tool: 2-4 models give opening statements (assigned stances or their own views), rebut each other, and a synthesis model weighs the result. Each round's calls run in parallel; a debater that fails is noted and sits out, and a debate missing a voice isn't cached
 - GLM models the Z.ai coding plan carries are routed to the plan when `ZAI_CODING_API_KEY` is set (`~z-ai/*` aliases resolve against Z.ai's own model list), with one OpenRouter retry on failure; the output names the route
-- API keys can be stored as encrypted systemd user credentials (`scripts/set-secret.sh`), decrypted at startup, instead of plaintext in `.env`
+- API keys can be stored as encrypted systemd user credentials (`scripts/set-secret.sh`), decrypted on the server's first tool call, instead of plaintext in `.env`
 - `scripts/check_models.py` (`make check-models`) lists registry model IDs that OpenRouter no longer serves
 - Comprehensive test coverage for JSON-RPC layer (30 tests)
 - Complete test suite for main.py entry point (16 tests)
@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type annotations throughout the codebase
 
 ### Changed
+- Credentials decrypt on the server's first tool call instead of at startup: a session that never calls a tool never touches the TPM (about 3 s of TPM time per start; ~10 starts/day with 0 tool calls/day measured 2026-11-10), and the first call pays the ~3 s decrypt instead. A key already set in the environment still decrypts at initialize so the manager sees every stored key; a `.env`-introduced key defers, and the stored credential still beats it
+- Log lines carry the PID (`%(process)d`), so interleaved server starts are distinguishable
 - `scripts/install.sh` installs the `council` package, as of the checked-out commit and straight from git, into the server venv instead of copying a generated single-file bundle; uncommitted changes don't ship; `launcher.py` just runs `council.main`. The deployed server is the code the tests run. The install writes the deployed commit to `INSTALLED`; roll back by reinstalling an earlier commit. The bundler (`scripts/bundler.py`), the committed `server.py`, and `requirements.txt` (a duplicate of `setup.py`'s dependencies) are gone
 - `test_cases` sends code and feature descriptions with one neutral prompt instead of guessing which it got by keywords (it read "Users can classify tickets" as code)
 - `debate` rejects more explicit models than positions, instead of silently leaving the extra models out; `recommend_model`'s "left out" note names only models that would otherwise have been listed

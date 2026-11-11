@@ -74,6 +74,17 @@ class TestLoadCredentials:
         assert os.environ["OPENROUTER_API_KEY"] == "explicit"
 
     @patch("council.credentials.subprocess.run")
+    def test_override_beats_a_dotenv_introduced_per_key_name(self, mock_run, cred_dir, monkeypatch):
+        """Test a .env-introduced name listed in overrides is replaced, per-key files too."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-123")
+        mock_run.return_value = decrypted()
+
+        loaded = load_credentials(str(cred_dir), overrides={"OPENROUTER_API_KEY"})
+
+        assert loaded == ["OPENROUTER_API_KEY"]
+        assert os.environ["OPENROUTER_API_KEY"] == SECRET
+
+    @patch("council.credentials.subprocess.run")
     def test_skips_invalid_names(self, mock_run, tmp_path):
         """Test files whose names aren't environment-variable names are ignored."""
         (tmp_path / "lowercase.cred").write_bytes(b"x")
@@ -198,6 +209,30 @@ class TestCombinedKeysFile:
         loaded = load_credentials(str(bundle_dir))
 
         assert loaded == ["ZAI_CODING_API_KEY"]
+        assert os.environ["OPENROUTER_API_KEY"] == "explicit"
+
+    @patch("council.credentials.subprocess.run")
+    def test_override_beats_a_dotenv_introduced_bundle_name(
+        self, mock_run, bundle_dir, monkeypatch
+    ):
+        """Test a .env-introduced name listed in overrides is replaced by the credential."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-123")
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        loaded = load_credentials(str(bundle_dir), overrides={"OPENROUTER_API_KEY"})
+
+        assert loaded == ["OPENROUTER_API_KEY"]
+        assert os.environ["OPENROUTER_API_KEY"] == SECRET
+
+    @patch("council.credentials.subprocess.run")
+    def test_env_set_name_not_in_overrides_still_skipped(self, mock_run, bundle_dir, monkeypatch):
+        """Test the overrides set doesn't widen: an unlisted env-set name still wins."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "explicit")
+        mock_run.return_value = bundle(f"OPENROUTER_API_KEY={SECRET}\n")
+
+        loaded = load_credentials(str(bundle_dir), overrides={"ZAI_CODING_API_KEY"})
+
+        assert loaded == []
         assert os.environ["OPENROUTER_API_KEY"] == "explicit"
 
     @patch("council.credentials.subprocess.run")

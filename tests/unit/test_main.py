@@ -2,6 +2,7 @@
 Tests for the main MCP server implementation.
 """
 
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
@@ -28,30 +29,36 @@ class TestCouncilMCPServer:
     """Test the CouncilMCPServer class."""
 
     @patch("council.main.JsonRpcServer")
-    def test_credentials_load_before_env_file(self, mock_json_rpc):
-        """Test credentials load first, so load_dotenv can't override them with a .env line."""
-        calls = MagicMock()
+    def test_init_does_not_load_credentials(self, mock_json_rpc):
+        """Credentials decrypt lazily on the first tool call, not at construction."""
         with (
-            patch.object(CouncilMCPServer, "_load_credentials", calls.credentials),
-            patch.object(CouncilMCPServer, "_load_env_file", calls.env_file),
+            patch.object(CouncilMCPServer, "_load_credentials") as mock_credentials,
+            patch.object(CouncilMCPServer, "_load_env_file") as mock_env_file,
         ):
             CouncilMCPServer()
 
-        assert [name for name, _, _ in calls.mock_calls] == ["credentials", "env_file"]
+        mock_credentials.assert_not_called()
+        mock_env_file.assert_called_once()
 
     @patch("council.main.load_credentials")
     @patch.object(CouncilMCPServer, "_launcher_dir", return_value="/opt/council")
     def test_load_credentials_directory(self, _launcher_dir, mock_load, monkeypatch):
         """Test credentials come from COUNCIL_CREDENTIALS_DIR, else beside the launcher."""
         server = CouncilMCPServer.__new__(CouncilMCPServer)
+        server._env_file_vars = {"FROM_DOTENV"}
 
         monkeypatch.setenv("COUNCIL_CREDENTIALS_DIR", "/custom/creds")
         server._load_credentials()
-        mock_load.assert_called_with("/custom/creds")
+        mock_load.assert_called_once()
+        assert mock_load.call_args.args == ("/custom/creds",)
+        assert mock_load.call_args.kwargs["overrides"] == {"FROM_DOTENV"}
 
+        mock_load.reset_mock()
         monkeypatch.delenv("COUNCIL_CREDENTIALS_DIR")
         server._load_credentials()
-        mock_load.assert_called_with(os.path.join("/opt/council", "credentials"))
+        mock_load.assert_called_once()
+        assert mock_load.call_args.args == (os.path.join("/opt/council", "credentials"),)
+        assert mock_load.call_args.kwargs["overrides"] == {"FROM_DOTENV"}
 
     @patch("council.main.JsonRpcServer")
     @patch("council.main.ToolRegistry")
@@ -180,6 +187,21 @@ class TestCouncilMCPServer:
 
         # Verify load_dotenv was called without arguments as fallback
         mock_load_dotenv.assert_called_with()
+
+    def test_load_env_file_records_introduced_names(self, tmp_path, monkeypatch):
+        """_env_file_vars holds exactly the names the .env file introduced."""
+        monkeypatch.setenv("COUNCIL_TEST_PRESET", "already-here")
+        (tmp_path / ".env").write_text("COUNCIL_TEST_VAR=introduced\n")
+        monkeypatch.chdir(tmp_path)
+
+        server = object.__new__(CouncilMCPServer)
+        server._env_file_vars = set()
+        try:
+            server._load_env_file()
+
+            assert server._env_file_vars == {"COUNCIL_TEST_VAR"}
+        finally:
+            os.environ.pop("COUNCIL_TEST_VAR", None)
 
     @patch("council.main.HAS_DOTENV", True)
     @patch("council.main.load_dotenv")
@@ -345,6 +367,101 @@ SPACES_VALUE = value with spaces"""
         server_info = response["result"]["serverInfo"]
         # serverInfo must match the MCP schema (name + version only)
         assert set(server_info.keys()) == {"name", "version"}
+
+    def test_handle_initialize_deferred_key_is_info_not_error(self, monkeypatch, caplog):
+        """A keyless initialize logs one INFO line about the first tool call; no warning."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        server = CouncilMCPServer()
+
+        with (
+            patch.object(server, "_initialize_model_manager") as mock_init,
+            patch.object(server.tool_registry, "discover_tools"),
+            patch.object(server.tool_registry, "list_tools", return_value=[]),
+            caplog.at_level(logging.DEBUG),
+        ):
+            server.handle_initialize(1, {})
+
+        mock_init.assert_not_called()
+        problems = [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+        assert [f"{r.levelname}: {r.getMessage()}" for r in problems] == []
+        decrypt_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "INFO" and "first tool call" in r.getMessage()
+        ]
+        assert len(decrypt_lines) == 1
+
+    @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-api-key"})
+    def test_handle_initialize_with_key_initializes_manager(self):
+        """With a pre-startup key, initialize decrypts credentials first, then builds."""
+        calls = MagicMock()
+        server = CouncilMCPServer()
+
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials", calls.credentials),
+            patch("council.main.ModelManager", calls.model_manager),
+            patch("council.main.ConversationOrchestrator"),
+            patch.object(server.tool_registry, "discover_tools"),
+            patch.object(server.tool_registry, "list_tools", return_value=[]),
+        ):
+            server.handle_initialize(1, {})
+
+        assert [name for name, _, _ in calls.mock_calls] == ["credentials", "model_manager"]
+        assert server.model_manager is calls.model_manager.return_value
+
+    def test_handle_initialize_dotenv_key_defers_to_first_call(self, monkeypatch, caplog):
+        """A .env-introduced key still defers: the credential must beat it on the first call."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-123")
+        server = CouncilMCPServer()
+        server._env_file_vars = {"OPENROUTER_API_KEY"}
+
+        with (
+            patch.object(server, "_initialize_model_manager") as mock_init,
+            patch.object(server.tool_registry, "discover_tools"),
+            patch.object(server.tool_registry, "list_tools", return_value=[]),
+            caplog.at_level(logging.DEBUG),
+        ):
+            server.handle_initialize(1, {})
+
+        mock_init.assert_not_called()
+        problems = [r for r in caplog.records if r.levelname in ("WARNING", "ERROR")]
+        assert [f"{r.levelname}: {r.getMessage()}" for r in problems] == []
+        decrypt_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "INFO" and "first tool call" in r.getMessage()
+        ]
+        assert len(decrypt_lines) == 1
+
+    def test_credentials_beat_dotenv_key_on_first_tool_call(self, monkeypatch):
+        """End to end: initialize defers, the first tool call decrypts, credential wins."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-123")
+        server = CouncilMCPServer()
+        server._env_file_vars = {"OPENROUTER_API_KEY"}
+
+        def _decrypt_now():
+            monkeypatch.setenv("OPENROUTER_API_KEY", "credential-key-456")
+
+        mock_output = MagicMock()
+        mock_output.success = True
+        mock_output.result = "Tool result"
+
+        async def _fake_exec(**_kw):
+            return mock_output
+
+        with (
+            patch.object(CouncilMCPServer, "_load_credentials", side_effect=_decrypt_now),
+            patch("council.main.ModelManager") as mock_manager_cls,
+            patch("council.main.ConversationOrchestrator") as mock_orch_cls,
+            patch.object(server.tool_registry, "discover_tools"),
+            patch.object(server.tool_registry, "list_tools", return_value=[]),
+        ):
+            mock_orch_cls.return_value.execute_tool = _fake_exec
+            server.handle_initialize(1, {})
+            response = server.handle_tool_call(21, {"name": "test_tool"})
+
+        assert response["result"]["isError"] is False
+        mock_manager_cls.assert_called_once_with("credential-key-456")
 
     def test_handle_initialize_echoes_supported_protocol_version(self):
         """Server must echo the client's protocolVersion when it supports it."""
@@ -762,3 +879,9 @@ class TestMainFunction:
         config_call = mock_logging.call_args
         assert "handlers" in config_call[1]
         assert len(config_call[1]["handlers"]) == 2
+
+    def test_log_format_carries_the_process_id(self):
+        """Interleaved server starts must be distinguishable in the log."""
+        from council.main import LOG_FORMAT
+
+        assert "%(process)d" in LOG_FORMAT
