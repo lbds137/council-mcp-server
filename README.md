@@ -46,7 +46,9 @@ On a Linux machine with systemd 256 or newer, run:
 The keys live together in one encrypted file,
 `~/.claude-mcp-servers/council/credentials/keys.cred`, which only your user on
 that machine can decrypt. Running `set-secret.sh` again for a name replaces that
-key and keeps the others. Council decrypts the file once at startup.
+key and keeps the others. Council decrypts the file on its first tool call (at
+initialize instead when a key is already set in the environment), so a session
+that never calls a tool never touches the TPM.
 A key set as an environment variable before council starts takes priority over
 a stored credential; a stored credential takes priority over a `.env` line, so
 a stale `.env` can't shadow a new key. To keep the credentials somewhere else,
@@ -171,7 +173,7 @@ council-mcp-server/
 ├── src/council/           # Main source code
 │   ├── main.py           # CouncilMCPServer entry point
 │   ├── manager.py        # ModelManager (routes to OpenRouter or the Z.ai plan)
-│   ├── credentials.py    # Decrypts stored API keys at startup
+│   ├── credentials.py    # Decrypts stored API keys on first use
 │   ├── providers/        # OpenRouter and Z.ai coding-plan providers
 │   ├── discovery/        # Model registry, filtering and caching
 │   ├── tools/            # MCP tool implementations

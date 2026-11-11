@@ -50,6 +50,9 @@ KEY_RETRY_COOLDOWN_SECONDS = 30
 
 __version__ = "4.0.0"
 
+# %(process)d keeps interleaved server starts distinguishable in the log
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(process)d - %(message)s"
+
 
 def _tool_error(request_id: Any, message: str) -> dict[str, Any]:
     """Build a tools/call result that signals a tool-level failure.
@@ -69,9 +72,12 @@ class CouncilMCPServer:
 
     def __init__(self):
         """Initialize the server with modular components."""
-        # Load environment variables at startup. Credentials go first: they
-        # set their variables, which load_dotenv then leaves alone.
-        self._load_credentials()
+        # Load .env values now; the credential decrypt is deferred to the first
+        # tool call (it costs ~3 s on the TPM and most sessions never call one).
+        # _env_file_vars records the names the .env file INTRODUCED, so the
+        # later decrypt can still beat a .env-introduced value while a variable
+        # set before startup keeps winning over both.
+        self._env_file_vars: set[str] = set()
         self._load_env_file()
 
         self.model_manager: ModelManager | None = None
@@ -99,10 +105,14 @@ class CouncilMCPServer:
         directory = os.getenv("COUNCIL_CREDENTIALS_DIR") or os.path.join(
             self._launcher_dir(), "credentials"
         )
-        load_credentials(directory)
+        load_credentials(directory, overrides=self._env_file_vars)
 
     def _load_env_file(self) -> None:
         """Load .env file from multiple possible locations."""
+        if not hasattr(self, "_env_file_vars"):
+            # Bare instances built with object.__new__ in tests skip __init__
+            self._env_file_vars = set()
+
         # Try multiple locations for .env file
         # 1. Directory of the main entry point (works with launcher.py)
         main_dir = self._launcher_dir()
@@ -126,20 +136,25 @@ class CouncilMCPServer:
             for env_path in env_locations:
                 if os.path.exists(env_path):
                     logger.info(f"Loading .env from {env_path}")
+                    before = set(os.environ)
                     load_dotenv(env_path)
+                    self._env_file_vars.update(set(os.environ) - before)
                     env_loaded = True
                     break
 
             if not env_loaded:
                 # Try current directory as last fallback
                 logger.info("No .env file found in expected locations, trying current directory")
+                before = set(os.environ)
                 load_dotenv()
+                self._env_file_vars.update(set(os.environ) - before)
         else:
             # Manual .env loading if python-dotenv is not available
             for env_path in env_locations:
                 if os.path.exists(env_path):
                     logger.info(f"Loading .env from {env_path} (manual mode)")
                     try:
+                        before = set(os.environ)
                         with open(env_path) as f:
                             for line in f:
                                 line = line.strip()
@@ -161,6 +176,7 @@ class CouncilMCPServer:
                                             f"Set OPENROUTER_API_KEY from .env file "
                                             f"(length: {len(value)})"
                                         )
+                        self._env_file_vars.update(set(os.environ) - before)
                         break
                     except Exception as e:
                         logger.error(f"Failed to load .env file: {e}")
@@ -212,17 +228,21 @@ class CouncilMCPServer:
         self._load_env_file()
 
         api_key = os.environ.get("OPENROUTER_API_KEY")
-        if api_key:
+        # A key a .env file introduced must not count as present: the decrypt is
+        # deferred and the credential must still beat that value on the first
+        # tool call. With a pre-startup key, other credential keys (e.g. the
+        # Z.ai plan key, read once at manager construction) still have to load,
+        # so decrypt before building; _set skips the env-set key itself.
+        if api_key and "OPENROUTER_API_KEY" not in self._env_file_vars:
             logger.info(f"OPENROUTER_API_KEY found (length: {len(api_key)})")
+            self._load_credentials()
+            if not self._initialize_model_manager():
+                logger.warning("Model manager not initialized; tool calls will return errors")
         else:
-            logger.warning("OPENROUTER_API_KEY not found in environment")
+            logger.info("Stored keys decrypt on the first tool call")
 
         self.tool_registry.discover_tools()
         logger.info(f"Registered {len(self.tool_registry.list_tools())} tools")
-
-        model_initialized = self._initialize_model_manager()
-        if not model_initialized:
-            logger.warning("Model manager not initialized; tool calls will return errors")
 
         # Negotiate protocol version: echo the client's version if we support
         # it, otherwise fall back to our latest supported version.
@@ -289,9 +309,9 @@ class CouncilMCPServer:
             self._last_key_retry is None
             or time.monotonic() - self._last_key_retry >= KEY_RETRY_COOLDOWN_SECONDS
         ):
-            # A keyless start (e.g. the TPM was busy at startup) can recover once the
-            # credentials decrypt, so retry (at most once per cooldown) instead of
-            # waiting for a reconnect.
+            # The decrypt is deferred to this first tool call, and a start whose
+            # decrypt failed or was skipped retries (at most once per cooldown)
+            # instead of waiting for a reconnect.
             self._last_key_retry = time.monotonic()
             logger.info(f"No model manager; retrying credential load before running {tool_name}")
             self._load_credentials()
@@ -399,7 +419,7 @@ def main():
     log_level = logging.DEBUG if os.getenv("COUNCIL_DEBUG") else logging.INFO
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format=LOG_FORMAT,
         handlers=handlers,
         force=True,  # Ensure logging is configured even if already configured elsewhere
     )
