@@ -1,6 +1,7 @@
 """Model manager for Council MCP server."""
 
 import logging
+import math
 import os
 import re
 from typing import Any
@@ -19,7 +20,6 @@ from .providers import (
     private_openrouter_providers,
 )
 from .providers.base import AuthenticationError, ModelNotFoundError, RateLimitError
-from .providers.cli_sub import DEFAULT_CLI_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +64,10 @@ class ModelManager:
             timeout: Request timeout in seconds. If None, reads from COUNCIL_TIMEOUT
                     or defaults to 600.0 (10 minutes).
             cli_timeout: Local subscription CLI timeout in seconds. If None, reads from
-                        COUNCIL_CLI_TIMEOUT (seconds) or defaults to min(timeout, 180.0).
+                        COUNCIL_CLI_TIMEOUT (seconds) or defaults to `timeout` (600.0s).
         """
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        # default_model always has a value due to the fallback
         self.default_model: str = (
             default_model
             or os.getenv("COUNCIL_DEFAULT_MODEL", "~openai/gpt-sol-latest")
@@ -76,10 +77,21 @@ class ModelManager:
         raw_cli_timeout = os.getenv("COUNCIL_CLI_TIMEOUT")
         if cli_timeout is not None:
             self.cli_timeout = cli_timeout
-        elif raw_cli_timeout:
-            self.cli_timeout = float(raw_cli_timeout)
+        elif raw_cli_timeout and raw_cli_timeout.strip():
+            try:
+                parsed_cli_timeout = float(raw_cli_timeout.strip())
+                if not math.isfinite(parsed_cli_timeout) or parsed_cli_timeout <= 0:
+                    raise ValueError("must be finite and > 0")
+                self.cli_timeout = parsed_cli_timeout
+            except ValueError:
+                logger.warning(
+                    "Invalid COUNCIL_CLI_TIMEOUT=%r; falling back to %.1fs",
+                    raw_cli_timeout,
+                    self.timeout,
+                )
+                self.cli_timeout = self.timeout
         else:
-            self.cli_timeout = min(self.timeout, DEFAULT_CLI_TIMEOUT_SECONDS)
+            self.cli_timeout = self.timeout
 
         # Initialize the providers
         self._provider: OpenRouterProvider | None = None
@@ -145,7 +157,14 @@ class ModelManager:
         return self._active_model
 
     def set_model(self, model_id: str) -> bool:
-        """Set the active model for subsequent requests."""
+        """Set the active model for subsequent requests.
+
+        Args:
+            model_id: The model ID to use (e.g., "~moonshotai/kimi-latest").
+
+        Returns:
+            True if the model was set successfully.
+        """
         if is_excluded_model(model_id):
             raise LLMProviderError(
                 f"Model '{model_id}' is excluded by policy",
@@ -162,7 +181,23 @@ class ModelManager:
         model: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, str]:
-        """Generate content from the LLM and return (response_content, model_used)."""
+        """Generate content from the LLM.
+
+        This method provides backward compatibility with the old DualModelManager
+        interface by returning a tuple of (content, model_used).
+
+        Args:
+            prompt: The prompt to send to the model.
+            model: Override model for this request. If None, uses active model.
+            **kwargs: Additional parameters passed to the provider.
+
+        Returns:
+            Tuple of (response_content, model_used). model_used names the model
+            that served the request, plus its route when a subscription lane was tried.
+
+        Raises:
+            LLMProviderError: If generation fails.
+        """
         response, model_used = self._generate(prompt, model, **kwargs)
         return response.content, model_used
 
@@ -172,7 +207,19 @@ class ModelManager:
         model: str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Generate content and return full response object."""
+        """Generate content and return full response object.
+
+        Args:
+            prompt: The prompt to send to the model.
+            model: Override model for this request. If None, uses active model.
+            **kwargs: Additional parameters passed to the provider.
+
+        Returns:
+            LLMResponse object with content and metadata.
+
+        Raises:
+            LLMProviderError: If generation fails.
+        """
         response, _ = self._generate(prompt, model, **kwargs)
         return response
 
@@ -189,8 +236,31 @@ class ModelManager:
             return lowered.startswith(("gemini-", "claude-"))
         return False
 
+    def is_private_allowed_model(self, model_id: str) -> bool:
+        """Return True if model_id is allowed under private_only=True on this manager."""
+        if not isinstance(model_id, str) or not model_id.strip() or is_excluded_model(model_id):
+            return False
+        agy = self.agy_provider
+        agy_model = agy.resolve(model_id) if agy else None
+        if isinstance(agy_model, str) and not self._is_private_cli_target(agy_model, family="agy"):
+            return False
+        claude = self.claude_provider
+        claude_model = claude.resolve(model_id) if claude else None
+        if isinstance(claude_model, str) and not self._is_private_cli_target(
+            claude_model, family="claude"
+        ):
+            return False
+        if isinstance(agy_model, str) or isinstance(claude_model, str):
+            return True
+        return private_openrouter_providers(self._openrouter_id(model_id)) is not None
+
     def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
-        """Route a request and return the response with a label naming its route."""
+        """Route a request and return the response with a label naming its route.
+
+        Subscription routes (Z.ai coding plan when non-private, Antigravity CLI, Claude CLI
+        when enabled) run first; everything else, and any non-timeout subscription failure,
+        falls back once to OpenRouter.
+        """
         private_only = bool(kwargs.pop("private_only", False))
         model_to_use = model or self._active_model
         self.total_calls += 1
@@ -224,6 +294,9 @@ class ModelManager:
         or_id = self._openrouter_id(model_to_use)
         zai = None if private_only else self.zai_provider
         zai_model = zai.resolve(model_to_use) if zai else None
+        # Read the reason now, next to the resolve that produced it: a parallel
+        # call (e.g. a debate) can fetch the list again and change list_error
+        # while this call waits on OpenRouter
         unavailable = (
             zai.list_error
             if zai is not None and zai_model is None and zai.is_candidate(model_to_use)
@@ -301,6 +374,8 @@ class ModelManager:
                 response = self.provider.generate(prompt, model=or_id, **or_kwargs)
                 model_used = response.model
                 if unavailable:
+                    # A key is set but the plan couldn't be consulted: say so,
+                    # or a broken key would silently bill every GLM call
                     self.zai_unavailable += 1
                     model_used += f" · OpenRouter (Z.ai unavailable: {unavailable})"
         except LLMProviderError as e:

@@ -13,9 +13,9 @@ ProgressCallback = Callable[[float, float | None, str | None], None]
 
 PRIVATE_ONLY_DESCRIPTION = (
     "When true, allow only privacy-cleared subscription CLIs (`claude`, `agy`) and the "
-    "pinned OpenRouter allowlist (`anthropic`, `openai`, `google` on Vertex, `mistralai`, "
-    "and `z-ai/glm*` pinned to Mistral) with `allow_fallbacks=false` and "
-    "`data_collection=deny`"
+    "pinned OpenRouter allowlist (`anthropic`, `openai` non-oss, `google` Gemini on Vertex, "
+    "`mistralai`, and Mistral-hosted `z-ai/glm-5.3*`/`glm-5.2` slugs) with "
+    "`allow_fallbacks=false` and `data_collection=deny`"
 )
 
 PRIVATE_ONLY_PROPERTY: dict[str, Any] = {

@@ -230,3 +230,42 @@ class TestPrivateOnlyAcrossAllTools:
             assert rejected.success is False
             assert "private_only=True" in (rejected.error or "")
             mgr.generate_content.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_custom_cli_alias_aligned_across_session_and_debug(self):
+        orchestrator, mgr = _make_orchestrator()
+        mgr.is_private_allowed_model = lambda m: m == "custom-gemini-alias"
+        fresh_sm = SessionManager()
+
+        with (
+            patch("council._server_instance", SimpleNamespace(model_manager=mgr)),
+            patch("council.tools.conversation._session_manager", fresh_sm),
+        ):
+            started = await orchestrator.execute_tool(
+                "start_conversation",
+                {
+                    "model": "custom-gemini-alias",
+                    "initial_message": "Hello via CLI alias",
+                    "private_only": True,
+                },
+            )
+            assert started.success is True
+            sess_id = next(iter(fresh_sm.sessions.keys()))
+
+            cont = await orchestrator.execute_tool(
+                "continue_conversation",
+                {"session_id": sess_id, "message": "Follow-up"},
+            )
+            assert cont.success is True
+
+            dbg = await orchestrator.execute_tool(
+                "debug",
+                {
+                    "error_message": "AssertionError",
+                    "code_context": "assert False",
+                    "session_id": sess_id,
+                },
+            )
+            assert dbg.success is True
+            assert mgr.generate_content.call_args[1].get("model") == "custom-gemini-alias"
+            assert mgr.generate_content.call_args[1].get("private_only") is True

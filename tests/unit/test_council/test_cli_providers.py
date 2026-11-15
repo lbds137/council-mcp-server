@@ -111,6 +111,11 @@ class TestPrivacyAllowlistAndPolicyGate:
             "minimax/minimax-m3",
             "together/deepseek-v3",
             "alibaba/qwen-max",
+            "z-ai/glm-5.3-prime",
+            "z-ai/glm-5.3-flashx",
+            "z-ai/glm-5",
+            "z-ai/glm-4.7",
+            "glm-4.7-flash",
         ],
     )
     def test_non_private_models_rejected(self, model_id):
@@ -128,7 +133,9 @@ class TestPrivacyAllowlistAndPolicyGate:
             ("anthropic/claude-sonnet-4-6", ["anthropic"]),
             ("claude-opus", ["anthropic"]),
             ("~z-ai/glm-latest", ["mistral"]),
+            ("~z-ai/glm-flash-latest", ["mistral"]),
             ("z-ai/glm-5.3", ["mistral"]),
+            ("z-ai/glm-5.2", ["mistral"]),
             ("glm-5.3-flash", ["mistral"]),
         ],
     )
@@ -324,12 +331,25 @@ class TestAgyCliProvider:
 
         assert resp.content == "Structured Gemini answer"
         assert resp.model == "google/gemini-4-argon-high"
-        # Prompt goes over stdin, never argv
+        # Prompt goes over stdin, never argv; exact headless argv is pinned
         assert captured["stdin_text"] == large_prompt
         assert all(len(arg) < 1024 for arg in captured["cmd"])
-        assert "--input-format" in captured["cmd"]
-        assert "--sandbox" in captured["cmd"]
-        assert "--disable-slash-commands" in captured["cmd"]
+        settings_arg = captured["cmd"][captured["cmd"].index("--settings") + 1]
+        assert captured["cmd"] == [
+            "/usr/local/bin/agy",
+            "--input-format",
+            "text",
+            "--output-format",
+            "json",
+            "--model",
+            "gemini-4-argon-high",
+            "--sandbox",
+            "--settings",
+            settings_arg,
+            "--print-timeout",
+            "90s",
+            "--disable-slash-commands",
+        ]
         assert "OPENROUTER_API_KEY" not in captured["kwargs"]["env"]
         assert "GEMINI_API_KEY" not in captured["kwargs"]["env"]
         assert captured["kwargs"]["env"]["AGY_GUARD_MODE"] == "strict"
@@ -366,6 +386,21 @@ class TestAgyCliProvider:
 
         assert exc_info.value.is_retryable is False
         mock_killpg.assert_called_once_with(42424, signal.SIGKILL)
+
+        # Even if a setsid grandchild keeps pipes open and post-killpg communicate(timeout=5)
+        # raises a second TimeoutExpired, streams are closed and CLITimeoutError still returns.
+        stuck_proc = MagicMock()
+        stuck_proc.pid = 53535
+        stuck_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["agy"], timeout=5.0)
+        stuck_proc.wait.side_effect = subprocess.TimeoutExpired(cmd=["agy"], timeout=1.0)
+        mock_killpg.reset_mock()
+        with patch("council.providers.cli_sub.subprocess.Popen", return_value=stuck_proc):
+            with pytest.raises(CLITimeoutError):
+                provider.generate("Stuck grandchild", model="gemini-4-argon-high")
+        mock_killpg.assert_called_once_with(53535, signal.SIGKILL)
+        stuck_proc.stdin.close.assert_called_once()
+        stuck_proc.stdout.close.assert_called_once()
+        stuck_proc.stderr.close.assert_called_once()
 
     @patch("council.providers.cli_sub.shutil.which", return_value="/usr/local/bin/agy")
     def test_generate_print_timeout_denied_empty_and_non_json_errors(self, _mock_which):

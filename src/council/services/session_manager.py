@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from ..providers.cli_sub import is_excluded_model, is_non_private_model
+from ..providers.cli_sub import is_excluded_model, is_model_private_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +73,26 @@ class SessionManager:
         metadata: dict[str, Any] | None = None,
         *,
         private_only: bool = False,
+        model_manager: Any = None,
     ) -> str:
-        """Create a new conversation session."""
+        """Create a new conversation session.
+
+        Args:
+            model: The model to use for this session
+            system_prompt: Optional system prompt to set context
+            metadata: Optional metadata for the session
+            private_only: Whether to restrict this session to privacy-cleared routes
+            model_manager: Optional ModelManager used to validate custom CLI aliases
+
+        Returns:
+            The session ID
+        """
         if is_excluded_model(model):
             raise ValueError(f"Model '{model}' is excluded by policy")
-        if private_only and is_non_private_model(model):
+        if private_only and not is_model_private_allowed(model, model_manager):
             raise ValueError(f"Model '{model}' is excluded when private_only=True")
 
+        # Clean up old sessions if at capacity
         if len(self.sessions) >= self.max_sessions:
             self._cleanup_oldest_session()
 
@@ -108,7 +121,20 @@ class SessionManager:
         *,
         private_only: bool = False,
     ) -> tuple[str, str]:
-        """Send a message in a session and get a response."""
+        """Send a message in a session and get a response.
+
+        Args:
+            session_id: The session ID
+            message: The user's message
+            model_manager: The model manager to use for generation
+            private_only: If True, upgrades the session monotonically to private_only
+
+        Returns:
+            Tuple of (response_text, model_used)
+
+        Raises:
+            ValueError: If session not found, turn limit exceeded, or model disallowed
+        """
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -120,13 +146,15 @@ class SessionManager:
             )
 
         effective_private = session.private_only or private_only
-        if effective_private and is_non_private_model(session.model):
+        if effective_private and not is_model_private_allowed(session.model, model_manager):
             raise ValueError(f"Session model '{session.model}' is excluded when private_only=True")
         if private_only and not session.private_only:
             session.private_only = True
 
+        # Add user message
         session.add_turn("user", message)
 
+        # Build prompt with history
         history = session.get_message_history()
         prompt = self._format_prompt_with_history(history)
 
@@ -137,9 +165,11 @@ class SessionManager:
         try:
             response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
         except Exception:
+            # Drop the unanswered message so a retry doesn't send it twice
             session.turns.pop()
             raise
 
+        # Add assistant response
         session.add_turn("assistant", response_text)
 
         logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")

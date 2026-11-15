@@ -477,6 +477,23 @@ class TestModelManagerCliAndPrivacyRouting:
     def response(self, model: str) -> LLMResponse:
         return LLMResponse(content=f"from {model}", model=model)
 
+    def test_cli_timeout_defaults_to_council_timeout_and_invalid_env_warns(self, caplog):
+        with patch.dict("os.environ", {}, clear=True):
+            default_mgr = ModelManager(api_key="or-key")
+            assert default_mgr.timeout == 600.0
+            assert default_mgr.cli_timeout == 600.0
+
+        with patch.dict("os.environ", {"COUNCIL_CLI_TIMEOUT": "240"}, clear=True):
+            override_mgr = ModelManager(api_key="or-key")
+            assert override_mgr.cli_timeout == 240.0
+
+        for bad_val in ("180s", "-10", "0", "nan", "inf"):
+            caplog.clear()
+            with patch.dict("os.environ", {"COUNCIL_CLI_TIMEOUT": bad_val}, clear=True):
+                fallback_mgr = ModelManager(api_key="or-key", timeout=420.0)
+                assert fallback_mgr.cli_timeout == 420.0
+            assert "Invalid COUNCIL_CLI_TIMEOUT" in caplog.text
+
     @patch("council.manager.AgyCliProvider")
     @patch("council.manager.OpenRouterProvider")
     def test_agy_cli_serves_gemini_and_falls_back_once(self, openrouter_class, agy_class):
@@ -677,6 +694,7 @@ class TestModelManagerCliAndPrivacyRouting:
 
         # 1) Custom CLI map resolving to a non-private CLI target (glm-5.3) is blocked BEFORE CLI runs
         agy.resolve.side_effect = lambda m: "glm-5.3" if m == "custom-glm" else None
+        assert manager.is_private_allowed_model("custom-glm") is False
         with pytest.raises(LLMProviderError) as glm_exc:
             manager.generate_content("Sensitive", model="custom-glm", private_only=True)
         assert glm_exc.value.provider == "privacy-gate"
@@ -687,6 +705,7 @@ class TestModelManagerCliAndPrivacyRouting:
         # unlisted requested alias ("custom-gemini"): if CLI fails, OpenRouter fallback is
         # re-checked by private_openrouter_extra_body("custom-gemini") and blocked!
         agy.resolve.side_effect = lambda m: "gemini-4-argon-high" if m == "custom-gemini" else None
+        assert manager.is_private_allowed_model("custom-gemini") is True
         agy.generate.side_effect = RateLimitError("quota exhausted")
         with pytest.raises(LLMProviderError) as fb_exc:
             manager.generate_content("Sensitive", model="custom-gemini", private_only=True)

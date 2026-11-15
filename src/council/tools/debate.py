@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..providers.cli_sub import is_excluded_model, is_non_private_model
+from ..providers.cli_sub import is_excluded_model, is_model_private_allowed
 from .base import (
     PRIVATE_ONLY_DESCRIPTION,
     MCPTool,
@@ -27,7 +27,6 @@ PRIVATE_DEFAULT_PANEL = [
     "mistralai/mistral-medium-3-5",
 ]
 PRIVATE_SYNTHESIS_FALLBACKS = (
-    "~anthropic/claude-sonnet-latest",
     "~openai/gpt-sol-latest",
     "~google/gemini-pro-latest",
     "mistralai/mistral-medium-3-5",
@@ -162,7 +161,11 @@ class DebateTool(MCPTool):
             if isinstance(criteria_or_error, str):
                 return ToolOutput(success=False, error=criteria_or_error)
 
-            debaters_or_error = self._seat_debaters(parameters, private_only=raw_priv)
+            model_manager = get_model_manager()
+
+            debaters_or_error = self._seat_debaters(
+                parameters, private_only=raw_priv, model_manager=model_manager
+            )
             if isinstance(debaters_or_error, str):
                 return ToolOutput(success=False, error=debaters_or_error)
             debaters = debaters_or_error
@@ -177,7 +180,11 @@ class DebateTool(MCPTool):
                     success=False,
                     error=f"synthesis_model '{synth_model}' is excluded by policy",
                 )
-            if raw_priv and isinstance(synth_model, str) and is_non_private_model(synth_model):
+            if (
+                raw_priv
+                and isinstance(synth_model, str)
+                and not is_model_private_allowed(synth_model, model_manager)
+            ):
                 return ToolOutput(
                     success=False,
                     error=f"synthesis_model '{synth_model}' is excluded when private_only=True",
@@ -188,7 +195,6 @@ class DebateTool(MCPTool):
             if isinstance(rounds, bool) or rounds not in (1, 2):
                 return ToolOutput(success=False, error="rounds must be 1 or 2")
 
-            model_manager = get_model_manager()
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
@@ -225,19 +231,47 @@ class DebateTool(MCPTool):
         """Return True if synthesis text includes a Markdown table covering every criterion."""
         if not criteria:
             return True
-        if not _MARKDOWN_TABLE_SEP_RE.search(text):
+        # Inspect only contiguous `|`-bearing table blocks that contain a separator row,
+        # so criteria mentioned solely in prose do not satisfy the check.
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for line in text.splitlines():
+            if "|" in line:
+                current.append(line)
+            elif current:
+                blocks.append(current)
+                current = []
+        if current:
+            blocks.append(current)
+        valid_tables = [
+            "\n".join(block) for block in blocks if _MARKDOWN_TABLE_SEP_RE.search("\n".join(block))
+        ]
+        if not valid_tables:
             return False
-        lowered = text.lower()
-        return all(c.lower() in lowered for c in criteria)
+        table_text = "\n".join(valid_tables).lower()
+        for crit in criteria:
+            lowered = crit.lower()
+            if lowered in table_text:
+                continue
+            # Allow common single-word inflections inside table cells
+            # (e.g. "Maintainability" -> "maintenance", "Scalability" -> "scalable").
+            if re.fullmatch(r"[a-z0-9]{7,}", lowered) and re.search(
+                rf"\b{re.escape(lowered[:5])}[a-z0-9]*\b", table_text
+            ):
+                continue
+            return False
+        return True
 
     @staticmethod
-    def _pick_private_synthesizer(speaking: list[Debater], active: Any) -> str | None:
+    def _pick_private_synthesizer(
+        speaking: list[Debater], active: Any, *, model_manager: Any = None
+    ) -> str | None:
         """Choose an independent privacy-cleared synthesizer when active_model spoke or fails."""
         speaking_models = {d.model for d in speaking}
         if (
             isinstance(active, str)
             and active
-            and not is_non_private_model(active)
+            and is_model_private_allowed(active, model_manager)
             and active not in speaking_models
         ):
             return None
@@ -248,7 +282,10 @@ class DebateTool(MCPTool):
 
     @staticmethod
     def _seat_debaters(
-        parameters: dict[str, Any], *, private_only: bool = False
+        parameters: dict[str, Any],
+        *,
+        private_only: bool = False,
+        model_manager: Any = None,
     ) -> list[Debater] | str:
         """The debaters for this request, or an error message."""
         topic = parameters.get("topic")
@@ -268,7 +305,7 @@ class DebateTool(MCPTool):
         for mid in models:
             if is_excluded_model(mid):
                 return f"Model '{mid}' is excluded by policy"
-            if private_only and is_non_private_model(mid):
+            if private_only and not is_model_private_allowed(mid, model_manager):
                 return f"Model '{mid}' is excluded when private_only=True"
 
         if positions and parameters.get("models") and len(models) > len(positions):
@@ -307,6 +344,7 @@ class DebateTool(MCPTool):
         del parameters
         crit_list = criteria or []
         calls = 0
+        # One per debater per round, plus the synthesis; shrinks if a debater drops out
         total = len(debaters) * rounds + 1
         sections = [f"🏛️ Debate: {topic}"]
         if crit_list:
@@ -323,6 +361,7 @@ class DebateTool(MCPTool):
 
         report_progress(0, total, f"Openings: {len(debaters)} debaters")
 
+        # Round 1: every debater opens at once
         openings = await asyncio.gather(
             *(
                 call(
@@ -350,8 +389,10 @@ class DebateTool(MCPTool):
                 error=f"Too few debaters answered to hold a debate. {failures}",
             )
 
+        # A debater who didn't open sits out the rebuttals
         total = calls + (len(speaking) if rounds == 2 else 0) + 1
 
+        # Round 2: each debater answers all the others in one call
         if rounds == 2:
             rebuttals = await asyncio.gather(
                 *(
@@ -371,7 +412,9 @@ class DebateTool(MCPTool):
         effective_synth = synthesis_model
         if private_only and effective_synth is None:
             active = getattr(model_manager, "active_model", None)
-            effective_synth = self._pick_private_synthesizer(speaking, active)
+            effective_synth = self._pick_private_synthesizer(
+                speaking, active, model_manager=model_manager
+            )
 
         synthesis = await call(
             "Synthesis",
@@ -414,6 +457,7 @@ class DebateTool(MCPTool):
 
         output = ToolOutput(success=True, result="\n\n".join(sections))
         if incomplete:
+            # Don't serve a debate with a missing voice from cache for the next hour
             output.metadata["cacheable"] = False
         return output
 
@@ -434,6 +478,7 @@ class DebateTool(MCPTool):
                 model_manager.generate_content, prompt, **call_kwargs
             )
             if not text or not text.strip():
+                # Providers turn a missing reply into "": that's a failed turn, not a speech
                 return Turn(text=None, model_used=model_used, error="empty reply")
             return Turn(text=text, model_used=model_used)
         except Exception as e:

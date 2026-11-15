@@ -84,11 +84,13 @@ class StartConversationTool(MCPTool):
             system_prompt = parameters.get("system_prompt", "")
             initial_message = parameters.get("initial_message")
 
+            model_manager = get_model_manager()
             session_manager = get_session_manager()
             session_id = session_manager.create_session(
                 model=model,
                 system_prompt=system_prompt,
                 private_only=private_only,
+                model_manager=model_manager,
             )
 
             result_lines = [
@@ -109,7 +111,6 @@ class StartConversationTool(MCPTool):
                     return ToolOutput(
                         success=False, error="initial_message must be a non-empty string"
                     )
-                model_manager = get_model_manager()
                 if not model_manager:
                     session_manager.end_session(session_id)
                     return ToolOutput(success=False, error="Model manager not available")

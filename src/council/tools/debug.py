@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from ..providers.cli_sub import is_excluded_model, is_non_private_model
+from ..providers.cli_sub import is_excluded_model, is_model_private_allowed
 from .base import (
     PRIVATE_ONLY_PROPERTY,
     MCPTool,
@@ -69,7 +69,8 @@ class DebugTool(MCPTool):
                     "type": "string",
                     "description": (
                         "Optional model override (e.g., '~moonshotai/kimi-latest'). "
-                        "Use list_models to see available options."
+                        "Defaults to the session's model when `session_id` is provided, "
+                        "otherwise the active model. Use list_models to see available options."
                     ),
                 },
                 "private_only": dict(PRIVATE_ONLY_PROPERTY),
@@ -102,6 +103,7 @@ class DebugTool(MCPTool):
             session_id = parameters.get("session_id")
             model_override = parameters.get("model")
 
+            model_manager = get_model_manager()
             session_context = ""
             if session_id:
                 from .conversation import get_session_manager
@@ -121,7 +123,7 @@ class DebugTool(MCPTool):
                         error=f"Session model '{session.model}' is excluded by policy",
                     )
                 effective_private = private_only or bool(session.private_only)
-                if effective_private and is_non_private_model(session.model):
+                if effective_private and not is_model_private_allowed(session.model, model_manager):
                     return ToolOutput(
                         success=False,
                         error=(
@@ -144,7 +146,6 @@ class DebugTool(MCPTool):
                 session_context=session_context,
             )
 
-            model_manager = get_model_manager()
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
