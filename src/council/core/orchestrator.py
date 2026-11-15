@@ -31,7 +31,6 @@ class ConversationOrchestrator:
         self, tool_name: str, parameters: dict[str, Any], request_id: str | None = None
     ) -> ToolOutput:
         """Execute a single tool, serving a cached result when the tool allows it."""
-        del request_id
         tool = self.tool_registry.get_tool(tool_name)
         if not tool:
             output = ToolOutput(success=False, error=f"Unknown tool: {tool_name}")

@@ -352,7 +352,7 @@ class TestAgyCliProvider:
         ]
         assert "OPENROUTER_API_KEY" not in captured["kwargs"]["env"]
         assert "GEMINI_API_KEY" not in captured["kwargs"]["env"]
-        assert captured["kwargs"]["env"]["AGY_GUARD_MODE"] == "strict"
+        assert "AGY_GUARD_MODE" not in captured["kwargs"]["env"]
 
         settings = captured["settings"]
         assert settings["toolPermission"] == "request-review"
@@ -459,9 +459,13 @@ class TestClaudeCliProvider:
         assert provider.resolve("~anthropic/claude-sonnet-latest") == "sonnet"
         assert provider.resolve("claude-opus") == "opus"
         assert provider.resolve("claude-haiku-latest") == "haiku"
-        # Explicit versioned IDs pass through without silent alias substitution
+        assert provider.resolve("claude-fable-latest") == "fable"
+        # Explicit versioned IDs pass through; dotted OpenRouter versions convert to dashed CLI IDs
         assert provider.resolve("anthropic/claude-sonnet-4-6") == "claude-sonnet-4-6"
         assert provider.resolve("claude-opus-4-6") == "claude-opus-4-6"
+        assert provider.resolve("anthropic/claude-opus-4.6") == "claude-opus-4-6"
+        assert provider.resolve("~anthropic/claude-sonnet-4.5") == "claude-sonnet-4-5"
+        assert provider.resolve("claude-haiku-4.5") == "claude-haiku-4-5"
         assert provider.resolve("anthropic/--bad-flag") is None
         assert provider.resolve("anthropic/claude-sonnet:beta") is None
         assert provider.resolve("google/gemini-2.5-pro") is None
@@ -486,6 +490,9 @@ class TestClaudeCliProvider:
                 {
                     "PATH": "/usr/bin",
                     "HOME": "/home/testuser",
+                    "HTTPS_PROXY": "http://proxy.internal:8080",
+                    "no_proxy": "localhost,127.0.0.1",
+                    "CLAUDE_CONFIG_DIR": "/home/testuser/.claude-alt",
                     "CLAUDECODE": "1",
                     "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
                     "ANTHROPIC_AUTH_TOKEN": "zai-tok",
@@ -512,7 +519,13 @@ class TestClaudeCliProvider:
         assert all(len(arg) < 1024 for arg in cmd)
 
         env = captured["kwargs"]["env"]
-        assert set(env.keys()) <= {"PATH", "HOME"}
+        assert env == {
+            "PATH": "/usr/bin",
+            "HOME": "/home/testuser",
+            "HTTPS_PROXY": "http://proxy.internal:8080",
+            "no_proxy": "localhost,127.0.0.1",
+            "CLAUDE_CONFIG_DIR": "/home/testuser/.claude-alt",
+        }
 
     @patch("council.providers.cli_sub.shutil.which", return_value="/usr/local/bin/claude")
     def test_generate_rate_limit_timeout_and_non_json(self, _mock_which):

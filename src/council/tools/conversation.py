@@ -256,7 +256,6 @@ class ListConversationsTool(MCPTool):
 
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """List active conversations."""
-        del parameters
         try:
             session_manager = get_session_manager()
             sessions = session_manager.list_sessions()

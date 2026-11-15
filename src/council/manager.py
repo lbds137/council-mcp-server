@@ -24,7 +24,7 @@ from .providers.base import AuthenticationError, ModelNotFoundError, RateLimitEr
 logger = logging.getLogger(__name__)
 
 
-_CLI_MODEL_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_CLI_MODEL_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[0-9]+[kmKM]\])?$")
 
 
 def _cli_fallback_reason(err: LLMProviderError) -> str:
@@ -231,7 +231,7 @@ class ModelManager:
             return False
         lowered = cleaned.lower()
         if family == "claude":
-            return lowered in ("opus", "sonnet", "haiku") or lowered.startswith("claude-")
+            return lowered in ("opus", "sonnet", "haiku", "fable") or lowered.startswith("claude-")
         if family == "agy":
             return lowered.startswith(("gemini-", "claude-"))
         return False
@@ -313,7 +313,8 @@ class ModelManager:
             ):
                 self.failed_calls += 1
                 raise LLMProviderError(
-                    f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
+                    f"Resolved Antigravity CLI target '{agy_model}' for '{model_to_use}' "
+                    "(check COUNCIL_AGY_MODEL_MAP) is excluded when private_only=True",
                     provider="privacy-gate",
                     model=model_to_use,
                 )
@@ -322,7 +323,8 @@ class ModelManager:
             ):
                 self.failed_calls += 1
                 raise LLMProviderError(
-                    f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
+                    f"Resolved Claude CLI target '{claude_model}' for '{model_to_use}' "
+                    "(check COUNCIL_CLAUDE_MODEL_MAP) is excluded when private_only=True",
                     provider="privacy-gate",
                     model=model_to_use,
                 )
@@ -517,7 +519,14 @@ class ModelManager:
         return cleaned
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
-        """List available models (excluding globally disallowed vendors)."""
+        """List available models (excluding globally disallowed vendors).
+
+        Args:
+            force_refresh: If True, bypass cache and fetch fresh data.
+
+        Returns:
+            List of ModelInfo objects.
+        """
         return [
             m
             for m in self.provider.list_models(force_refresh=force_refresh)
@@ -525,17 +534,32 @@ class ModelManager:
         ]
 
     def get_model_info(self, model_id: str) -> ModelInfo | None:
-        """Get information about a specific model."""
+        """Get information about a specific model.
+
+        Args:
+            model_id: The model ID to look up.
+
+        Returns:
+            ModelInfo for the model, or None if not found.
+        """
         if is_excluded_model(model_id):
             return None
         return self.provider.get_model_info(model_id)
 
     def is_available(self) -> bool:
-        """Check if the model manager is properly configured."""
+        """Check if the model manager is properly configured.
+
+        Returns:
+            True if the provider is available.
+        """
         return self.provider.is_available()
 
     def get_stats(self) -> dict[str, Any]:
-        """Get usage statistics."""
+        """Get usage statistics.
+
+        Returns:
+            Dictionary with usage statistics.
+        """
         success_rate = (
             (self.successful_calls / self.total_calls * 100) if self.total_calls > 0 else 0
         )

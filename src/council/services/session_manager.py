@@ -210,7 +210,15 @@ class SessionManager:
         ]
 
     def get_history(self, session_id: str, limit: int | None = None) -> list[dict[str, str]]:
-        """Get conversation history for a session."""
+        """Get conversation history for a session.
+
+        Args:
+            session_id: The session ID
+            limit: Optional limit on number of turns to return
+
+        Returns:
+            List of message dicts with role and content
+        """
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -222,7 +230,15 @@ class SessionManager:
         return [{"role": t.role, "content": t.content} for t in turns]
 
     def end_session(self, session_id: str, summarize: bool = False) -> str:
-        """End a session and optionally return a summary."""
+        """End a session and optionally return a summary.
+
+        Args:
+            session_id: The session ID
+            summarize: Whether to return a summary
+
+        Returns:
+            Summary string or confirmation message
+        """
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")

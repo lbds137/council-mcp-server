@@ -228,7 +228,12 @@ class DebateTool(MCPTool):
 
     @staticmethod
     def _has_criteria_table(text: str, criteria: list[str]) -> bool:
-        """Return True if synthesis text includes a Markdown table covering every criterion."""
+        """Approximate heuristic checking that a Markdown table mentions every criterion.
+
+        Scans contiguous `|`-bearing table blocks with a separator row; exact substring
+        matches pass, and single-word criteria of >=7 alphanumeric chars also accept
+        5-character prefix inflections (e.g. `Maintainability` -> `maintenance`).
+        """
         if not criteria:
             return True
         # Inspect only contiguous `|`-bearing table blocks that contain a separator row,
