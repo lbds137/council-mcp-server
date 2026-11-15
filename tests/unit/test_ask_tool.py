@@ -148,3 +148,20 @@ class TestAskTool:
 
             call_args = mock_model_manager.generate_content.call_args[0][0]
             assert call_args == "Question: Test"  # No context prefix
+
+    @pytest.mark.asyncio
+    async def test_private_only_forwarded_and_validated(self, tool, mock_model_manager):
+        """Test private_only forwards to generate_content and rejects non-booleans."""
+        mock_council = Mock()
+        mock_server_instance = Mock()
+        mock_server_instance.model_manager = mock_model_manager
+        mock_council._server_instance = mock_server_instance
+
+        with patch.dict(sys.modules, {"council": mock_council}):
+            bad = await tool.execute({"question": "Test", "private_only": "true"})
+            assert bad.success is False
+            assert "private_only must be a boolean" in bad.error
+
+            ok = await tool.execute({"question": "Test", "private_only": True})
+            assert ok.success is True
+            assert mock_model_manager.generate_content.call_args[1]["private_only"] is True

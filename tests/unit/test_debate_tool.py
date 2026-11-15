@@ -9,7 +9,7 @@ import pytest
 
 from council.providers.base import RateLimitError
 from council.tools.base import progress_reporter
-from council.tools.debate import DEFAULT_PANEL, DebateTool
+from council.tools.debate import DEFAULT_PANEL, PRIVATE_DEFAULT_PANEL, DebateTool
 
 
 def replying_manager(fail_models=(), delay=0.0, fail_rebuttals=(), empty_models=()):
@@ -20,12 +20,15 @@ def replying_manager(fail_models=(), delay=0.0, fail_rebuttals=(), empty_models=
     manager = Mock()
     lock = threading.Lock()
     manager.prompts = []
+    manager.extra_kwargs = []
     manager.in_flight = 0
     manager.peak_in_flight = 0
 
-    def generate_content(prompt, model=None):
+    def generate_content(prompt, model=None, **kwargs):
         with lock:
             manager.prompts.append((model, prompt))
+            if kwargs:
+                manager.extra_kwargs.append((model, kwargs))
             manager.in_flight += 1
             manager.peak_in_flight = max(manager.peak_in_flight, manager.in_flight)
         try:
@@ -89,6 +92,25 @@ class TestDebateValidation:
                 "3 models for 2 positions would leave models out",
             ),
             ({"topic": "x", "rounds": True}, "rounds must be 1 or 2"),
+            ({"topic": "x", "criteria": []}, "criteria must be a list of 1-8"),
+            ({"topic": "x", "criteria": ["  "]}, "criteria must be a list of 1-8"),
+            (
+                {"topic": "x", "criteria": [f"c{i}" for i in range(9)]},
+                "criteria must be a list of 1-8",
+            ),
+            ({"topic": "x", "private_only": "yes"}, "private_only must be a boolean"),
+            (
+                {
+                    "topic": "x",
+                    "private_only": True,
+                    "models": ["~openai/gpt-sol-latest", "~z-ai/glm-latest"],
+                },
+                "excluded when private_only=True",
+            ),
+            (
+                {"topic": "x", "private_only": True, "synthesis_model": "~moonshotai/kimi-latest"},
+                "synthesis_model '~moonshotai/kimi-latest' is excluded when private_only=True",
+            ),
         ],
     )
     async def test_bad_input_is_rejected(self, server, manager, parameters, message):
@@ -340,3 +362,45 @@ class TestDebateProgress:
 
         openings = [m for _, _, m in reports if m.startswith("Opening from")]
         assert "~openai/gpt-sol-latest" in openings[-1]
+
+
+class TestDebateCriteriaAndPrivacy:
+    """Decision criteria scoring and private_only panel behavior."""
+
+    @pytest.mark.asyncio
+    async def test_criteria_injected_into_openings_rebuttals_and_synthesis(self, server, manager):
+        """Criteria appear in the transcript header, openings, rebuttals, and synthesis prompt."""
+        result = await DebateTool().execute(
+            {
+                "topic": "Queue backend",
+                "positions": ["Redis Streams", "Postgres SKIP LOCKED"],
+                "criteria": ["operational simplicity", "crash recovery"],
+            }
+        )
+
+        assert result.success is True
+        assert "**Criteria:** operational simplicity, crash recovery" in result.result
+        open_prompt = prompts_to(manager, DEFAULT_PANEL[0])[0]
+        rebut_prompt = prompts_to(manager, DEFAULT_PANEL[0])[1]
+        synth_prompt = prompts_to(manager, None)[0]
+        assert "Evaluate your position explicitly against these criteria:" in open_prompt
+        assert "- operational simplicity" in open_prompt
+        assert "Address how the competing arguments hold up on the criteria" in rebut_prompt
+        assert "Markdown Criteria Decision Table" in synth_prompt
+
+    @pytest.mark.asyncio
+    async def test_private_only_uses_private_panel_and_avoids_non_private_active_synth(self):
+        """private_only switches the default panel and picks a surviving speaker for synthesis."""
+        manager = replying_manager(fail_models={PRIVATE_DEFAULT_PANEL[0]})
+        manager.active_model = "~z-ai/glm-latest"
+        with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
+            result = await DebateTool().execute(
+                {"topic": "Sensitive design", "rounds": 1, "private_only": True}
+            )
+
+        assert result.success is True
+        called_models = [m for m, _ in manager.prompts]
+        assert set(called_models[:3]) == set(PRIVATE_DEFAULT_PANEL)
+        # Debater 1 failed its opening, so synthesis falls back to speaking[0].model (Debater 2)
+        assert called_models[3] == PRIVATE_DEFAULT_PANEL[1]
+        assert all(kw == {"private_only": True} for _, kw in manager.extra_kwargs)

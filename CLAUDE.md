@@ -26,7 +26,7 @@ Since this MCP server is already running, you can use these tools directly:
 - `mcp__council__test_cases` - Generate test cases
 - `mcp__council__explain` - Get explanations
 - `mcp__council__synthesize_perspectives` - Combine multiple viewpoints
-- `mcp__council__debate` - 2-4 models debate a topic (openings, rebuttals, synthesis); calls run in parallel, one per debater per round
+- `mcp__council__debate` - 2-4 models debate a topic (openings, rebuttals, synthesis; optional `criteria` for a scored decision table and `private_only` to exclude non-private vendors); calls run in parallel, one per debater per round
 - `mcp__council__debug` - Diagnose an error
 - `mcp__council__refactor` - Suggest refactorings
 
@@ -146,6 +146,7 @@ src/council/
 ├── json_rpc.py          # JSON-RPC 2.0 implementation
 ├── providers/
 │   ├── base.py          # LLMProvider interface and error classes
+│   ├── cli_sub.py       # Optional local subscription CLIs (Antigravity CLI, Claude CLI)
 │   ├── openrouter.py    # OpenRouter implementation
 │   └── zai.py           # Z.ai coding-plan implementation
 ├── discovery/
@@ -258,6 +259,8 @@ COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest       # Default model
 COUNCIL_CACHE_TTL=3600                              # Model cache TTL (1 hour)
 COUNCIL_TIMEOUT=600000                              # Request timeout (10 min)
 COUNCIL_DEBUG=1                                     # Enable debug logging
+COUNCIL_AGY_CLI=1                                   # Route Google/Gemini models via local agy -p first
+COUNCIL_CLAUDE_CLI=1                                # Route explicit Anthropic models via isolated claude -p first
 ```
 
 ### Model Selection

@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from ..providers.cli_sub import is_non_private_model
 from .base import MCPTool, ToolOutput, get_model_manager, report_progress
 
 logger = logging.getLogger(__name__)
@@ -12,8 +13,14 @@ logger = logging.getLogger(__name__)
 # Three families, so the debate isn't one model agreeing with itself.
 # GLM runs on the flat-rate Z.ai plan when its key is set.
 DEFAULT_PANEL = ["~openai/gpt-sol-latest", "~z-ai/glm-latest", "~moonshotai/kimi-latest"]
+PRIVATE_DEFAULT_PANEL = [
+    "~openai/gpt-sol-latest",
+    "~google/gemini-pro-latest",
+    "mistralai/mistral-medium-3-5",
+]
 MIN_DEBATERS = 2
 MAX_DEBATERS = 4
+MAX_CRITERIA = 8
 ERROR_PREVIEW_CHARS = 200
 
 
@@ -101,6 +108,26 @@ class DebateTool(MCPTool):
                     "default": 2,
                     "description": "1 = opening statements only; 2 = openings and rebuttals",
                 },
+                "criteria": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": MAX_CRITERIA,
+                    "description": (
+                        "Optional decision criteria (1-8 items, e.g. ['latency', "
+                        "'maintainability', 'security']) scored across debaters and "
+                        "summarized in a synthesis decision table"
+                    ),
+                },
+                "private_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "When true, exclude non-private model vendors (such as Z.ai, "
+                        "DeepSeek, Moonshot, Qwen, MiniMax) and switch the default panel "
+                        "to privacy-cleared families"
+                    ),
+                },
             },
             "required": ["topic"],
         }
@@ -112,10 +139,29 @@ class DebateTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            debaters_or_error = self._seat_debaters(parameters)
+            raw_priv = parameters.get("private_only", False)
+            if not isinstance(raw_priv, bool):
+                return ToolOutput(success=False, error="private_only must be a boolean")
+
+            criteria_or_error = self._parse_criteria(parameters)
+            if isinstance(criteria_or_error, str):
+                return ToolOutput(success=False, error=criteria_or_error)
+
+            debaters_or_error = self._seat_debaters(parameters, private_only=raw_priv)
             if isinstance(debaters_or_error, str):
                 return ToolOutput(success=False, error=debaters_or_error)
             debaters = debaters_or_error
+
+            synth_model = parameters.get("synthesis_model")
+            if synth_model is not None and (
+                not isinstance(synth_model, str) or not synth_model.strip()
+            ):
+                return ToolOutput(success=False, error="synthesis_model must be a non-empty string")
+            if raw_priv and isinstance(synth_model, str) and is_non_private_model(synth_model):
+                return ToolOutput(
+                    success=False,
+                    error=f"synthesis_model '{synth_model}' is excluded when private_only=True",
+                )
 
             topic = parameters["topic"].strip()
             rounds = parameters.get("rounds", 2)
@@ -126,26 +172,57 @@ class DebateTool(MCPTool):
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            return await self._run(model_manager, topic, debaters, rounds, parameters)
+            return await self._run(
+                model_manager,
+                topic,
+                debaters,
+                rounds,
+                parameters,
+                criteria=criteria_or_error,
+                private_only=raw_priv,
+                synthesis_model=synth_model,
+            )
         except Exception as e:
             logger.error(f"Debate error: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
 
     @staticmethod
-    def _seat_debaters(parameters: dict[str, Any]) -> list[Debater] | str:
+    def _parse_criteria(parameters: dict[str, Any]) -> list[str] | str:
+        """Validate optional criteria list (1-8 non-empty strings)."""
+        raw = parameters.get("criteria")
+        if raw is None:
+            return []
+        if (
+            not isinstance(raw, list)
+            or not (1 <= len(raw) <= MAX_CRITERIA)
+            or not all(isinstance(c, str) and c.strip() for c in raw)
+        ):
+            return f"criteria must be a list of 1-{MAX_CRITERIA} non-empty strings"
+        return [" ".join(c.split()) for c in raw]
+
+    @staticmethod
+    def _seat_debaters(
+        parameters: dict[str, Any], *, private_only: bool = False
+    ) -> list[Debater] | str:
         """The debaters for this request, or an error message."""
         topic = parameters.get("topic")
         if not isinstance(topic, str) or not topic.strip():
             return "Topic is required for a debate"
 
         positions = parameters.get("positions") or []
-        models = parameters.get("models") or DEFAULT_PANEL
+        default_panel = PRIVATE_DEFAULT_PANEL if private_only else DEFAULT_PANEL
+        models = parameters.get("models") or default_panel
         if not isinstance(positions, list) or not all(
             isinstance(p, str) and p.strip() for p in positions
         ):
             return "positions must be a list of non-empty strings"
         if not isinstance(models, list) or not all(isinstance(m, str) and m for m in models):
             return "models must be a list of model IDs"
+
+        if private_only:
+            for mid in models:
+                if is_non_private_model(mid):
+                    return f"Model '{mid}' is excluded when private_only=True"
 
         if positions and parameters.get("models") and len(models) > len(positions):
             return (
@@ -174,17 +251,25 @@ class DebateTool(MCPTool):
         debaters: list[Debater],
         rounds: int,
         parameters: dict[str, Any],
+        *,
+        criteria: list[str] | None = None,
+        private_only: bool = False,
+        synthesis_model: str | None = None,
     ) -> ToolOutput:
         """Run the rounds and assemble the transcript."""
+        del parameters
+        crit_list = criteria or []
         calls = 0
         # One per debater per round, plus the synthesis; shrinks if a debater drops out
         total = len(debaters) * rounds + 1
         sections = [f"🏛️ Debate: {topic}"]
+        if crit_list:
+            sections.append(f"**Criteria:** {', '.join(crit_list)}")
 
         async def call(label: str, prompt: str, model: str | None) -> Turn:
             """One model call, reported to the client as soon as it finishes."""
             nonlocal calls
-            turn = await self._call(model_manager, prompt, model)
+            turn = await self._call(model_manager, prompt, model, private_only=private_only)
             calls += 1
             outcome = "in" if turn.text is not None else "failed"
             report_progress(calls, total, f"{label} {outcome}")
@@ -195,7 +280,11 @@ class DebateTool(MCPTool):
         # Round 1: every debater opens at once
         openings = await asyncio.gather(
             *(
-                call(f"Opening from {d.title} ({d.model})", self._opening_prompt(topic, d), d.model)
+                call(
+                    f"Opening from {d.title} ({d.model})",
+                    self._opening_prompt(topic, d, crit_list),
+                    d.model,
+                )
                 for d in debaters
             )
         )
@@ -225,7 +314,7 @@ class DebateTool(MCPTool):
                 *(
                     call(
                         f"Rebuttal from {d.title} ({d.model})",
-                        self._rebuttal_prompt(topic, d, speaking),
+                        self._rebuttal_prompt(topic, d, speaking, crit_list),
                         d.model,
                     )
                     for d in speaking
@@ -236,8 +325,16 @@ class DebateTool(MCPTool):
                 debater.rebuttal = turn.text
                 sections.append(self._format_turn(debater, turn))
 
+        effective_synth = synthesis_model
+        if private_only and effective_synth is None:
+            active = getattr(model_manager, "active_model", None)
+            if isinstance(active, str) and is_non_private_model(active):
+                effective_synth = speaking[0].model
+
         synthesis = await call(
-            "Synthesis", self._synthesis_prompt(topic, speaking), parameters.get("synthesis_model")
+            "Synthesis",
+            self._synthesis_prompt(topic, speaking, crit_list),
+            effective_synth,
         )
         sections.append("## Synthesis")
         if synthesis.text is not None:
@@ -259,11 +356,20 @@ class DebateTool(MCPTool):
         return output
 
     @staticmethod
-    async def _call(model_manager: Any, prompt: str, model: str | None) -> Turn:
+    async def _call(
+        model_manager: Any,
+        prompt: str,
+        model: str | None,
+        *,
+        private_only: bool = False,
+    ) -> Turn:
         """One model call on a worker thread, so the debaters' calls overlap."""
         try:
+            call_kwargs: dict[str, Any] = {"model": model}
+            if private_only:
+                call_kwargs["private_only"] = True
             text, model_used = await asyncio.to_thread(
-                model_manager.generate_content, prompt, model=model
+                model_manager.generate_content, prompt, **call_kwargs
             )
             if not text or not text.strip():
                 # Providers turn a missing reply into "": that's a failed turn, not a speech
@@ -283,7 +389,7 @@ class DebateTool(MCPTool):
         return f"### {debater.title}\n\n{turn.text}\n\n*[Model: {turn.model_used}]*"
 
     @staticmethod
-    def _opening_prompt(topic: str, debater: Debater) -> str:
+    def _opening_prompt(topic: str, debater: Debater, criteria: list[str] | None = None) -> str:
         """The opening-statement prompt."""
         if debater.stance:
             task = (
@@ -296,29 +402,45 @@ class DebateTool(MCPTool):
                 "Give your own answer: your position, the reasoning behind it, and what "
                 "would change your mind."
             )
+        if criteria:
+            bullets = "\n".join(f"- {c}" for c in criteria)
+            task += f"\n\nEvaluate your position explicitly against these criteria:\n{bullets}"
         return (
             f"You are one of several AI models in a structured debate on:\n{topic}\n\n"
             f"{task}\n\nBe concise: under 300 words."
         )
 
     @staticmethod
-    def _rebuttal_prompt(topic: str, debater: Debater, speaking: list[Debater]) -> str:
+    def _rebuttal_prompt(
+        topic: str,
+        debater: Debater,
+        speaking: list[Debater],
+        criteria: list[str] | None = None,
+    ) -> str:
         """The rebuttal prompt: this debater's opening plus everyone else's."""
         others = "\n\n".join(
             f"**{other.title}:**\n{other.opening}"
             for other in speaking
             if other.number != debater.number
         )
+        crit_note = ""
+        if criteria:
+            crit_note = (
+                f" Address how the competing arguments hold up on the criteria "
+                f"({', '.join(criteria)})."
+            )
         return (
             f"You are {debater.title} in a structured debate on:\n{topic}\n\n"
             f"Your opening statement:\n{debater.opening}\n\n"
             f"The other debaters said:\n\n{others}\n\n"
             "Respond to them: where they are wrong, what they get right, and whether "
-            "anything they said changes your position. Be concise: under 200 words."
+            f"anything they said changes your position.{crit_note} Be concise: under 200 words."
         )
 
     @staticmethod
-    def _synthesis_prompt(topic: str, speaking: list[Debater]) -> str:
+    def _synthesis_prompt(
+        topic: str, speaking: list[Debater], criteria: list[str] | None = None
+    ) -> str:
         """The synthesis prompt, carrying the whole transcript."""
         transcript = []
         for debater in speaking:
@@ -327,6 +449,20 @@ class DebateTool(MCPTool):
                 entry += f"\n\n**{debater.title}, rebuttal:**\n{debater.rebuttal}"
             transcript.append(entry)
         joined = "\n\n".join(transcript)
+        if criteria:
+            crit_bullets = "\n".join(f"- {c}" for c in criteria)
+            return (
+                f"You are judging a structured debate between AI models on:\n{topic}\n\n"
+                f"Decision criteria:\n{crit_bullets}\n\n"
+                f"{joined}\n\n"
+                "Write a synthesis:\n"
+                "1. Where the debaters agree\n"
+                "2. The real disagreements, and which side argued each one better\n"
+                "3. A Markdown Criteria Decision Table scoring each position/option across every "
+                "criterion above, plus concise Pros & Cons per option\n"
+                "4. Arguments that didn't hold up\n"
+                "5. Your recommendation grounded in the criteria, and how confident you are in it"
+            )
         return (
             f"You are judging a structured debate between AI models on:\n{topic}\n\n"
             f"{joined}\n\n"

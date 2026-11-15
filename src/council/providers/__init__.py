@@ -9,6 +9,12 @@ from .base import (
     ModelNotFoundError,
     RateLimitError,
 )
+from .cli_sub import (
+    AgyCliProvider,
+    ClaudeCliProvider,
+    is_non_private_model,
+    private_openrouter_extra_body,
+)
 from .openrouter import OpenRouterProvider
 from .zai import ZaiCodingProvider
 
@@ -20,6 +26,10 @@ __all__ = [
     "AuthenticationError",
     "RateLimitError",
     "ModelNotFoundError",
+    "AgyCliProvider",
+    "ClaudeCliProvider",
     "OpenRouterProvider",
     "ZaiCodingProvider",
+    "is_non_private_model",
+    "private_openrouter_extra_body",
 ]
