@@ -390,8 +390,8 @@ class TestDebateCriteriaAndPrivacy:
 
     @pytest.mark.asyncio
     async def test_private_only_uses_private_panel_and_picks_independent_synth(self):
-        """private_only switches the default panel and picks an independent synthesizer."""
-        manager = replying_manager(fail_models={PRIVATE_DEFAULT_PANEL[0]})
+        """private_only switches the default panel and picks a non-Claude independent synth."""
+        manager = replying_manager(fail_models={PRIVATE_DEFAULT_PANEL[2]})
         manager.active_model = "~moonshotai/kimi-latest"
         with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
             result = await DebateTool().execute(
@@ -401,8 +401,9 @@ class TestDebateCriteriaAndPrivacy:
         assert result.success is True
         called_models = [m for m, _ in manager.prompts]
         assert set(called_models[:3]) == set(PRIVATE_DEFAULT_PANEL)
-        # Non-private active_model is replaced by an independent privacy-cleared synthesizer
-        assert called_models[3] == "~anthropic/claude-sonnet-latest"
+        # Non-private active_model is replaced by the non-speaking non-Claude fallback
+        assert called_models[3] == "mistralai/mistral-medium-3-5"
+        assert all(not (m or "").startswith("~anthropic/") for m in called_models)
         assert all(kw == {"private_only": True} for _, kw in manager.extra_kwargs)
 
     @pytest.mark.asyncio
@@ -422,20 +423,61 @@ class TestDebateCriteriaAndPrivacy:
         assert "omitted a complete Markdown criteria table" in result.result
         assert result.metadata["cacheable"] is False
 
+    def test_has_criteria_table_checks_table_rows_and_allows_inflections(self):
+        """Criteria must appear inside a Markdown table block (inflections allowed), not prose."""
+        prose_only = (
+            "Durability and maintainability matter.\n\n"
+            "| Option | Score |\n| --- | --- |\n| A | 9 |\n"
+        )
+        assert (
+            DebateTool._has_criteria_table(prose_only, ["durability", "maintainability"]) is False
+        )
+
+        valid_inflected = (
+            "| Criterion | Option A | Option B |\n"
+            "| --- | --- | --- |\n"
+            "| Durability | Strong | Weak |\n"
+            "| Maintenance | Low toil | High toil |\n"
+        )
+        assert (
+            DebateTool._has_criteria_table(valid_inflected, ["durability", "Maintainability"])
+            is True
+        )
+
     @pytest.mark.asyncio
     async def test_private_only_avoids_speaking_active_model_and_non_private_marks_also_debated(
         self,
     ):
-        """private_only picks an independent synth when active_model spoke; non-private tags it."""
+        """private_only picks non-Claude fallback or tags participating synth when all fallbacks spoke."""
+        # Case 1: 2-model private debate where active_model spoke -> picks independent Mistral
+        two_mgr = replying_manager()
+        two_mgr.active_model = "~openai/gpt-sol-latest"
+        with patch("council._server_instance", SimpleNamespace(model_manager=two_mgr)):
+            two_res = await DebateTool().execute(
+                {
+                    "topic": "Auth flow",
+                    "models": ["~openai/gpt-sol-latest", "~google/gemini-pro-latest"],
+                    "rounds": 1,
+                    "private_only": True,
+                }
+            )
+        assert two_res.success is True
+        assert [m for m, _ in two_mgr.prompts][2] == "mistralai/mistral-medium-3-5"
+        assert "*(participating model)*" not in two_res.result
+
+        # Case 2: All 3 PRIVATE_DEFAULT_PANEL models spoke and active_model also spoke ->
+        # falls back to speaking[0].model without ever defaulting to Claude, and tags it!
         priv_mgr = replying_manager()
-        priv_mgr.active_model = PRIVATE_DEFAULT_PANEL[0]  # ~openai/gpt-sol-latest spoke!
+        priv_mgr.active_model = PRIVATE_DEFAULT_PANEL[0]
         with patch("council._server_instance", SimpleNamespace(model_manager=priv_mgr)):
             priv_res = await DebateTool().execute(
                 {"topic": "Auth flow", "rounds": 1, "private_only": True}
             )
         assert priv_res.success is True
         called_priv = [m for m, _ in priv_mgr.prompts]
-        assert called_priv[3] == "~anthropic/claude-sonnet-latest"
+        assert called_priv[3] == PRIVATE_DEFAULT_PANEL[0]
+        assert all(not (m or "").startswith("~anthropic/") for m in called_priv)
+        assert "*(participating model)*" in priv_res.result
 
         pub_mgr = replying_manager()
         pub_mgr.active_model = DEFAULT_PANEL[0]

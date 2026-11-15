@@ -30,7 +30,7 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 QUOTA_CHECK_TIMEOUT_SECONDS = 15.0
-DEFAULT_CLI_TIMEOUT_SECONDS = 180.0
+DEFAULT_CLI_TIMEOUT_SECONDS = 600.0
 
 # Child CLI and quota subprocesses inherit ONLY these safe runtime/locale/auth-bus variables.
 # API keys (OPENROUTER_API_KEY, ZAI_CODING_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY,
@@ -169,6 +169,21 @@ def _normalize_openrouter_candidate(model_id: str) -> str:
     return lowered
 
 
+# Z.ai GLM slugs verified via OpenRouter `/api/v1/models/z-ai/<slug>/endpoints` (2026-11-15)
+# to have active Mistral-hosted endpoints (`mistral/zdr`, `mistral/nvfp4/eu`, `mistral/eu`,
+# `mistral`), plus their OpenRouter `-latest` aliases. Unhosted Z.ai slugs (`glm-5`, `glm-5.1`,
+# `glm-5.3-prime`, `glm-5.3-flashx`, `glm-4.*`) are rejected up front rather than 404ing.
+_PRIVATE_MISTRAL_GLM_SLUGS = frozenset(
+    {
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.2",
+        "glm-latest",
+        "glm-flash-latest",
+    }
+)
+
+
 def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
     """Return the pinned OpenRouter provider slug(s) allowed under private_only, or None.
 
@@ -178,7 +193,8 @@ def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
     - openai/<non-oss>   -> ["openai"]
     - google/gemini-*    -> ["google-vertex"] (excludes google/gemma* and AI Studio)
     - mistralai/*        -> ["mistral"]
-    - z-ai/glm*          -> ["mistral"] (Mistral host only; Z.ai direct plan stays disabled)
+    - z-ai/<mistral-glm> -> ["mistral"] (only GLM slugs with verified Mistral endpoints:
+                            glm-5.3, glm-5.3-flash, glm-5.2, glm-latest, glm-flash-latest)
     All other vendors, `:free` / `:variant` suffixes, and `@preset/...` IDs are rejected.
     """
     raw = openrouter_model_id.strip()
@@ -198,7 +214,7 @@ def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
     vendor, slug = normalized.split("/", 1)
     if not _MODEL_COMPONENT_RE.fullmatch(vendor) or not _MODEL_COMPONENT_RE.fullmatch(slug):
         return None
-    if vendor == "anthropic" and (slug.startswith("claude-") or slug == "claude-latest"):
+    if vendor == "anthropic" and slug.startswith("claude-"):
         return ["anthropic"]
     if vendor == "openai" and not slug.startswith("gpt-oss"):
         return ["openai"]
@@ -206,7 +222,7 @@ def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
         return ["google-vertex"]
     if vendor == "mistralai":
         return ["mistral"]
-    if vendor == "z-ai" and slug.startswith("glm"):
+    if vendor == "z-ai" and slug in _PRIVATE_MISTRAL_GLM_SLUGS:
         return ["mistral"]
     return None
 
@@ -214,6 +230,16 @@ def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
 def is_non_private_model(model_id: str) -> bool:
     """Return True if model_id is excluded when private_only=True."""
     return is_excluded_model(model_id) or private_openrouter_providers(model_id) is None
+
+
+def is_model_private_allowed(model_id: str, model_manager: Any = None) -> bool:
+    """Return True if model_id is allowed under private_only (including manager CLI aliases)."""
+    checker = getattr(model_manager, "is_private_allowed_model", None)
+    if callable(checker):
+        verdict = checker(model_id)
+        if isinstance(verdict, bool):
+            return verdict
+    return not is_non_private_model(model_id)
 
 
 def private_openrouter_extra_body(
@@ -268,6 +294,22 @@ def _run_isolated_subprocess(
         text=True,
         start_new_session=True,
     )
+
+    def _reap_after_kill() -> None:
+        try:
+            proc.communicate(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
+
     try:
         stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -275,14 +317,14 @@ def _run_isolated_subprocess(
             os.killpg(proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             proc.kill()
-        proc.communicate()
+        _reap_after_kill()
         raise
     except BaseException:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             proc.kill()
-        proc.communicate()
+        _reap_after_kill()
         raise
 
     return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
@@ -500,6 +542,9 @@ class AgyCliProvider(LLMProvider):
                     },
                     sfh,
                 )
+            # In `agy` (Go flag CLI), `-p`/`--print` is a string option (`-p PROMPT`) that would
+            # consume the next flag; passing `--input-format text` with piped stdin enters
+            # headless print mode automatically and reads the prompt from stdin (live-verified).
             cmd = [
                 exe,
                 "--input-format",

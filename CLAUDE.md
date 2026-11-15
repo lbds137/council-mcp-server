@@ -26,9 +26,11 @@ Since this MCP server is already running, you can use these tools directly:
 - `mcp__council__test_cases` - Generate test cases
 - `mcp__council__explain` - Get explanations
 - `mcp__council__synthesize_perspectives` - Combine multiple viewpoints
-- `mcp__council__debate` - 2-4 models debate a topic (openings, rebuttals, synthesis; optional `criteria` for a scored decision table and `private_only` to exclude non-private vendors); calls run in parallel, one per debater per round
-- `mcp__council__debug` - Diagnose an error
+- `mcp__council__debate` - 2-4 models debate a topic (openings, rebuttals, synthesis; optional `criteria` for a scored decision table); calls run in parallel, one per debater per round
+- `mcp__council__debug` - Diagnose an error (with `session_id`, inherits the session's model and `private_only` state unless `model` overrides it)
 - `mcp__council__refactor` - Suggest refactorings
+
+All 11 LLM-calling tools (`ask`, `code_review`, `debug`, `refactor`, `explain`, `brainstorm`, `test_cases`, `synthesize_perspectives`, `debate`, `start_conversation`, `continue_conversation`) accept `private_only: true` to restrict execution to local subscription CLIs (`claude`, `agy`) and the 5-vendor OpenRouter allowlist (`anthropic`, `openai` non-oss, `google` Gemini on Vertex, `mistralai`, and Mistral-hosted `z-ai/glm-5.3` / `glm-5.3-flash` / `glm-5.2`) with `allow_fallbacks=false` and `data_collection=deny`.
 
 ### Conversations
 - `mcp__council__start_conversation` / `continue_conversation` - Multi-turn conversation with a model
@@ -257,7 +259,8 @@ Never print a key. Pipe it straight into `set-secret.sh` instead.
 # Optional
 COUNCIL_DEFAULT_MODEL=~openai/gpt-sol-latest       # Default model
 COUNCIL_CACHE_TTL=3600                              # Model cache TTL (1 hour)
-COUNCIL_TIMEOUT=600000                              # Request timeout (10 min)
+COUNCIL_TIMEOUT=600000                              # Request timeout (10 min, in ms)
+COUNCIL_CLI_TIMEOUT=600                             # Optional CLI provider timeout override (in seconds; defaults to COUNCIL_TIMEOUT)
 COUNCIL_DEBUG=1                                     # Enable debug logging
 COUNCIL_AGY_CLI=1                                   # Route Google/Gemini models via local agy -p first
 COUNCIL_CLAUDE_CLI=1                                # Route explicit Anthropic models via isolated claude -p first
