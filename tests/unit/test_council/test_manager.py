@@ -468,3 +468,102 @@ class TestModelManagerZaiRouting:
         zai_class.assert_not_called()
         openrouter.generate.assert_called_once_with("Hi", model="z-ai/glm-5.3")
         assert manager.get_stats()["zai_configured"] is False
+
+
+class TestModelManagerCliAndPrivacyRouting:
+    """Tests for subscription CLI routing and private_only enforcement."""
+
+    def response(self, model: str) -> LLMResponse:
+        return LLMResponse(content=f"from {model}", model=model)
+
+    @patch("council.manager.AgyCliProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_agy_cli_serves_gemini_and_falls_back_once(self, openrouter_class, agy_class):
+        agy_class.is_enabled.return_value = True
+        agy = agy_class.return_value
+        agy.name = "agy-cli"
+        agy.resolve.side_effect = lambda m: (
+            "gemini-pro-sub" if m.lstrip("~").startswith(("google/", "gemini-")) else None
+        )
+        agy.generate.return_value = self.response("google/gemini-pro-sub")
+        openrouter = openrouter_class.return_value
+
+        manager = ModelManager(api_key="or-key")
+        content, model_used = manager.generate_content("Hi", model="~google/gemini-pro-latest")
+
+        assert content == "from google/gemini-pro-sub"
+        assert model_used == "google/gemini-pro-sub · Antigravity CLI"
+        openrouter.generate.assert_not_called()
+        assert manager.get_stats()["agy_calls"] == 1
+
+        # Now simulate quota gate failure -> single OpenRouter fallback
+        agy.generate.side_effect = RateLimitError("subscription quota gate closed")
+        openrouter.generate.return_value = self.response("google/gemini-2.5-pro")
+        _, fallback_used = manager.generate_content("Hi", model="gemini-pro-latest")
+
+        openrouter.generate.assert_called_once_with("Hi", model="~google/gemini-pro-latest")
+        assert "OpenRouter (Antigravity CLI failed:" in fallback_used
+        assert manager.get_stats()["agy_fallbacks"] == 1
+
+        # Verify tilde-prefixed bare alias and agy effort suffix normalize cleanly on fallback
+        assert ModelManager._openrouter_id("~gemini-pro-latest") == "~google/gemini-pro-latest"
+        assert (
+            ModelManager._openrouter_id("~claude-sonnet-latest")
+            == "~anthropic/claude-sonnet-latest"
+        )
+        assert ModelManager._openrouter_id("google/gemini-4-argon-high") == "google/gemini-4-argon"
+        assert ModelManager._openrouter_id("gemini-3.8-flash-high") == "google/gemini-3.8-flash"
+
+    @patch("council.manager.ClaudeCliProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_claude_cli_serves_anthropic_and_dual_failure_raises(
+        self, openrouter_class, claude_class
+    ):
+        claude_class.is_enabled.return_value = True
+        claude = claude_class.return_value
+        claude.name = "claude-cli"
+        claude.resolve.side_effect = lambda m: "sonnet" if "claude" in m else None
+        claude.generate.return_value = self.response("anthropic/claude-sonnet")
+        openrouter = openrouter_class.return_value
+
+        manager = ModelManager(api_key="or-key")
+        content, model_used = manager.generate_content("Hi", model="claude-sonnet")
+        assert content == "from anthropic/claude-sonnet"
+        assert model_used == "anthropic/claude-sonnet · Claude CLI"
+
+        claude.generate.side_effect = RateLimitError("weekly reserve")
+        openrouter.generate.side_effect = LLMProviderError("upstream error")
+        with pytest.raises(LLMProviderError) as exc_info:
+            manager.generate_content("Hi", model="claude-sonnet")
+        assert "weekly reserve" in str(exc_info.value)
+        assert "upstream error" in str(exc_info.value)
+
+    @patch("council.manager.ZaiCodingProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_private_only_blocks_non_private_models_and_allows_cleared(
+        self, openrouter_class, zai_class
+    ):
+        openrouter = openrouter_class.return_value
+        openrouter.generate.return_value = self.response("openai/gpt-5")
+
+        with patch.dict("os.environ", {"ZAI_CODING_API_KEY": "zai-key"}):
+            manager = ModelManager(api_key="or-key")
+            with pytest.raises(LLMProviderError) as exc_info:
+                manager.generate_content("Sensitive", model="~z-ai/glm-latest", private_only=True)
+            assert "private_only=True" in str(exc_info.value)
+            zai_class.assert_not_called()
+
+            content, used = manager.generate_content(
+                "Sensitive", model="~openai/gpt-sol-latest", private_only=True
+            )
+            assert content == "from openai/gpt-5"
+            assert used == "openai/gpt-5"
+            extra_body = openrouter.generate.call_args[1]["extra_body"]
+            assert extra_body["provider"]["data_collection"] == "deny"
+
+            manager.generate_content(
+                "Sensitive Gemini", model="~google/gemini-pro-latest", private_only=True
+            )
+            g_extra = openrouter.generate.call_args[1]["extra_body"]
+            assert g_extra["provider"]["only"] == ["google-vertex"]
+            assert g_extra["provider"]["allow_fallbacks"] is False

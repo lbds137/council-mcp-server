@@ -12,6 +12,7 @@ from council.discovery.model_registry import (
     get_model_metadata,
     get_recommendations_for_task,
 )
+from council.tools.debate import DEFAULT_PANEL, PRIVATE_DEFAULT_PANEL
 
 
 class TestModelClass:
@@ -170,6 +171,12 @@ class TestModelRegistry:
         """Test there are deep-class models."""
         deep_models = [k for k, v in MODEL_REGISTRY.items() if v.model_class == ModelClass.DEEP]
         assert len(deep_models) >= 1
+
+    def test_debate_panels_in_registry(self):
+        """Test every model in DEFAULT_PANEL and PRIVATE_DEFAULT_PANEL is in MODEL_REGISTRY."""
+        for panel in (DEFAULT_PANEL, PRIVATE_DEFAULT_PANEL):
+            for model_id in panel:
+                assert model_id in MODEL_REGISTRY, f"{model_id} missing from MODEL_REGISTRY"
 
 
 class TestTaskRecommendations:

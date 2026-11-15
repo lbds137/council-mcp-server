@@ -40,6 +40,14 @@ class AskTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
+                "private_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "When true, refuse non-private model vendors (such as Z.ai, "
+                        "DeepSeek, Moonshot, Qwen, MiniMax)"
+                    ),
+                },
             },
             "required": ["question"],
         }
@@ -55,6 +63,10 @@ class AskTool(MCPTool):
             question = parameters.get("question", "")
             context = parameters.get("context", "")
             model_override = parameters.get("model")
+            private_only = parameters.get("private_only", False)
+
+            if not isinstance(private_only, bool):
+                return ToolOutput(success=False, error="private_only must be a boolean")
 
             if not question:
                 return ToolOutput(success=False, error="Question is required")
@@ -67,7 +79,10 @@ class AskTool(MCPTool):
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
+            call_kwargs: dict[str, Any] = {"model": model_override}
+            if private_only:
+                call_kwargs["private_only"] = True
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
             formatted_response = f"🤖 Response:\n\n{response_text}"
             formatted_response += f"\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)

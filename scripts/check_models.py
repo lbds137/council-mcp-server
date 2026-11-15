@@ -21,6 +21,7 @@ from council.discovery.model_registry import (  # noqa: E402
     MODEL_REGISTRY,
     TASK_RECOMMENDATIONS,
 )
+from council.tools.debate import DEFAULT_PANEL, PRIVATE_DEFAULT_PANEL  # noqa: E402
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
@@ -45,7 +46,12 @@ def main() -> int:
     listing = {model["id"]: model for model in response.json()["data"]}
     live = set(listing)
 
-    referenced = set(MODEL_REGISTRY) | set(FREE_TIER_MODELS)
+    referenced = (
+        set(MODEL_REGISTRY)
+        | set(FREE_TIER_MODELS)
+        | set(DEFAULT_PANEL)
+        | set(PRIVATE_DEFAULT_PANEL)
+    )
     for models in TASK_RECOMMENDATIONS.values():
         referenced.update(models)
 

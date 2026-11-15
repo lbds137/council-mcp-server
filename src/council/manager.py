@@ -5,11 +5,15 @@ import os
 from typing import Any
 
 from .providers import (
+    AgyCliProvider,
+    ClaudeCliProvider,
     LLMProviderError,
     LLMResponse,
     ModelInfo,
     OpenRouterProvider,
     ZaiCodingProvider,
+    is_non_private_model,
+    private_openrouter_extra_body,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +57,10 @@ class ModelManager:
         self._provider: OpenRouterProvider | None = None
         self.zai_api_key = os.getenv("ZAI_CODING_API_KEY")
         self._zai_provider: ZaiCodingProvider | None = None
+        self.agy_cli_enabled = AgyCliProvider.is_enabled()
+        self._agy_provider: AgyCliProvider | None = None
+        self.claude_cli_enabled = ClaudeCliProvider.is_enabled()
+        self._claude_provider: ClaudeCliProvider | None = None
 
         # Current active model (can be changed with set_model)
         self._active_model: str = self.default_model
@@ -64,6 +72,10 @@ class ModelManager:
         self.zai_calls = 0  # requests tried on the plan
         self.zai_fallbacks = 0  # of those, retried on OpenRouter after failing
         self.zai_unavailable = 0  # GLM requests sent to OpenRouter unchecked: no model list
+        self.agy_calls = 0
+        self.agy_fallbacks = 0
+        self.claude_calls = 0
+        self.claude_fallbacks = 0
 
         logger.info(f"ModelManager initialized with default model: {self.default_model}")
 
@@ -84,6 +96,20 @@ class ModelManager:
         if self._zai_provider is None and self.zai_api_key:
             self._zai_provider = ZaiCodingProvider(api_key=self.zai_api_key, timeout=self.timeout)
         return self._zai_provider
+
+    @property
+    def agy_provider(self) -> AgyCliProvider | None:
+        """Get the Antigravity CLI subscription provider when COUNCIL_AGY_CLI=1."""
+        if self._agy_provider is None and self.agy_cli_enabled:
+            self._agy_provider = AgyCliProvider(timeout=self.timeout)
+        return self._agy_provider
+
+    @property
+    def claude_provider(self) -> ClaudeCliProvider | None:
+        """Get the Claude CLI subscription provider when COUNCIL_CLAUDE_CLI=1."""
+        if self._claude_provider is None and self.claude_cli_enabled:
+            self._claude_provider = ClaudeCliProvider(timeout=self.timeout)
+        return self._claude_provider
 
     @property
     def active_model(self) -> str:
@@ -154,13 +180,26 @@ class ModelManager:
     def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
         """Route a request and return the response with a label naming its route.
 
-        GLM models the Z.ai plan carries go there first; everything else, and
-        any plan failure, goes to OpenRouter.
+        Subscription routes (Z.ai coding plan, Antigravity CLI, Claude CLI when
+        enabled) run first; everything else, and any subscription failure, falls
+        back once to OpenRouter.
         """
+        private_only = bool(kwargs.pop("private_only", False))
         model_to_use = model or self._active_model
         self.total_calls += 1
 
-        zai = self.zai_provider
+        if private_only and (
+            is_non_private_model(model_to_use)
+            or is_non_private_model(self._openrouter_id(model_to_use))
+        ):
+            self.failed_calls += 1
+            raise LLMProviderError(
+                f"Model '{model_to_use}' is excluded when private_only=True",
+                provider="privacy-gate",
+                model=model_to_use,
+            )
+
+        zai = None if private_only else self.zai_provider
         zai_model = zai.resolve(model_to_use) if zai else None
         # Read the reason now, next to the resolve that produced it: a parallel
         # call (e.g. a debate) can fetch the list again and change list_error
@@ -170,21 +209,63 @@ class ModelManager:
             if zai is not None and zai_model is None and zai.is_candidate(model_to_use)
             else None
         )
+        agy = self.agy_provider
+        agy_model = agy.resolve(model_to_use) if agy else None
+        claude = self.claude_provider
+        claude_model = claude.resolve(model_to_use) if claude else None
+
+        if private_only and (
+            (isinstance(agy_model, str) and is_non_private_model(agy_model))
+            or (isinstance(claude_model, str) and is_non_private_model(claude_model))
+        ):
+            self.failed_calls += 1
+            raise LLMProviderError(
+                f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
+                provider="privacy-gate",
+                model=model_to_use,
+            )
+
         try:
-            if zai is None or zai_model is None:
-                response = self.provider.generate(
-                    prompt, model=self._openrouter_id(model_to_use), **kwargs
+            if zai is not None and zai_model is not None:
+                response, model_used = self._generate_on_plan(
+                    zai, prompt, model_to_use, zai_model, **kwargs
                 )
+            elif agy is not None and agy_model is not None:
+                response, model_used = self._generate_on_cli(
+                    agy,
+                    "Antigravity CLI",
+                    "agy",
+                    prompt,
+                    model_to_use,
+                    agy_model,
+                    private_only=private_only,
+                    **kwargs,
+                )
+            elif claude is not None and claude_model is not None:
+                response, model_used = self._generate_on_cli(
+                    claude,
+                    "Claude CLI",
+                    "claude",
+                    prompt,
+                    model_to_use,
+                    claude_model,
+                    private_only=private_only,
+                    **kwargs,
+                )
+            else:
+                or_id = self._openrouter_id(model_to_use)
+                or_kwargs = dict(kwargs)
+                if private_only:
+                    or_kwargs["extra_body"] = private_openrouter_extra_body(
+                        or_id, or_kwargs.get("extra_body")
+                    )
+                response = self.provider.generate(prompt, model=or_id, **or_kwargs)
                 model_used = response.model
                 if unavailable:
                     # A key is set but the plan couldn't be consulted: say so,
                     # or a broken key would silently bill every GLM call
                     self.zai_unavailable += 1
                     model_used += f" · OpenRouter (Z.ai unavailable: {unavailable})"
-            else:
-                response, model_used = self._generate_on_plan(
-                    zai, prompt, model_to_use, zai_model, **kwargs
-                )
         except LLMProviderError as e:
             self.failed_calls += 1
             logger.error(f"Generation failed: {e}")
@@ -192,6 +273,52 @@ class ModelManager:
 
         self.successful_calls += 1
         return response, model_used
+
+    def _generate_on_cli(
+        self,
+        cli_provider: AgyCliProvider | ClaudeCliProvider,
+        label: str,
+        stat_prefix: str,
+        prompt: str,
+        requested: str,
+        resolved_model: str,
+        *,
+        private_only: bool = False,
+        **kwargs: Any,
+    ) -> tuple[LLMResponse, str]:
+        """Try a local subscription CLI once, then fall back to OpenRouter once."""
+        if stat_prefix == "agy":
+            self.agy_calls += 1
+        else:
+            self.claude_calls += 1
+        try:
+            response = cli_provider.generate(prompt, model=resolved_model, **kwargs)
+            return response, f"{response.model} · {label}"
+        except LLMProviderError as cli_error:
+            logger.warning(
+                f"{label} failed for {resolved_model}, retrying on OpenRouter: {cli_error}"
+            )
+            if stat_prefix == "agy":
+                self.agy_fallbacks += 1
+            else:
+                self.claude_fallbacks += 1
+            or_id = self._openrouter_id(requested)
+            or_kwargs = dict(kwargs)
+            if private_only:
+                or_kwargs["extra_body"] = private_openrouter_extra_body(
+                    or_id, or_kwargs.get("extra_body")
+                )
+            try:
+                response = self.provider.generate(prompt, model=or_id, **or_kwargs)
+            except LLMProviderError as openrouter_error:
+                raise LLMProviderError(
+                    f"{label}: {cli_error}; OpenRouter fallback: {openrouter_error}",
+                    provider=cli_provider.name,
+                    model=resolved_model,
+                    is_retryable=cli_error.is_retryable,
+                ) from openrouter_error
+            reason = str(cli_error)[:80]
+            return response, f"{response.model} · OpenRouter ({label} failed: {reason})"
 
     def _generate_on_plan(
         self,
@@ -224,11 +351,44 @@ class ModelManager:
             return response, f"{response.model} · OpenRouter (Z.ai failed: {reason})"
 
     @staticmethod
+    def _strip_agy_effort_suffix(gemini_slug: str) -> str:
+        """Strip Antigravity CLI effort suffixes (-xhigh/-high/-medium/-low) for OpenRouter."""
+        lowered = gemini_slug.lower()
+        for suffix in ("-xhigh", "-high", "-medium", "-low"):
+            if lowered.endswith(suffix) and len(gemini_slug) > len(suffix):
+                return gemini_slug[: -len(suffix)]
+        return gemini_slug
+
+    @staticmethod
     def _openrouter_id(model_id: str) -> str:
-        """OpenRouter's ID for a model: bare GLM IDs need the "z-ai/" prefix."""
-        if model_id.lower().startswith("glm-"):
-            return f"z-ai/{model_id}"
-        return model_id
+        """OpenRouter's ID for a model: normalize bare GLM, Gemini, and Claude IDs."""
+        cleaned = model_id.strip()
+        unprefixed = cleaned.lstrip("~")
+        lowered = unprefixed.lower()
+        if lowered.startswith("glm-"):
+            if lowered == "glm-latest":
+                return "~z-ai/glm-latest"
+            return f"z-ai/{unprefixed}"
+        if lowered.startswith("gemini-"):
+            if lowered in ("gemini-pro", "gemini-pro-latest"):
+                return "~google/gemini-pro-latest"
+            if lowered in ("gemini-flash", "gemini-flash-latest"):
+                return "~google/gemini-flash-latest"
+            slug = ModelManager._strip_agy_effort_suffix(unprefixed)
+            return f"google/{slug}"
+        if lowered.startswith("google/gemini-"):
+            prefix = "~" if cleaned.startswith("~") else ""
+            slug = ModelManager._strip_agy_effort_suffix(unprefixed.split("/", 1)[1])
+            return f"{prefix}google/{slug}"
+        if lowered.startswith("claude-"):
+            if lowered in ("claude-opus", "claude-opus-latest"):
+                return "~anthropic/claude-opus-latest"
+            if lowered in ("claude-haiku", "claude-haiku-latest"):
+                return "~anthropic/claude-haiku-latest"
+            if lowered in ("claude-sonnet", "claude-sonnet-latest", "claude-latest"):
+                return "~anthropic/claude-sonnet-latest"
+            return f"anthropic/{unprefixed}"
+        return cleaned
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
         """List available models.
@@ -281,4 +441,10 @@ class ModelManager:
             "zai_calls": self.zai_calls,
             "zai_fallbacks": self.zai_fallbacks,
             "zai_unavailable": self.zai_unavailable,
+            "agy_cli_enabled": self.agy_cli_enabled,
+            "agy_calls": self.agy_calls,
+            "agy_fallbacks": self.agy_fallbacks,
+            "claude_cli_enabled": self.claude_cli_enabled,
+            "claude_calls": self.claude_calls,
+            "claude_fallbacks": self.claude_fallbacks,
         }
