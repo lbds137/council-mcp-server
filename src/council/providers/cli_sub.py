@@ -57,6 +57,15 @@ _ALLOWED_CHILD_ENV_KEYS = frozenset(
         "XDG_CACHE_HOME",
         "XDG_STATE_HOME",
         "DBUS_SESSION_BUS_ADDRESS",
+        "CLAUDE_CONFIG_DIR",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy",
+        "all_proxy",
         "SSL_CERT_FILE",
         "SSL_CERT_DIR",
         "REQUESTS_CA_BUNDLE",
@@ -526,7 +535,7 @@ class AgyCliProvider(LLMProvider):
         _check_quota_gate(self.quota_cmd, self.name, model)
 
         timeout_s = max(5, int(self.timeout))
-        child_env = _scrubbed_child_env(extra={"AGY_GUARD_MODE": "strict"})
+        child_env = _scrubbed_child_env()
         with tempfile.TemporaryDirectory(prefix="council-agy-") as tmp_dir:
             settings_path = os.path.join(tmp_dir, "settings.json")
             with open(settings_path, "w", encoding="utf-8") as sfh:
@@ -700,13 +709,17 @@ class ClaudeCliProvider(LLMProvider):
             return "opus"
         if slug in ("claude-haiku", "claude-haiku-latest"):
             return "haiku"
+        if slug in ("claude-fable", "claude-fable-latest"):
+            return "fable"
         if slug in ("claude-sonnet", "claude-sonnet-latest", "claude-latest"):
             return "sonnet"
         if slug.startswith("claude-"):
             raw_slug = model_id.strip().lstrip("~")
             if raw_slug.lower().startswith("anthropic/"):
                 raw_slug = raw_slug.split("/", 1)[1]
-            return raw_slug
+            # OpenRouter uses dotted Anthropic version numbers (`claude-opus-4.6`), whereas
+            # `claude --model` expects Anthropic's dashed IDs (`claude-opus-4-6`).
+            return re.sub(r"(?<=\d)\.(?=\d)", "-", raw_slug)
         return None
 
     def is_available(self) -> bool:

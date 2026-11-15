@@ -556,24 +556,40 @@ class TestModelManagerCliAndPrivacyRouting:
         assert "weekly reserve" in str(exc_info.value)
         assert "upstream error" in str(exc_info.value)
 
+    @patch("council.manager.AgyCliProvider")
     @patch("council.manager.ClaudeCliProvider")
     @patch("council.manager.OpenRouterProvider")
-    def test_claude_cli_timeout_never_falls_back_to_openrouter(
-        self, openrouter_class, claude_class
+    def test_cli_timeout_never_falls_back_to_openrouter_or_bumps_fallbacks(
+        self, openrouter_class, claude_class, agy_class
     ):
         claude_class.is_enabled.return_value = True
         claude = claude_class.return_value
         claude.name = "claude-cli"
-        claude.resolve.return_value = "sonnet"
-        claude.generate.side_effect = CLITimeoutError("CLI timed out after 180s", "claude-cli")
+        claude.resolve.side_effect = lambda m: "sonnet" if "claude" in m else None
+        claude.generate.side_effect = CLITimeoutError("CLI timed out after 600s", "claude-cli")
+
+        agy_class.is_enabled.return_value = True
+        agy = agy_class.return_value
+        agy.name = "agy-cli"
+        agy.resolve.side_effect = lambda m: "gemini-4-argon-high" if "gemini" in m else None
+        agy.generate.side_effect = CLITimeoutError("CLI timed out after 600s", "agy-cli")
+
         openrouter = openrouter_class.return_value
 
         manager = ModelManager(api_key="or-key")
-        with pytest.raises(CLITimeoutError):
-            manager.generate_content("Slow prompt", model="claude-sonnet", private_only=True)
+        for priv in (False, True):
+            with pytest.raises(CLITimeoutError):
+                manager.generate_content("Slow prompt", model="claude-sonnet", private_only=priv)
+            with pytest.raises(CLITimeoutError):
+                manager.generate_content(
+                    "Slow prompt", model="gemini-pro-latest", private_only=priv
+                )
 
         openrouter.generate.assert_not_called()
-        assert manager.get_stats()["claude_fallbacks"] == 0
+        stats = manager.get_stats()
+        assert stats["claude_fallbacks"] == 0
+        assert stats["agy_fallbacks"] == 0
+        assert stats["failed_calls"] == 4
 
     @patch("council.manager.ClaudeCliProvider")
     @patch("council.manager.OpenRouterProvider")
@@ -698,8 +714,13 @@ class TestModelManagerCliAndPrivacyRouting:
         with pytest.raises(LLMProviderError) as glm_exc:
             manager.generate_content("Sensitive", model="custom-glm", private_only=True)
         assert glm_exc.value.provider == "privacy-gate"
+        assert "COUNCIL_AGY_MODEL_MAP" in str(glm_exc.value)
         agy.generate.assert_not_called()
         openrouter.generate.assert_not_called()
+
+        # 1b) Claude CLI context-window bracket suffix (`claude-opus-4-6[1m]`) is allowed under private_only
+        assert manager._is_private_cli_target("claude-opus-4-6[1m]", family="claude") is True
+        assert manager._is_private_cli_target("fable", family="claude") is True
 
         # 2) Custom CLI map resolving to a private CLI target (gemini-4-argon-high) from an
         # unlisted requested alias ("custom-gemini"): if CLI fails, OpenRouter fallback is

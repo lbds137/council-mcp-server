@@ -92,6 +92,22 @@ class TestPrivateOnlyAcrossAllTools:
         assert mgr.generate_content.call_args_list[1][1].get("private_only") is True
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_value", ["false", "true", 0, 1, None, ["true"]])
+    async def test_orchestrator_rejects_non_boolean_private_only_before_cache_lookup(
+        self, bad_value
+    ):
+        orchestrator, mgr = _make_orchestrator()
+        orchestrator.cache.get = Mock(return_value=None)
+
+        res = await orchestrator.execute_tool(
+            "ask", {"question": "Cached?", "private_only": bad_value}
+        )
+        assert res.success is False
+        assert res.error == "private_only must be a boolean"
+        orchestrator.cache.get.assert_not_called()
+        mgr.generate_content.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_conversation_sessions_enforce_and_persist_private_only(self):
         orchestrator, mgr = _make_orchestrator()
         fresh_sm = SessionManager()
