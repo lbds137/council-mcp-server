@@ -103,7 +103,7 @@ class TestDebateValidation:
                 {
                     "topic": "x",
                     "private_only": True,
-                    "models": ["~openai/gpt-sol-latest", "~z-ai/glm-latest"],
+                    "models": ["~openai/gpt-sol-latest", "~moonshotai/kimi-latest"],
                 },
                 "excluded when private_only=True",
             ),
@@ -389,10 +389,10 @@ class TestDebateCriteriaAndPrivacy:
         assert "Markdown Criteria Decision Table" in synth_prompt
 
     @pytest.mark.asyncio
-    async def test_private_only_uses_private_panel_and_avoids_non_private_active_synth(self):
-        """private_only switches the default panel and picks a surviving speaker for synthesis."""
+    async def test_private_only_uses_private_panel_and_picks_independent_synth(self):
+        """private_only switches the default panel and picks an independent synthesizer."""
         manager = replying_manager(fail_models={PRIVATE_DEFAULT_PANEL[0]})
-        manager.active_model = "~z-ai/glm-latest"
+        manager.active_model = "~moonshotai/kimi-latest"
         with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
             result = await DebateTool().execute(
                 {"topic": "Sensitive design", "rounds": 1, "private_only": True}
@@ -401,6 +401,45 @@ class TestDebateCriteriaAndPrivacy:
         assert result.success is True
         called_models = [m for m, _ in manager.prompts]
         assert set(called_models[:3]) == set(PRIVATE_DEFAULT_PANEL)
-        # Debater 1 failed its opening, so synthesis falls back to speaking[0].model (Debater 2)
-        assert called_models[3] == PRIVATE_DEFAULT_PANEL[1]
+        # Non-private active_model is replaced by an independent privacy-cleared synthesizer
+        assert called_models[3] == "~anthropic/claude-sonnet-latest"
         assert all(kw == {"private_only": True} for _, kw in manager.extra_kwargs)
+
+    @pytest.mark.asyncio
+    async def test_missing_criteria_table_warns_and_vetoes_caching(self):
+        """A synthesis that omits a Markdown criteria table warns and sets cacheable=False."""
+        manager = replying_manager()
+        with patch("council._server_instance", SimpleNamespace(model_manager=manager)):
+            result = await DebateTool().execute(
+                {
+                    "topic": "Storage choice",
+                    "rounds": 1,
+                    "criteria": ["durability", "tail latency"],
+                }
+            )
+
+        assert result.success is True
+        assert "omitted a complete Markdown criteria table" in result.result
+        assert result.metadata["cacheable"] is False
+
+    @pytest.mark.asyncio
+    async def test_private_only_avoids_speaking_active_model_and_non_private_marks_also_debated(
+        self,
+    ):
+        """private_only picks an independent synth when active_model spoke; non-private tags it."""
+        priv_mgr = replying_manager()
+        priv_mgr.active_model = PRIVATE_DEFAULT_PANEL[0]  # ~openai/gpt-sol-latest spoke!
+        with patch("council._server_instance", SimpleNamespace(model_manager=priv_mgr)):
+            priv_res = await DebateTool().execute(
+                {"topic": "Auth flow", "rounds": 1, "private_only": True}
+            )
+        assert priv_res.success is True
+        called_priv = [m for m, _ in priv_mgr.prompts]
+        assert called_priv[3] == "~anthropic/claude-sonnet-latest"
+
+        pub_mgr = replying_manager()
+        pub_mgr.active_model = DEFAULT_PANEL[0]
+        with patch("council._server_instance", SimpleNamespace(model_manager=pub_mgr)):
+            pub_res = await DebateTool().execute({"topic": "Auth flow", "rounds": 1})
+        assert pub_res.success is True
+        assert "*(participating model)*" in pub_res.result

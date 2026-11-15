@@ -3,7 +3,15 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from ..providers.cli_sub import is_excluded_model, is_non_private_model
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    build_generation_kwargs,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +72,7 @@ class DebugTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["error_message", "code_context"],
         }
@@ -75,6 +84,10 @@ class DebugTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute structured debugging analysis."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             error_message = parameters.get("error_message")
             code_context = parameters.get("code_context")
 
@@ -89,12 +102,39 @@ class DebugTool(MCPTool):
             session_id = parameters.get("session_id")
             model_override = parameters.get("model")
 
-            # Get debugging history from session if available
             session_context = ""
             if session_id:
+                from .conversation import get_session_manager
+
+                session = get_session_manager().get_session(session_id)
+                if session is None:
+                    return ToolOutput(
+                        success=False,
+                        error=(
+                            f"Session {session_id} not found. "
+                            "Use list_conversations to see active sessions."
+                        ),
+                    )
+                if is_excluded_model(session.model):
+                    return ToolOutput(
+                        success=False,
+                        error=f"Session model '{session.model}' is excluded by policy",
+                    )
+                effective_private = private_only or bool(session.private_only)
+                if effective_private and is_non_private_model(session.model):
+                    return ToolOutput(
+                        success=False,
+                        error=(
+                            f"Session model '{session.model}' is excluded when private_only=True"
+                        ),
+                    )
+                if private_only and not session.private_only:
+                    session.private_only = True
+                private_only = effective_private
+                if not model_override and session.model:
+                    model_override = session.model
                 session_context = self._get_session_context(session_id)
 
-            # Build the prompt
             prompt = self._build_prompt(
                 error_message=error_message,
                 code_context=code_context,
@@ -108,9 +148,9 @@ class DebugTool(MCPTool):
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
+            call_kwargs = build_generation_kwargs(model_override, private_only=private_only)
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
 
-            # Format response
             formatted_response = self._format_response(
                 response_text,
                 model_used,
@@ -131,14 +171,11 @@ class DebugTool(MCPTool):
 
             session_manager = get_session_manager()
             session = session_manager.get_session(session_id)
-
             if session and session.turns:
-                # Extract recent debugging history
-                recent_turns = session.turns[-6:]  # Last 3 exchanges
+                recent_turns = session.turns[-6:]
                 context_parts = ["## Previous Debugging Context"]
                 for turn in recent_turns:
                     role = "User" if turn.role == "user" else "Assistant"
-                    # Truncate long content
                     content = (
                         turn.content[:500] + "..." if len(turn.content) > 500 else turn.content
                     )
@@ -178,15 +215,7 @@ class DebugTool(MCPTool):
         ]
 
         if stack_trace:
-            parts.extend(
-                [
-                    "",
-                    "## Stack Trace",
-                    "```",
-                    f"{stack_trace}",
-                    "```",
-                ]
-            )
+            parts.extend(["", "## Stack Trace", "```", f"{stack_trace}", "```"])
 
         if previous_attempts:
             parts.extend(
@@ -202,12 +231,7 @@ class DebugTool(MCPTool):
             parts.append("**Important:** Do NOT suggest these approaches again.")
 
         if session_context:
-            parts.extend(
-                [
-                    "",
-                    session_context,
-                ]
-            )
+            parts.extend(["", session_context])
 
         parts.extend(
             [
@@ -253,13 +277,9 @@ class DebugTool(MCPTool):
     ) -> str:
         """Format the debugging response."""
         header_parts = ["# Debugging Analysis"]
-
         if attempt_count > 0:
             header_parts.append(f"*Attempt #{attempt_count + 1}*")
-
         if session_id:
             header_parts.append(f"*Session: `{session_id}`*")
-
         header = " | ".join(header_parts)
-
         return f"{header}\n\n{response_text}\n\n[Model: {model_used}]"

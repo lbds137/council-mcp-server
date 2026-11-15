@@ -3,7 +3,14 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    build_generation_kwargs,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +50,7 @@ class CodeReviewTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["code"],
         }
@@ -54,6 +62,10 @@ class CodeReviewTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             code = parameters.get("code")
             if not code:
                 return ToolOutput(success=False, error="Code is required for review")
@@ -62,16 +74,15 @@ class CodeReviewTool(MCPTool):
             focus = parameters.get("focus", "general")
             model_override = parameters.get("model")
 
-            # Build the prompt
             prompt = self._build_prompt(code, language, focus)
 
             model_manager = get_model_manager()
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
-            formatted_response = f"🔍 Code Review:\n\n{response_text}"
-            formatted_response += f"\n\n[Model: {model_used}]"
+            call_kwargs = build_generation_kwargs(model_override, private_only=private_only)
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
+            formatted_response = f"🔍 Code Review:\n\n{response_text}\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
             logger.error(f"API error: {e}")

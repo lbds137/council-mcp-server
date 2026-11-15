@@ -3,7 +3,14 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    build_generation_kwargs,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +47,7 @@ class AskTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
-                "private_only": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": (
-                        "When true, refuse non-private model vendors (such as Z.ai, "
-                        "DeepSeek, Moonshot, Qwen, MiniMax)"
-                    ),
-                },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["question"],
         }
@@ -59,19 +59,17 @@ class AskTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            # Get parameters
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             question = parameters.get("question", "")
             context = parameters.get("context", "")
             model_override = parameters.get("model")
-            private_only = parameters.get("private_only", False)
-
-            if not isinstance(private_only, bool):
-                return ToolOutput(success=False, error="private_only must be a boolean")
 
             if not question:
                 return ToolOutput(success=False, error="Question is required")
 
-            # Build prompt
             prompt = f"Context: {context}\n\n" if context else ""
             prompt += f"Question: {question}"
 
@@ -79,12 +77,9 @@ class AskTool(MCPTool):
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            call_kwargs: dict[str, Any] = {"model": model_override}
-            if private_only:
-                call_kwargs["private_only"] = True
+            call_kwargs = build_generation_kwargs(model_override, private_only=private_only)
             response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
-            formatted_response = f"🤖 Response:\n\n{response_text}"
-            formatted_response += f"\n\n[Model: {model_used}]"
+            formatted_response = f"🤖 Response:\n\n{response_text}\n\n[Model: {model_used}]"
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
             logger.error(f"API error: {e}")

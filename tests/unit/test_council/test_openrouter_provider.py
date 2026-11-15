@@ -270,6 +270,26 @@ class TestOpenRouterProviderGenerate:
         assert call_args[1]["max_tokens"] == 100
 
     @patch("council.providers.openrouter.OpenAI")
+    def test_generate_forwards_extra_body_provider_pin(self, mock_openai_class, mock_completion):
+        """Test private_only provider pin extra_body reaches chat.completions.create verbatim."""
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_completion
+        mock_openai_class.return_value = mock_client
+
+        provider = OpenRouterProvider(api_key="test-key")
+        pin = {
+            "provider": {
+                "only": ["mistral"],
+                "allow_fallbacks": False,
+                "data_collection": "deny",
+            }
+        }
+        provider.generate("Hello", model="~z-ai/glm-latest", extra_body=pin)
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["extra_body"] == pin
+
+    @patch("council.providers.openrouter.OpenAI")
     def test_generate_rate_limit_error(self, mock_openai_class):
         """Test rate limit error handling."""
         mock_client = Mock()

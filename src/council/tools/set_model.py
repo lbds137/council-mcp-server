@@ -3,6 +3,7 @@
 import logging
 from typing import Any
 
+from ..providers.cli_sub import is_excluded_model
 from .base import MCPTool, ToolOutput, get_model_manager
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,16 @@ class SetModelTool(MCPTool):
 
             if not model_id:
                 return ToolOutput(success=False, error="Model ID is required")
+            if is_excluded_model(model_id):
+                return ToolOutput(
+                    success=False,
+                    error=f"Model '{model_id}' is excluded by policy",
+                )
 
             manager = get_model_manager()
             if not manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            # Check if the model exists (optional validation)
             if hasattr(manager, "get_model_info"):
                 model_info = manager.get_model_info(model_id)
                 if model_info:
@@ -58,26 +63,22 @@ class SetModelTool(MCPTool):
                 else:
                     logger.warning(f"Model {model_id} not found in cache, setting anyway")
 
-            # Set the model
             if hasattr(manager, "set_model"):
                 success = manager.set_model(model_id)
                 if success:
-                    # Get model info for response
                     active = getattr(manager, "active_model", model_id)
                     return ToolOutput(
                         success=True,
                         result=f"✓ Active model changed to: {active}",
                     )
-                else:
-                    return ToolOutput(
-                        success=False,
-                        error=f"Failed to set model to {model_id}",
-                    )
-            else:
                 return ToolOutput(
                     success=False,
-                    error="Manager does not support setting models",
+                    error=f"Failed to set model to {model_id}",
                 )
+            return ToolOutput(
+                success=False,
+                error="Manager does not support setting models",
+            )
 
         except Exception as e:
             logger.error(f"Error setting model: {e}")

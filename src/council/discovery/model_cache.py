@@ -7,6 +7,7 @@ import time
 import httpx
 
 from council.providers.base import ModelInfo
+from council.providers.cli_sub import is_excluded_model
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,11 @@ class ModelCache:
             response.raise_for_status()
             data = response.json()
 
-            self._models = [ModelInfo.from_openrouter(m) for m in data.get("data", [])]
+            self._models = [
+                m
+                for m in (ModelInfo.from_openrouter(item) for item in data.get("data", []))
+                if not is_excluded_model(m.id)
+            ]
             self._last_fetch = time.time()
             self._fetch_count += 1
 
@@ -106,6 +111,8 @@ class ModelCache:
         Returns:
             ModelInfo if found, None otherwise.
         """
+        if is_excluded_model(model_id):
+            return None
         models = self.get_models()
         for model in models:
             if model.id == model_id:

@@ -3,7 +3,13 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +65,7 @@ class StartConversationTool(MCPTool):
                     "type": "string",
                     "description": ("Optional first message to send immediately after starting"),
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["model"],
         }
@@ -66,6 +73,10 @@ class StartConversationTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Start a new conversation session."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             model = parameters.get("model")
             if not model:
                 return ToolOutput(success=False, error="Model is required")
@@ -77,6 +88,7 @@ class StartConversationTool(MCPTool):
             session_id = session_manager.create_session(
                 model=model,
                 system_prompt=system_prompt,
+                private_only=private_only,
             )
 
             result_lines = [
@@ -85,29 +97,41 @@ class StartConversationTool(MCPTool):
                 f"**Session ID:** `{session_id}`",
                 f"**Model:** {model}",
             ]
+            if private_only:
+                result_lines.append("**Privacy:** `private_only=true`")
 
             if system_prompt:
                 result_lines.append(f"**System Prompt:** {system_prompt[:100]}...")
 
-            # If initial message provided, send it
-            if initial_message:
+            if initial_message is not None:
+                if not isinstance(initial_message, str) or not initial_message.strip():
+                    session_manager.end_session(session_id)
+                    return ToolOutput(
+                        success=False, error="initial_message must be a non-empty string"
+                    )
+                model_manager = get_model_manager()
+                if not model_manager:
+                    session_manager.end_session(session_id)
+                    return ToolOutput(success=False, error="Model manager not available")
                 try:
-                    model_manager = get_model_manager()
-                    if model_manager:
-                        response, model_used = session_manager.send_message(
-                            session_id, initial_message, model_manager
-                        )
-                        result_lines.extend(
-                            [
-                                "",
-                                "---",
-                                f"**You:** {initial_message}",
-                                "",
-                                f"**{model}:** {response}",
-                            ]
-                        )
+                    response, _model_used = session_manager.send_message(
+                        session_id,
+                        initial_message,
+                        model_manager,
+                        private_only=private_only,
+                    )
                 except Exception as e:
-                    result_lines.append(f"\n⚠️ Initial message failed: {e}")
+                    session_manager.end_session(session_id)
+                    return ToolOutput(success=False, error=f"Initial message failed: {e}")
+                result_lines.extend(
+                    [
+                        "",
+                        "---",
+                        f"**You:** {initial_message}",
+                        "",
+                        f"**{model}:** {response}",
+                    ]
+                )
 
             result_lines.extend(
                 [
@@ -118,6 +142,8 @@ class StartConversationTool(MCPTool):
 
             return ToolOutput(success=True, result="\n".join(result_lines))
 
+        except ValueError as e:
+            return ToolOutput(success=False, error=str(e))
         except Exception as e:
             logger.error(f"Error starting conversation: {e}")
             return ToolOutput(success=False, error=f"Error: {str(e)}")
@@ -150,6 +176,7 @@ class ContinueConversationTool(MCPTool):
                     "type": "string",
                     "description": "Your message to send",
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["session_id", "message"],
         }
@@ -157,6 +184,10 @@ class ContinueConversationTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Continue a conversation."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             session_id = parameters.get("session_id")
             message = parameters.get("message")
 
@@ -179,7 +210,12 @@ class ContinueConversationTool(MCPTool):
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response, model_used = session_manager.send_message(session_id, message, model_manager)
+            response, model_used = session_manager.send_message(
+                session_id,
+                message,
+                model_manager,
+                private_only=private_only,
+            )
 
             turn_count = len(session.turns) // 2
             result = (
@@ -219,6 +255,7 @@ class ListConversationsTool(MCPTool):
 
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """List active conversations."""
+        del parameters
         try:
             session_manager = get_session_manager()
             sessions = session_manager.list_sessions()

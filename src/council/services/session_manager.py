@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from ..providers.cli_sub import is_excluded_model, is_non_private_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,7 @@ class ConversationSession:
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
+    private_only: bool = False
 
     def add_turn(self, role: str, content: str) -> None:
         """Add a turn to the conversation."""
@@ -68,18 +71,15 @@ class SessionManager:
         model: str,
         system_prompt: str = "",
         metadata: dict[str, Any] | None = None,
+        *,
+        private_only: bool = False,
     ) -> str:
-        """Create a new conversation session.
+        """Create a new conversation session."""
+        if is_excluded_model(model):
+            raise ValueError(f"Model '{model}' is excluded by policy")
+        if private_only and is_non_private_model(model):
+            raise ValueError(f"Model '{model}' is excluded when private_only=True")
 
-        Args:
-            model: The model to use for this session
-            system_prompt: Optional system prompt to set context
-            metadata: Optional metadata for the session
-
-        Returns:
-            The session ID
-        """
-        # Clean up old sessions if at capacity
         if len(self.sessions) >= self.max_sessions:
             self._cleanup_oldest_session()
 
@@ -89,28 +89,26 @@ class SessionManager:
             model=model,
             system_prompt=system_prompt,
             metadata=metadata or {},
+            private_only=private_only,
         )
-        logger.info(f"Created session {session_id} with model {model}")
+        logger.info(
+            f"Created session {session_id} with model {model} (private_only={private_only})"
+        )
         return session_id
 
     def get_session(self, session_id: str) -> ConversationSession | None:
         """Get a session by ID."""
         return self.sessions.get(session_id)
 
-    def send_message(self, session_id: str, message: str, model_manager: Any) -> tuple[str, str]:
-        """Send a message in a session and get a response.
-
-        Args:
-            session_id: The session ID
-            message: The user's message
-            model_manager: The model manager to use for generation
-
-        Returns:
-            Tuple of (response_text, model_used)
-
-        Raises:
-            ValueError: If session not found or turn limit exceeded
-        """
+    def send_message(
+        self,
+        session_id: str,
+        message: str,
+        model_manager: Any,
+        *,
+        private_only: bool = False,
+    ) -> tuple[str, str]:
+        """Send a message in a session and get a response."""
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -121,21 +119,27 @@ class SessionManager:
                 f"{self.max_turns_per_session} turns"
             )
 
-        # Add user message
+        effective_private = session.private_only or private_only
+        if effective_private and is_non_private_model(session.model):
+            raise ValueError(f"Session model '{session.model}' is excluded when private_only=True")
+        if private_only and not session.private_only:
+            session.private_only = True
+
         session.add_turn("user", message)
 
-        # Build prompt with history
         history = session.get_message_history()
         prompt = self._format_prompt_with_history(history)
 
+        call_kwargs: dict[str, Any] = {"model": session.model}
+        if effective_private:
+            call_kwargs["private_only"] = True
+
         try:
-            response_text, model_used = model_manager.generate_content(prompt, model=session.model)
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
         except Exception:
-            # Drop the unanswered message so a retry doesn't send it twice
             session.turns.pop()
             raise
 
-        # Add assistant response
         session.add_turn("assistant", response_text)
 
         logger.info(f"Session {session_id}: Turn {len(session.turns) // 2} completed")
@@ -163,6 +167,7 @@ class SessionManager:
                 "session_id": s.session_id,
                 "model": s.model,
                 "turns": len(s.turns),
+                "private_only": s.private_only,
                 "created_at": s.created_at.isoformat(),
                 "last_activity": s.last_activity.isoformat(),
                 "preview": s.turns[0].content[:50] if s.turns else "Empty",
@@ -175,15 +180,7 @@ class SessionManager:
         ]
 
     def get_history(self, session_id: str, limit: int | None = None) -> list[dict[str, str]]:
-        """Get conversation history for a session.
-
-        Args:
-            session_id: The session ID
-            limit: Optional limit on number of turns to return
-
-        Returns:
-            List of message dicts with role and content
-        """
+        """Get conversation history for a session."""
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")
@@ -195,15 +192,7 @@ class SessionManager:
         return [{"role": t.role, "content": t.content} for t in turns]
 
     def end_session(self, session_id: str, summarize: bool = False) -> str:
-        """End a session and optionally return a summary.
-
-        Args:
-            session_id: The session ID
-            summarize: Whether to return a summary
-
-        Returns:
-            Summary string or confirmation message
-        """
+        """End a session and optionally return a summary."""
         session = self.sessions.get(session_id)
         if not session:
             raise ValueError(f"Session {session_id} not found")

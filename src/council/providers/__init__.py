@@ -12,8 +12,11 @@ from .base import (
 from .cli_sub import (
     AgyCliProvider,
     ClaudeCliProvider,
+    CLITimeoutError,
+    is_excluded_model,
     is_non_private_model,
     private_openrouter_extra_body,
+    private_openrouter_providers,
 )
 from .openrouter import OpenRouterProvider
 from .zai import ZaiCodingProvider
@@ -28,8 +31,11 @@ __all__ = [
     "ModelNotFoundError",
     "AgyCliProvider",
     "ClaudeCliProvider",
+    "CLITimeoutError",
     "OpenRouterProvider",
     "ZaiCodingProvider",
+    "is_excluded_model",
     "is_non_private_model",
     "private_openrouter_extra_body",
+    "private_openrouter_providers",
 ]

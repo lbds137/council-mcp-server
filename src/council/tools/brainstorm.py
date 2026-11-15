@@ -3,7 +3,14 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    build_generation_kwargs,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,7 @@ class BrainstormTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["topic"],
         }
@@ -51,6 +59,10 @@ class BrainstormTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             topic = parameters.get("topic")
             if not topic:
                 return ToolOutput(success=False, error="Topic is required for brainstorming")
@@ -58,16 +70,17 @@ class BrainstormTool(MCPTool):
             constraints = parameters.get("constraints", "")
             model_override = parameters.get("model")
 
-            # Build the prompt
             prompt = self._build_prompt(topic, constraints)
 
             model_manager = get_model_manager()
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
-            formatted_response = f"💡 Brainstorming Results:\n\n{response_text}"
-            formatted_response += f"\n\n[Model: {model_used}]"
+            call_kwargs = build_generation_kwargs(model_override, private_only=private_only)
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
+            formatted_response = (
+                f"💡 Brainstorming Results:\n\n{response_text}\n\n[Model: {model_used}]"
+            )
             return ToolOutput(success=True, result=formatted_response)
         except Exception as e:
             logger.error(f"API error: {e}")
