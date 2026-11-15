@@ -31,11 +31,26 @@ class ConversationOrchestrator:
         self, tool_name: str, parameters: dict[str, Any], request_id: str | None = None
     ) -> ToolOutput:
         """Execute a single tool, serving a cached result when the tool allows it."""
+        del request_id
         tool = self.tool_registry.get_tool(tool_name)
         if not tool:
             output = ToolOutput(success=False, error=f"Unknown tool: {tool_name}")
             output.tool_name = tool_name
             return output
+
+        if "private_only" in parameters:
+            props = tool.input_schema.get("properties", {})
+            if "private_only" not in props:
+                output = ToolOutput(
+                    success=False,
+                    error=f"Tool '{tool_name}' does not accept 'private_only'",
+                )
+                output.tool_name = tool_name
+                return output
+            if not isinstance(parameters["private_only"], bool):
+                output = ToolOutput(success=False, error="private_only must be a boolean")
+                output.tool_name = tool_name
+                return output
 
         cache_key = self._cache_key(tool, tool_name, parameters)
         if cache_key:
@@ -62,13 +77,22 @@ class ConversationOrchestrator:
     def _cache_key(self, tool: Any, tool_name: str, parameters: dict[str, Any]) -> str | None:
         """The cache key for this call, or None when the result must not be cached.
 
-        The key names the model that will answer, so switching the active
-        model never serves the previous model's answer.
+        The key names the model and normalized `private_only` state so non-private
+        and private-only calls never share cached responses across boundaries.
         """
         if not tool.is_cacheable(parameters):
             return None
         model = parameters.get("model") or getattr(self.model_manager, "active_model", None)
-        return self.cache.create_key(tool_name, {"parameters": parameters, "model": model})
+        normalized_params = dict(parameters)
+        private_only = bool(normalized_params.pop("private_only", False))
+        return self.cache.create_key(
+            tool_name,
+            {
+                "parameters": normalized_params,
+                "model": model,
+                "private_only": private_only,
+            },
+        )
 
     def get_execution_stats(self) -> dict[str, Any]:
         """Get statistics about tool executions."""

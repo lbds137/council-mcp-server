@@ -2,26 +2,41 @@
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
-from ..providers.cli_sub import is_non_private_model
-from .base import MCPTool, ToolOutput, get_model_manager, report_progress
+from ..providers.cli_sub import is_excluded_model, is_non_private_model
+from .base import (
+    PRIVATE_ONLY_DESCRIPTION,
+    MCPTool,
+    ToolOutput,
+    get_model_manager,
+    parse_private_only,
+    report_progress,
+)
 
 logger = logging.getLogger(__name__)
 
 # Three families, so the debate isn't one model agreeing with itself.
-# GLM runs on the flat-rate Z.ai plan when its key is set.
+# GLM runs on the flat-rate Z.ai plan when its key is set (unless private_only=True).
 DEFAULT_PANEL = ["~openai/gpt-sol-latest", "~z-ai/glm-latest", "~moonshotai/kimi-latest"]
 PRIVATE_DEFAULT_PANEL = [
     "~openai/gpt-sol-latest",
     "~google/gemini-pro-latest",
     "mistralai/mistral-medium-3-5",
 ]
+PRIVATE_SYNTHESIS_FALLBACKS = (
+    "~anthropic/claude-sonnet-latest",
+    "~openai/gpt-sol-latest",
+    "~google/gemini-pro-latest",
+    "mistralai/mistral-medium-3-5",
+)
 MIN_DEBATERS = 2
 MAX_DEBATERS = 4
 MAX_CRITERIA = 8
 ERROR_PREVIEW_CHARS = 200
+_MARKDOWN_TABLE_SEP_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$", re.M)
 
 
 @dataclass
@@ -64,9 +79,9 @@ class DebateTool(MCPTool):
             "Have 2-4 models debate a topic: opening statements, then rebuttals, then a "
             "synthesis of where they agree, where they really disagree, and a recommendation. "
             "Assign stances with `positions`, or leave them out to get each model's own view. "
-            "Default panel: GPT, GLM and Kimi. Makes one call per debater per round, plus one; "
-            "each round waits for its slowest model, so a debate with reasoning models can "
-            "take several minutes."
+            "Default panel: GPT, GLM and Kimi (or GPT, Gemini and Mistral when "
+            "`private_only=true`). Makes one call per debater per round, plus one; each round "
+            "waits for its slowest model, so a debate with reasoning models can take minutes."
         )
 
     @property
@@ -95,7 +110,8 @@ class DebateTool(MCPTool):
                     "maxItems": MAX_DEBATERS,
                     "description": (
                         "Debater models. With positions, debater i uses models[i % len]. "
-                        f"Default: {', '.join(DEFAULT_PANEL)}"
+                        f"Default: {', '.join(DEFAULT_PANEL)} "
+                        f"(private_only default: {', '.join(PRIVATE_DEFAULT_PANEL)})"
                     ),
                 },
                 "synthesis_model": {
@@ -115,17 +131,16 @@ class DebateTool(MCPTool):
                     "maxItems": MAX_CRITERIA,
                     "description": (
                         "Optional decision criteria (1-8 items, e.g. ['latency', "
-                        "'maintainability', 'security']) scored across debaters and "
-                        "summarized in a synthesis decision table"
+                        "'maintainability', 'security']) requested in a Markdown synthesis "
+                        "decision table and checked before caching"
                     ),
                 },
                 "private_only": {
                     "type": "boolean",
                     "default": False,
                     "description": (
-                        "When true, exclude non-private model vendors (such as Z.ai, "
-                        "DeepSeek, Moonshot, Qwen, MiniMax) and switch the default panel "
-                        "to privacy-cleared families"
+                        f"{PRIVATE_ONLY_DESCRIPTION}; also switches the default panel to "
+                        f"{', '.join(PRIVATE_DEFAULT_PANEL)}"
                     ),
                 },
             },
@@ -139,9 +154,9 @@ class DebateTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the tool."""
         try:
-            raw_priv = parameters.get("private_only", False)
-            if not isinstance(raw_priv, bool):
-                return ToolOutput(success=False, error="private_only must be a boolean")
+            raw_priv, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
 
             criteria_or_error = self._parse_criteria(parameters)
             if isinstance(criteria_or_error, str):
@@ -157,6 +172,11 @@ class DebateTool(MCPTool):
                 not isinstance(synth_model, str) or not synth_model.strip()
             ):
                 return ToolOutput(success=False, error="synthesis_model must be a non-empty string")
+            if isinstance(synth_model, str) and is_excluded_model(synth_model):
+                return ToolOutput(
+                    success=False,
+                    error=f"synthesis_model '{synth_model}' is excluded by policy",
+                )
             if raw_priv and isinstance(synth_model, str) and is_non_private_model(synth_model):
                 return ToolOutput(
                     success=False,
@@ -201,6 +221,32 @@ class DebateTool(MCPTool):
         return [" ".join(c.split()) for c in raw]
 
     @staticmethod
+    def _has_criteria_table(text: str, criteria: list[str]) -> bool:
+        """Return True if synthesis text includes a Markdown table covering every criterion."""
+        if not criteria:
+            return True
+        if not _MARKDOWN_TABLE_SEP_RE.search(text):
+            return False
+        lowered = text.lower()
+        return all(c.lower() in lowered for c in criteria)
+
+    @staticmethod
+    def _pick_private_synthesizer(speaking: list[Debater], active: Any) -> str | None:
+        """Choose an independent privacy-cleared synthesizer when active_model spoke or fails."""
+        speaking_models = {d.model for d in speaking}
+        if (
+            isinstance(active, str)
+            and active
+            and not is_non_private_model(active)
+            and active not in speaking_models
+        ):
+            return None
+        for candidate in PRIVATE_SYNTHESIS_FALLBACKS:
+            if candidate not in speaking_models:
+                return candidate
+        return speaking[0].model
+
+    @staticmethod
     def _seat_debaters(
         parameters: dict[str, Any], *, private_only: bool = False
     ) -> list[Debater] | str:
@@ -219,10 +265,11 @@ class DebateTool(MCPTool):
         if not isinstance(models, list) or not all(isinstance(m, str) and m for m in models):
             return "models must be a list of model IDs"
 
-        if private_only:
-            for mid in models:
-                if is_non_private_model(mid):
-                    return f"Model '{mid}' is excluded when private_only=True"
+        for mid in models:
+            if is_excluded_model(mid):
+                return f"Model '{mid}' is excluded by policy"
+            if private_only and is_non_private_model(mid):
+                return f"Model '{mid}' is excluded when private_only=True"
 
         if positions and parameters.get("models") and len(models) > len(positions):
             return (
@@ -260,7 +307,6 @@ class DebateTool(MCPTool):
         del parameters
         crit_list = criteria or []
         calls = 0
-        # One per debater per round, plus the synthesis; shrinks if a debater drops out
         total = len(debaters) * rounds + 1
         sections = [f"🏛️ Debate: {topic}"]
         if crit_list:
@@ -277,7 +323,6 @@ class DebateTool(MCPTool):
 
         report_progress(0, total, f"Openings: {len(debaters)} debaters")
 
-        # Round 1: every debater opens at once
         openings = await asyncio.gather(
             *(
                 call(
@@ -305,10 +350,8 @@ class DebateTool(MCPTool):
                 error=f"Too few debaters answered to hold a debate. {failures}",
             )
 
-        # A debater who didn't open sits out the rebuttals
         total = calls + (len(speaking) if rounds == 2 else 0) + 1
 
-        # Round 2: each debater answers all the others in one call
         if rounds == 2:
             rebuttals = await asyncio.gather(
                 *(
@@ -328,8 +371,7 @@ class DebateTool(MCPTool):
         effective_synth = synthesis_model
         if private_only and effective_synth is None:
             active = getattr(model_manager, "active_model", None)
-            if isinstance(active, str) and is_non_private_model(active):
-                effective_synth = speaking[0].model
+            effective_synth = self._pick_private_synthesizer(speaking, active)
 
         synthesis = await call(
             "Synthesis",
@@ -337,13 +379,34 @@ class DebateTool(MCPTool):
             effective_synth,
         )
         sections.append("## Synthesis")
+        missing_criteria_table = False
         if synthesis.text is not None:
-            sections.append(f"{synthesis.text}\n\n*[Model: {synthesis.model_used}]*")
+            synth_body = synthesis.text
+            if crit_list and not self._has_criteria_table(synth_body, crit_list):
+                missing_criteria_table = True
+                synth_body += (
+                    "\n\n⚠️ *Synthesis omitted a complete Markdown criteria table; "
+                    "this response will not be cached.*"
+                )
+            shared_note = ""
+            judge_model = effective_synth
+            if judge_model is None:
+                active_cand = getattr(model_manager, "active_model", None)
+                if isinstance(active_cand, str):
+                    judge_model = active_cand
+            if judge_model and any(d.model == judge_model for d in speaking):
+                shared_note = " *(participating model)*"
+            sections.append(f"{synth_body}\n\n*[Model: {synthesis.model_used}]{shared_note}*")
         else:
             sections.append(f"⚠️ The synthesis failed: {synthesis.error}")
 
         missing_rebuttal = rounds == 2 and any(d.rebuttal is None for d in speaking)
-        incomplete = any(t.error for t in openings) or missing_rebuttal or bool(synthesis.error)
+        incomplete = (
+            any(t.error for t in openings)
+            or missing_rebuttal
+            or bool(synthesis.error)
+            or missing_criteria_table
+        )
         sections.append(
             f"[Debate: {len(debaters)} debaters, {rounds} round{'s' if rounds > 1 else ''}, "
             f"{calls} calls]"
@@ -351,7 +414,6 @@ class DebateTool(MCPTool):
 
         output = ToolOutput(success=True, result="\n\n".join(sections))
         if incomplete:
-            # Don't serve a debate with a missing voice from cache for the next hour
             output.metadata["cacheable"] = False
         return output
 
@@ -372,7 +434,6 @@ class DebateTool(MCPTool):
                 model_manager.generate_content, prompt, **call_kwargs
             )
             if not text or not text.strip():
-                # Providers turn a missing reply into "": that's a failed turn, not a speech
                 return Turn(text=None, model_used=model_used, error="empty reply")
             return Turn(text=text, model_used=model_used)
         except Exception as e:
@@ -458,8 +519,8 @@ class DebateTool(MCPTool):
                 "Write a synthesis:\n"
                 "1. Where the debaters agree\n"
                 "2. The real disagreements, and which side argued each one better\n"
-                "3. A Markdown Criteria Decision Table scoring each position/option across every "
-                "criterion above, plus concise Pros & Cons per option\n"
+                "3. A Markdown Criteria Decision Table (`| Criterion | ... |`) naming every "
+                "criterion above and scoring each position/option, plus concise Pros & Cons\n"
                 "4. Arguments that didn't hold up\n"
                 "5. Your recommendation grounded in the criteria, and how confident you are in it"
             )

@@ -3,7 +3,14 @@
 import logging
 from typing import Any
 
-from .base import MCPTool, ToolOutput, get_model_manager
+from .base import (
+    PRIVATE_ONLY_PROPERTY,
+    MCPTool,
+    ToolOutput,
+    build_generation_kwargs,
+    get_model_manager,
+    parse_private_only,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +78,7 @@ class RefactorTool(MCPTool):
                         "Use list_models to see available options."
                     ),
                 },
+                "private_only": dict(PRIVATE_ONLY_PROPERTY),
             },
             "required": ["code", "goal"],
         }
@@ -82,6 +90,10 @@ class RefactorTool(MCPTool):
     async def execute(self, parameters: dict[str, Any]) -> ToolOutput:
         """Execute the refactoring analysis."""
         try:
+            private_only, priv_err = parse_private_only(parameters)
+            if priv_err:
+                return ToolOutput(success=False, error=priv_err)
+
             code = parameters.get("code")
             goal = parameters.get("goal")
 
@@ -99,18 +111,15 @@ class RefactorTool(MCPTool):
             context = parameters.get("context", "")
             model_override = parameters.get("model")
 
-            # Build the prompt
             prompt = self._build_prompt(code, goal, language, context)
 
             model_manager = get_model_manager()
             if not model_manager:
                 return ToolOutput(success=False, error="Model manager not available")
 
-            response_text, model_used = model_manager.generate_content(prompt, model=model_override)
-
-            # Format response
+            call_kwargs = build_generation_kwargs(model_override, private_only=private_only)
+            response_text, model_used = model_manager.generate_content(prompt, **call_kwargs)
             formatted_response = self._format_response(response_text, model_used, goal)
-
             return ToolOutput(success=True, result=formatted_response)
 
         except Exception as e:
@@ -175,13 +184,7 @@ class RefactorTool(MCPTool):
         ]
 
         if context:
-            parts.extend(
-                [
-                    "",
-                    "## Additional Context",
-                    context,
-                ]
-            )
+            parts.extend(["", "## Additional Context", context])
 
         parts.extend(
             [
@@ -238,5 +241,4 @@ class RefactorTool(MCPTool):
         """Format the refactoring response."""
         goal_title = goal.replace("_", " ").title()
         header = f"# Refactoring Plan: {goal_title}"
-
         return f"{header}\n\n{response_text}\n\n[Model: {model_used}]"

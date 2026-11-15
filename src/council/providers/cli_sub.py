@@ -2,14 +2,17 @@
 
 When explicitly enabled via environment variables, Council routes matching
 model families through local subscription CLIs first (zero per-token API cost),
-falling back once to OpenRouter if a CLI is unavailable, quota-gated, or fails.
+falling back once to OpenRouter if a CLI is unavailable, quota-gated, or fails
+for a non-timeout reason.
 """
 
 import json
 import logging
 import os
+import re
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 from typing import Any
@@ -27,134 +30,211 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 QUOTA_CHECK_TIMEOUT_SECONDS = 15.0
+DEFAULT_CLI_TIMEOUT_SECONDS = 180.0
 
-# Non-private model vendor prefixes and bare ID prefixes excluded when private_only=True.
-NON_PRIVATE_VENDORS = frozenset(
+# Child CLI and quota subprocesses inherit ONLY these safe runtime/locale/auth-bus variables.
+# API keys (OPENROUTER_API_KEY, ZAI_CODING_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY,
+# ANTHROPIC_API_KEY, GITHUB_TOKEN, AWS_*, etc.) and parent Claude routing overrides
+# (CLAUDECODE, ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_DEFAULT_*) never cross
+# into child processes. DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR remain so Antigravity
+# CLI can read its Secret Service sign-in token.
+_ALLOWED_CHILD_ENV_KEYS = frozenset(
     {
-        "openrouter",
-        "z-ai",
-        "zai",
-        "deepseek",
-        "moonshotai",
-        "qwen",
-        "alibaba",
-        "minimax",
-        "01-ai",
-        "baichuan",
-        "bytedance",
-        "stepfun",
-        "tencent",
-        "thudm",
-        "baidu",
-        "sensetime",
-        "siliconflow",
-        "novita",
-        "xiaomi",
-        "x-ai",
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "SHELL",
+        "TZ",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_STATE_HOME",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "NODE_EXTRA_CA_CERTS",
     }
 )
-NON_PRIVATE_BARE_PREFIXES = (
-    "glm-",
-    "glm4",
-    "chatglm",
-    "deepseek-",
-    "kimi-",
-    "qwen",
-    "qwq-",
-    "minimax-",
-    "yi-",
-    "doubao-",
-    "hunyuan-",
-    "ernie-",
-    "step-",
-    "mimo-",
-    "grok-",
-    "gpt-oss",
+
+# Antigravity CLI model prefixes actually served by the subscription CLI (`agy models`).
+_AGY_NATIVE_PREFIXES = (
+    "gemini-4-",
+    "gemini-3.8-flash",
+    "gemini-pro-orchestrator",
 )
 
-# Canonical OpenRouter provider slugs excluded when private_only=True.
-NON_PRIVATE_OR_PROVIDERS = [
-    "z-ai",
-    "deepseek",
-    "moonshotai",
-    "alibaba",
-    "minimax",
-    "siliconflow",
-    "novita",
-    "xai",
-    "baidu",
-    "byteplus",
-    "stepfun",
-    "tencent",
-    "xiaomi",
-    "antdigital",
-    "01ai",
-    "google-ai-studio",
+# Exhaustive tool denylist for headless `agy` calls so Council calls remain text-in/text-out.
+_AGY_DENIED_TOOLS = [
+    "command(*)",
+    "run_command",
+    "command_status",
+    "read_terminal",
+    "read_file",
+    "view_file",
+    "view_file_outline",
+    "view_code_item",
+    "view_content_chunk",
+    "grep_search",
+    "search_in_file",
+    "codebase_search",
+    "find_by_name",
+    "find_files",
+    "list_dir",
+    "list_files",
+    "glob",
+    "write_file",
+    "edit_file",
+    "create_file",
+    "delete_file",
+    "notebook_edit",
+    "move",
+    "multi_edit",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+    "search_web",
+    "read_url_content",
+    "browser_subagent",
+    "invoke_subagent",
+    "define_subagent",
+    "manage_subagents",
+    "spawn_subagent",
+    "send_message",
+    "manage_task",
+    "manage_inbox",
+    "run_workflow",
+    "swarm",
+    "schedule",
+    "ask_question",
+    "call_mcp_tool",
+    "list_resources",
+    "read_resource",
+    "mcp_*",
+    "mcp__*",
 ]
 
-# Secret and routing variables scrubbed from child CLI / quota subprocesses so:
-# 1. Child processes never inherit decrypted API keys or trigger eager MCP credential decrypts.
-# 2. Parent Claude routing overrides (e.g. ANTHROPIC_BASE_URL) never hijack subscription auth.
-_SCRUBBED_ENV_KEYS = frozenset(
-    {
-        "CLAUDECODE",
-        "OPENROUTER_API_KEY",
-        "ZAI_CODING_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_SMALL_FAST_MODEL",
-        "CLAUDE_CODE_USE_BEDROCK",
-        "CLAUDE_CODE_USE_VERTEX",
-    }
-)
+
+class CLITimeoutError(LLMProviderError):
+    """Raised when a local subscription CLI times out; never falls back to OpenRouter."""
+
+    def __init__(self, message: str, provider: str = "cli", model: str = ""):
+        super().__init__(message, provider=provider, model=model, is_retryable=False)
 
 
-def _scrubbed_child_env() -> dict[str, str]:
-    """Return a copy of os.environ without API keys or parent CLI routing overrides."""
-    return {
-        k: v
-        for k, v in os.environ.items()
-        if k not in _SCRUBBED_ENV_KEYS and not k.startswith("ANTHROPIC_DEFAULT_")
-    }
+def _scrubbed_child_env(*, extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a minimal allowlisted environment for child CLI / quota subprocesses."""
+    env = {k: v for k, v in os.environ.items() if k in _ALLOWED_CHILD_ENV_KEYS}
+    if extra:
+        env.update(extra)
+    return env
+
+
+_MODEL_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def is_excluded_model(model_id: str) -> bool:
+    """Return True if model_id is globally excluded by repository policy (xAI / Grok)."""
+    cleaned = model_id.strip().lower()
+    if not cleaned:
+        return False
+    for tok in re.split(r"[/:\s@~]+", cleaned):
+        if not tok:
+            continue
+        if tok in ("x-ai", "xai") or tok.startswith("grok"):
+            return True
+    return False
+
+
+def _normalize_openrouter_candidate(model_id: str) -> str:
+    """Normalize bare Gemini/Claude/GLM aliases into vendor/slug form for allowlist checks."""
+    cleaned = model_id.strip()
+    if not cleaned:
+        return ""
+    unprefixed = cleaned.removeprefix("~")
+    lowered = unprefixed.lower()
+    if lowered.startswith("glm-"):
+        return f"z-ai/{lowered}"
+    if lowered.startswith("gemini-"):
+        return f"google/{lowered}"
+    if lowered.startswith("claude-"):
+        return f"anthropic/{lowered}"
+    return lowered
+
+
+def private_openrouter_providers(openrouter_model_id: str) -> list[str] | None:
+    """Return the pinned OpenRouter provider slug(s) allowed under private_only, or None.
+
+    Owner ruling (2026-11-15): private_only OpenRouter calls use a strict vendor+host
+    allowlist with `provider.only`, `allow_fallbacks=False`, and `data_collection="deny"`:
+    - anthropic/claude-* -> ["anthropic"]
+    - openai/<non-oss>   -> ["openai"]
+    - google/gemini-*    -> ["google-vertex"] (excludes google/gemma* and AI Studio)
+    - mistralai/*        -> ["mistral"]
+    - z-ai/glm*          -> ["mistral"] (Mistral host only; Z.ai direct plan stays disabled)
+    All other vendors, `:free` / `:variant` suffixes, and `@preset/...` IDs are rejected.
+    """
+    raw = openrouter_model_id.strip()
+    if (
+        not raw
+        or any(c.isspace() for c in raw)
+        or "@" in raw
+        or ":" in raw
+        or raw.lstrip("~") != raw.removeprefix("~")
+    ):
+        return None
+    if is_excluded_model(raw):
+        return None
+    normalized = _normalize_openrouter_candidate(raw)
+    if "/" not in normalized or ":" in normalized or "@" in normalized:
+        return None
+    vendor, slug = normalized.split("/", 1)
+    if not _MODEL_COMPONENT_RE.fullmatch(vendor) or not _MODEL_COMPONENT_RE.fullmatch(slug):
+        return None
+    if vendor == "anthropic" and (slug.startswith("claude-") or slug == "claude-latest"):
+        return ["anthropic"]
+    if vendor == "openai" and not slug.startswith("gpt-oss"):
+        return ["openai"]
+    if vendor == "google" and slug.startswith("gemini-"):
+        return ["google-vertex"]
+    if vendor == "mistralai":
+        return ["mistral"]
+    if vendor == "z-ai" and slug.startswith("glm"):
+        return ["mistral"]
+    return None
 
 
 def is_non_private_model(model_id: str) -> bool:
-    """Return True if model_id belongs to a provider/route excluded under private_only."""
-    cleaned = model_id.strip().lower().lstrip("~")
-    if ":free" in cleaned:
-        return True
-    if "/" in cleaned:
-        vendor = cleaned.split("/", 1)[0]
-        if vendor in NON_PRIVATE_VENDORS:
-            return True
-        cleaned = cleaned.split("/", 1)[1]
-    base = cleaned.split(":", 1)[0]
-    return any(base.startswith(prefix) for prefix in NON_PRIVATE_BARE_PREFIXES)
+    """Return True if model_id is excluded when private_only=True."""
+    return is_excluded_model(model_id) or private_openrouter_providers(model_id) is None
 
 
 def private_openrouter_extra_body(
     openrouter_model_id: str, existing: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Build OpenRouter extra_body enforcing data_collection=deny and cleared host routing."""
+    """Build OpenRouter extra_body enforcing strict allowlist provider pinning."""
+    allowed_hosts = private_openrouter_providers(openrouter_model_id)
+    if allowed_hosts is None:
+        raise LLMProviderError(
+            f"Model '{openrouter_model_id}' is excluded when private_only=True",
+            provider="privacy-gate",
+            model=openrouter_model_id,
+            is_retryable=False,
+        )
     merged: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
     prov_raw = merged.get("provider")
     prov: dict[str, Any] = dict(prov_raw) if isinstance(prov_raw, dict) else {}
+    prov.pop("ignore", None)
     prov["data_collection"] = "deny"
-
-    stripped = openrouter_model_id.strip().lower().lstrip("~")
-    if stripped.startswith("google/"):
-        # Pin Google models on OpenRouter to Vertex AI (avoiding uncleared AI Studio routes)
-        prov["only"] = ["google-vertex"]
-        prov["allow_fallbacks"] = False
-    else:
-        ignored = list(prov.get("ignore") or [])
-        for slug in NON_PRIVATE_OR_PROVIDERS:
-            if slug not in ignored:
-                ignored.append(slug)
-        prov["ignore"] = ignored
-
+    prov["only"] = list(allowed_hosts)
+    prov["allow_fallbacks"] = False
     merged["provider"] = prov
     return merged
 
@@ -162,6 +242,50 @@ def private_openrouter_extra_body(
 def _truthy_env(name: str) -> bool:
     val = (os.getenv(name) or "").strip().lower()
     return val in ("1", "true", "yes", "on")
+
+
+def _run_isolated_subprocess(
+    cmd: list[str],
+    *,
+    input_text: str | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float,
+) -> subprocess.CompletedProcess[str]:
+    """Run cmd in a dedicated process group and SIGKILL the entire group on timeout."""
+    if input_text is not None and "\x00" in input_text:
+        raise ValueError("input contains NUL byte")
+    if any("\x00" in part for part in cmd):
+        raise ValueError("command argument contains NUL byte")
+
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.communicate()
+        raise
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        proc.communicate()
+        raise
+
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 def _check_quota_gate(cmd_str: str | None, provider_name: str, model: str) -> None:
@@ -179,14 +303,11 @@ def _check_quota_gate(cmd_str: str | None, provider_name: str, model: str) -> No
     if not argv:
         return
     try:
-        proc = subprocess.run(
+        proc = _run_isolated_subprocess(
             argv,
-            stdin=subprocess.DEVNULL,
+            input_text=None,
             env=_scrubbed_child_env(),
-            capture_output=True,
-            text=True,
             timeout=QUOTA_CHECK_TIMEOUT_SECONDS,
-            check=False,
         )
     except FileNotFoundError as exc:
         raise LLMProviderError(
@@ -200,7 +321,7 @@ def _check_quota_gate(cmd_str: str | None, provider_name: str, model: str) -> No
             provider=provider_name,
             model=model,
         ) from exc
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise LLMProviderError(
             f"quota check failed to run: {exc}",
             provider=provider_name,
@@ -208,8 +329,8 @@ def _check_quota_gate(cmd_str: str | None, provider_name: str, model: str) -> No
         ) from exc
 
     if proc.returncode != 0:
-        detail = (proc.stdout or proc.stderr or f"exit {proc.returncode}").strip().splitlines()
-        summary = detail[0][:120] if detail else f"exit {proc.returncode}"
+        out_lines = (proc.stdout or "").strip().splitlines()
+        summary = out_lines[0][:80] if out_lines else f"exit {proc.returncode}"
         raise RateLimitError(
             f"subscription quota gate closed ({summary})",
             provider=provider_name,
@@ -244,12 +365,20 @@ def _parse_model_map(raw: str | None) -> dict[str, str]:
 
 
 class AgyCliProvider(LLMProvider):
-    """Subscription provider routing Google/Gemini models through Antigravity CLI (`agy`)."""
+    """Subscription provider routing Gemini models through Antigravity CLI (`agy`).
+
+    Prompts are passed via stdin (`--input-format text --output-format json`) so
+    large prompts never hit argv E2BIG or appear in `/proc/<pid>/cmdline`.
+    Session `--settings` enforces `toolPermission="request-review"`, `agentMode=""`,
+    `allowNonWorkspaceAccess=False`, `permissions.allow=[]`, and denies shell, file,
+    subagent, web, and MCP tools. Council itself defers TPM credential decryption to
+    the first tool call, preventing recursive TPM stalls even if global MCP config exists.
+    """
 
     def __init__(
         self,
         binary: str | None = None,
-        timeout: float = 180.0,
+        timeout: float = DEFAULT_CLI_TIMEOUT_SECONDS,
         quota_cmd: str | None = None,
     ):
         self.binary = (binary or os.getenv("COUNCIL_AGY_BIN") or "agy").strip()
@@ -271,13 +400,14 @@ class AgyCliProvider(LLMProvider):
     def is_enabled(cls) -> bool:
         return _truthy_env("COUNCIL_AGY_CLI")
 
-    @staticmethod
-    def is_candidate(model_id: str) -> bool:
+    def is_candidate(self, model_id: str) -> bool:
         lowered = model_id.strip().lower()
-        if ":" in lowered:
+        if not lowered or ":" in lowered:
             return False
         stripped = lowered.lstrip("~")
-        return stripped.startswith("google/") or stripped.startswith("gemini-")
+        if lowered in self.custom_map or stripped in self.custom_map:
+            return True
+        return stripped.startswith("google/gemini-") or stripped.startswith("gemini-")
 
     def resolve(self, model_id: str) -> str | None:
         if not self.is_candidate(model_id):
@@ -288,20 +418,20 @@ class AgyCliProvider(LLMProvider):
         stripped = lowered.lstrip("~")
         if stripped in self.custom_map:
             return self.custom_map[stripped]
-        if stripped in ("gemini-pro", "gemini-pro-latest"):
-            return self.pro_model
-        if stripped in ("gemini-flash", "gemini-flash-latest"):
-            return self.flash_model
-        if stripped.startswith("gemini-"):
-            return model_id.strip().lstrip("~")
+
         slug = stripped.removeprefix("google/")
-        if not slug or slug.startswith("-"):
+        if not slug or slug.startswith("-") or "/" in slug:
             return None
-        if "flash" in slug:
-            return self.flash_model
-        if "pro" in slug or slug.endswith("-latest"):
+        if slug in ("gemini-pro", "gemini-pro-latest"):
             return self.pro_model
-        return slug
+        if slug in ("gemini-flash", "gemini-flash-latest"):
+            return self.flash_model
+        if any(slug.startswith(prefix) for prefix in _AGY_NATIVE_PREFIXES):
+            raw_slug = model_id.strip().lstrip("~")
+            if raw_slug.lower().startswith("google/"):
+                raw_slug = raw_slug.split("/", 1)[1]
+            return raw_slug
+        return None
 
     def is_available(self) -> bool:
         return bool(shutil.which(self.binary))
@@ -329,6 +459,20 @@ class AgyCliProvider(LLMProvider):
                 provider=self.name,
                 model=model or "",
             )
+        if "\x00" in prompt or "\x00" in model:
+            raise LLMProviderError(
+                "Prompt or model contains invalid NUL byte",
+                provider=self.name,
+                model=model,
+                is_retryable=False,
+            )
+        if not prompt or not prompt.strip():
+            raise LLMProviderError(
+                "Prompt must not be empty",
+                provider=self.name,
+                model=model,
+                is_retryable=False,
+            )
         exe = shutil.which(self.binary)
         if not exe:
             raise AuthenticationError(
@@ -340,7 +484,7 @@ class AgyCliProvider(LLMProvider):
         _check_quota_gate(self.quota_cmd, self.name, model)
 
         timeout_s = max(5, int(self.timeout))
-        child_env = _scrubbed_child_env()
+        child_env = _scrubbed_child_env(extra={"AGY_GUARD_MODE": "strict"})
         with tempfile.TemporaryDirectory(prefix="council-agy-") as tmp_dir:
             settings_path = os.path.join(tmp_dir, "settings.json")
             with open(settings_path, "w", encoding="utf-8") as sfh:
@@ -351,22 +495,15 @@ class AgyCliProvider(LLMProvider):
                         "agentMode": "",
                         "permissions": {
                             "allow": [],
-                            "deny": [
-                                "command(*)",
-                                "mcp__*",
-                                "search_web",
-                                "spawn_subagent",
-                                "run_workflow",
-                                "write_file",
-                                "edit_file",
-                            ],
+                            "deny": _AGY_DENIED_TOOLS,
                         },
                     },
                     sfh,
                 )
             cmd = [
                 exe,
-                f"--print={prompt}",
+                "--input-format",
+                "text",
                 "--output-format",
                 "json",
                 "--model",
@@ -379,35 +516,33 @@ class AgyCliProvider(LLMProvider):
                 "--disable-slash-commands",
             ]
             try:
-                proc = subprocess.run(
+                proc = _run_isolated_subprocess(
                     cmd,
-                    stdin=subprocess.DEVNULL,
+                    input_text=prompt,
                     cwd=tmp_dir,
                     env=child_env,
-                    capture_output=True,
-                    text=True,
                     timeout=self.timeout + 5.0,
-                    check=False,
                 )
             except subprocess.TimeoutExpired as exc:
-                raise LLMProviderError(
+                raise CLITimeoutError(
                     f"CLI timed out after {timeout_s}s",
                     provider=self.name,
                     model=model,
-                    is_retryable=True,
                 ) from exc
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 raise LLMProviderError(
                     f"failed to execute CLI: {exc}",
                     provider=self.name,
                     model=model,
                 ) from exc
 
+        if proc.stderr:
+            logger.debug("agy stderr (exit %s): %s", proc.returncode, proc.stderr[:300])
+
         raw_out = (proc.stdout or "").strip()
         if not raw_out:
-            err_msg = (proc.stderr or f"exit {proc.returncode}").strip()[:160]
             raise LLMProviderError(
-                f"empty output from CLI ({err_msg})",
+                f"empty output from CLI (exit {proc.returncode})",
                 provider=self.name,
                 model=model,
                 is_retryable=True,
@@ -426,11 +561,10 @@ class AgyCliProvider(LLMProvider):
             raise LLMProviderError("unexpected JSON root from CLI", provider=self.name, model=model)
 
         if payload.get("finished_reason") == "print_timeout":
-            raise LLMProviderError(
+            raise CLITimeoutError(
                 f"CLI hit print_timeout ({timeout_s}s)",
                 provider=self.name,
                 model=model,
-                is_retryable=True,
             )
         if payload.get("denied_actions"):
             raise LLMProviderError(
@@ -440,15 +574,14 @@ class AgyCliProvider(LLMProvider):
             )
         status = payload.get("status")
         if status != "SUCCESS" or proc.returncode != 0:
-            err_text = str(payload.get("error") or proc.stderr or f"status={status}").strip()
-            lower_err = err_text.lower()
-            if "quota" in lower_err or "rate" in lower_err or "429" in lower_err:
-                raise RateLimitError(err_text[:160], provider=self.name, model=model)
-            raise LLMProviderError(
-                err_text[:160] or f"CLI exited {proc.returncode}",
-                provider=self.name,
-                model=model,
+            raw_err = str(payload.get("error") or "").strip().splitlines()
+            err_line = (
+                raw_err[0][:120] if raw_err else f"CLI status={status} exit={proc.returncode}"
             )
+            lower_err = (err_line + " " + (proc.stderr or "")[:200]).lower()
+            if "quota" in lower_err or "rate limit" in lower_err or "429" in lower_err:
+                raise RateLimitError(err_line, provider=self.name, model=model)
+            raise LLMProviderError(err_line, provider=self.name, model=model)
 
         content = str(payload.get("response") or "")
         if not content.strip():
@@ -456,7 +589,13 @@ class AgyCliProvider(LLMProvider):
                 "CLI returned an empty response", provider=self.name, model=model
             )
 
-        served = model if "/" in model else f"google/{model}"
+        reported_model = payload.get("model")
+        actual = (
+            reported_model.strip()
+            if isinstance(reported_model, str) and reported_model.strip()
+            else model
+        )
+        served = actual if "/" in actual else f"google/{actual}"
         return LLMResponse(
             content=content,
             model=served,
@@ -470,7 +609,7 @@ class ClaudeCliProvider(LLMProvider):
     def __init__(
         self,
         binary: str | None = None,
-        timeout: float = 180.0,
+        timeout: float = DEFAULT_CLI_TIMEOUT_SECONDS,
         quota_cmd: str | None = None,
     ):
         self.binary = (binary or os.getenv("COUNCIL_CLAUDE_BIN") or "claude").strip()
@@ -490,13 +629,14 @@ class ClaudeCliProvider(LLMProvider):
     def is_enabled(cls) -> bool:
         return _truthy_env("COUNCIL_CLAUDE_CLI")
 
-    @staticmethod
-    def is_candidate(model_id: str) -> bool:
+    def is_candidate(self, model_id: str) -> bool:
         lowered = model_id.strip().lower()
-        if ":" in lowered:
+        if not lowered or ":" in lowered:
             return False
         stripped = lowered.lstrip("~")
-        return stripped.startswith("anthropic/") or stripped.startswith("claude-")
+        if lowered in self.custom_map or stripped in self.custom_map:
+            return True
+        return stripped.startswith("anthropic/claude") or stripped.startswith("claude-")
 
     def resolve(self, model_id: str) -> str | None:
         if not self.is_candidate(model_id):
@@ -507,22 +647,46 @@ class ClaudeCliProvider(LLMProvider):
         stripped = lowered.lstrip("~")
         if stripped in self.custom_map:
             return self.custom_map[stripped]
+
         slug = stripped.removeprefix("anthropic/")
-        if not slug or slug.startswith("-"):
+        if not slug or slug.startswith("-") or "/" in slug:
             return None
-        if "opus" in slug:
+        if slug in ("claude-opus", "claude-opus-latest"):
             return "opus"
-        if "haiku" in slug:
+        if slug in ("claude-haiku", "claude-haiku-latest"):
             return "haiku"
-        if "sonnet" in slug or slug == "claude-latest":
+        if slug in ("claude-sonnet", "claude-sonnet-latest", "claude-latest"):
             return "sonnet"
-        return slug
+        if slug.startswith("claude-"):
+            raw_slug = model_id.strip().lstrip("~")
+            if raw_slug.lower().startswith("anthropic/"):
+                raw_slug = raw_slug.split("/", 1)[1]
+            return raw_slug
+        return None
 
     def is_available(self) -> bool:
         return bool(shutil.which(self.binary))
 
     def list_models(self) -> list[ModelInfo]:
         return []
+
+    @staticmethod
+    def _extract_served_model(payload: dict[str, Any], fallback_model: str) -> str:
+        raw_model = payload.get("model")
+        if isinstance(raw_model, str) and raw_model.strip():
+            chosen = raw_model.strip()
+        else:
+            usage_map = payload.get("modelUsage")
+            if isinstance(usage_map, dict) and len(usage_map) == 1:
+                only_key = next(iter(usage_map.keys()))
+                chosen = str(only_key).strip() or fallback_model
+            else:
+                chosen = fallback_model
+        if "/" in chosen:
+            return chosen
+        if chosen.startswith("claude-"):
+            return f"anthropic/{chosen}"
+        return f"anthropic/claude-{chosen}"
 
     def generate(
         self,
@@ -539,6 +703,20 @@ class ClaudeCliProvider(LLMProvider):
                 provider=self.name,
                 model=model or "",
             )
+        if "\x00" in prompt or "\x00" in model:
+            raise LLMProviderError(
+                "Prompt or model contains invalid NUL byte",
+                provider=self.name,
+                model=model,
+                is_retryable=False,
+            )
+        if not prompt or not prompt.strip():
+            raise LLMProviderError(
+                "Prompt must not be empty",
+                provider=self.name,
+                model=model,
+                is_retryable=False,
+            )
         exe = shutil.which(self.binary)
         if not exe:
             raise AuthenticationError(
@@ -549,9 +727,8 @@ class ClaudeCliProvider(LLMProvider):
 
         _check_quota_gate(self.quota_cmd, self.name, model)
 
-        # Scrub parent routing overrides and keys so native subscription auth is used,
-        # ignore user/project/local settings, disable MCP/tools/slash-commands, and place
-        # prompt after `--` so leading dashes cannot be parsed as CLI flags.
+        # Allowlisted child env keeps native subscription auth clean while stripping all API keys
+        # and parent Claude routing overrides; prompt arrives over stdin (never argv).
         child_env = _scrubbed_child_env()
         with tempfile.TemporaryDirectory(prefix="council-claude-") as tmp_dir:
             empty_mcp = os.path.join(tmp_dir, "empty-mcp.json")
@@ -560,6 +737,8 @@ class ClaudeCliProvider(LLMProvider):
             cmd = [
                 exe,
                 "-p",
+                "--input-format",
+                "text",
                 "--output-format",
                 "json",
                 "--mcp-config",
@@ -574,39 +753,35 @@ class ClaudeCliProvider(LLMProvider):
                 "",
                 "--model",
                 model,
-                "--",
-                prompt,
             ]
             try:
-                proc = subprocess.run(
+                proc = _run_isolated_subprocess(
                     cmd,
-                    stdin=subprocess.DEVNULL,
+                    input_text=prompt,
                     cwd=tmp_dir,
                     env=child_env,
-                    capture_output=True,
-                    text=True,
                     timeout=self.timeout,
-                    check=False,
                 )
             except subprocess.TimeoutExpired as exc:
-                raise LLMProviderError(
+                raise CLITimeoutError(
                     f"CLI timed out after {self.timeout:.0f}s",
                     provider=self.name,
                     model=model,
-                    is_retryable=True,
                 ) from exc
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 raise LLMProviderError(
                     f"failed to execute CLI: {exc}",
                     provider=self.name,
                     model=model,
                 ) from exc
 
+        if proc.stderr:
+            logger.debug("claude stderr (exit %s): %s", proc.returncode, proc.stderr[:300])
+
         raw_out = (proc.stdout or "").strip()
         if not raw_out:
-            err_msg = (proc.stderr or f"exit {proc.returncode}").strip()[:160]
             raise LLMProviderError(
-                f"empty output from CLI ({err_msg})",
+                f"empty output from CLI (exit {proc.returncode})",
                 provider=self.name,
                 model=model,
                 is_retryable=True,
@@ -627,21 +802,17 @@ class ClaudeCliProvider(LLMProvider):
         is_err = bool(payload.get("is_error")) or proc.returncode != 0
         content = str(payload.get("result") or "")
         if is_err:
-            err_text = (content or proc.stderr or f"exit {proc.returncode}").strip()
-            lower_err = err_text.lower()
+            err_lines = content.strip().splitlines()
+            err_line = err_lines[0][:120] if err_lines else f"CLI exited {proc.returncode}"
+            lower_err = (err_line + " " + (proc.stderr or "")[:200]).lower()
             if "limit" in lower_err or "quota" in lower_err or "429" in lower_err:
-                raise RateLimitError(err_text[:160], provider=self.name, model=model)
-            raise LLMProviderError(err_text[:160], provider=self.name, model=model)
+                raise RateLimitError(err_line, provider=self.name, model=model)
+            raise LLMProviderError(err_line, provider=self.name, model=model)
 
         if not content.strip():
             raise LLMProviderError("CLI returned an empty result", provider=self.name, model=model)
 
-        if "/" in model:
-            served = model
-        elif model.startswith("claude-"):
-            served = f"anthropic/{model}"
-        else:
-            served = f"anthropic/claude-{model}"
+        served = self._extract_served_model(payload, model)
         return LLMResponse(
             content=content,
             model=served,

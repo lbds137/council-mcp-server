@@ -2,31 +2,50 @@
 
 import logging
 import os
+import re
 from typing import Any
 
 from .providers import (
     AgyCliProvider,
     ClaudeCliProvider,
+    CLITimeoutError,
     LLMProviderError,
     LLMResponse,
     ModelInfo,
     OpenRouterProvider,
     ZaiCodingProvider,
-    is_non_private_model,
+    is_excluded_model,
     private_openrouter_extra_body,
+    private_openrouter_providers,
 )
+from .providers.base import AuthenticationError, ModelNotFoundError, RateLimitError
+from .providers.cli_sub import DEFAULT_CLI_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
+
+
+_CLI_MODEL_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _cli_fallback_reason(err: LLMProviderError) -> str:
+    """Short user-visible summary of a CLI failure without leaking raw subprocess stderr."""
+    if isinstance(err, RateLimitError):
+        return "quota or rate limit"
+    if isinstance(err, AuthenticationError):
+        return "CLI unavailable"
+    if isinstance(err, ModelNotFoundError):
+        return "model unavailable on CLI"
+    return "CLI error"
 
 
 class ModelManager:
     """Manages LLM interactions for Council MCP server.
 
     This class provides a unified interface for:
-    - Generating content from LLMs via OpenRouter, or via the Z.ai coding plan
-      for GLM models when ZAI_CODING_API_KEY is set
-    - Switching between different models
-    - Tracking usage statistics
+    - Generating content from LLMs via local subscription CLIs (`claude`, `agy`),
+      the Z.ai coding plan (non-private GLM calls), or OpenRouter
+    - Enforcing repository policy and `private_only` vendor/host allowlists
+    - Switching between different models and tracking usage statistics
     """
 
     def __init__(
@@ -34,6 +53,7 @@ class ModelManager:
         api_key: str | None = None,
         default_model: str | None = None,
         timeout: float | None = None,
+        cli_timeout: float | None = None,
     ):
         """Initialize the model manager.
 
@@ -43,15 +63,23 @@ class ModelManager:
                           or defaults to "~openai/gpt-sol-latest".
             timeout: Request timeout in seconds. If None, reads from COUNCIL_TIMEOUT
                     or defaults to 600.0 (10 minutes).
+            cli_timeout: Local subscription CLI timeout in seconds. If None, reads from
+                        COUNCIL_CLI_TIMEOUT (seconds) or defaults to min(timeout, 180.0).
         """
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
-        # default_model always has a value due to the fallback
         self.default_model: str = (
             default_model
             or os.getenv("COUNCIL_DEFAULT_MODEL", "~openai/gpt-sol-latest")
             or "~openai/gpt-sol-latest"
         )
         self.timeout = timeout or float(os.getenv("COUNCIL_TIMEOUT", "600000")) / 1000
+        raw_cli_timeout = os.getenv("COUNCIL_CLI_TIMEOUT")
+        if cli_timeout is not None:
+            self.cli_timeout = cli_timeout
+        elif raw_cli_timeout:
+            self.cli_timeout = float(raw_cli_timeout)
+        else:
+            self.cli_timeout = min(self.timeout, DEFAULT_CLI_TIMEOUT_SECONDS)
 
         # Initialize the providers
         self._provider: OpenRouterProvider | None = None
@@ -101,14 +129,14 @@ class ModelManager:
     def agy_provider(self) -> AgyCliProvider | None:
         """Get the Antigravity CLI subscription provider when COUNCIL_AGY_CLI=1."""
         if self._agy_provider is None and self.agy_cli_enabled:
-            self._agy_provider = AgyCliProvider(timeout=self.timeout)
+            self._agy_provider = AgyCliProvider(timeout=self.cli_timeout)
         return self._agy_provider
 
     @property
     def claude_provider(self) -> ClaudeCliProvider | None:
         """Get the Claude CLI subscription provider when COUNCIL_CLAUDE_CLI=1."""
         if self._claude_provider is None and self.claude_cli_enabled:
-            self._claude_provider = ClaudeCliProvider(timeout=self.timeout)
+            self._claude_provider = ClaudeCliProvider(timeout=self.cli_timeout)
         return self._claude_provider
 
     @property
@@ -117,14 +145,13 @@ class ModelManager:
         return self._active_model
 
     def set_model(self, model_id: str) -> bool:
-        """Set the active model for subsequent requests.
-
-        Args:
-            model_id: The model ID to use (e.g., "~moonshotai/kimi-latest").
-
-        Returns:
-            True if the model was set successfully.
-        """
+        """Set the active model for subsequent requests."""
+        if is_excluded_model(model_id):
+            raise LLMProviderError(
+                f"Model '{model_id}' is excluded by policy",
+                provider="policy-gate",
+                model=model_id,
+            )
         logger.info(f"Setting active model to: {model_id}")
         self._active_model = model_id
         return True
@@ -135,23 +162,7 @@ class ModelManager:
         model: str | None = None,
         **kwargs: Any,
     ) -> tuple[str, str]:
-        """Generate content from the LLM.
-
-        This method provides backward compatibility with the old DualModelManager
-        interface by returning a tuple of (content, model_used).
-
-        Args:
-            prompt: The prompt to send to the model.
-            model: Override model for this request. If None, uses active model.
-            **kwargs: Additional parameters passed to the provider.
-
-        Returns:
-            Tuple of (response_content, model_used). model_used names the model
-            that served the request, plus its route when the Z.ai plan was tried.
-
-        Raises:
-            LLMProviderError: If generation fails.
-        """
+        """Generate content from the LLM and return (response_content, model_used)."""
         response, model_used = self._generate(prompt, model, **kwargs)
         return response.content, model_used
 
@@ -161,49 +172,58 @@ class ModelManager:
         model: str | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Generate content and return full response object.
-
-        Args:
-            prompt: The prompt to send to the model.
-            model: Override model for this request. If None, uses active model.
-            **kwargs: Additional parameters passed to the provider.
-
-        Returns:
-            LLMResponse object with content and metadata.
-
-        Raises:
-            LLMProviderError: If generation fails.
-        """
+        """Generate content and return full response object."""
         response, _ = self._generate(prompt, model, **kwargs)
         return response
 
-    def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
-        """Route a request and return the response with a label naming its route.
+    @staticmethod
+    def _is_private_cli_target(resolved: str, *, family: str) -> bool:
+        """Return True if a resolved local CLI model target is cleared for private_only."""
+        cleaned = resolved.strip()
+        if not cleaned or not _CLI_MODEL_TOKEN_RE.fullmatch(cleaned) or is_excluded_model(cleaned):
+            return False
+        lowered = cleaned.lower()
+        if family == "claude":
+            return lowered in ("opus", "sonnet", "haiku") or lowered.startswith("claude-")
+        if family == "agy":
+            return lowered.startswith(("gemini-", "claude-"))
+        return False
 
-        Subscription routes (Z.ai coding plan, Antigravity CLI, Claude CLI when
-        enabled) run first; everything else, and any subscription failure, falls
-        back once to OpenRouter.
-        """
+    def _generate(self, prompt: str, model: str | None, **kwargs: Any) -> tuple[LLMResponse, str]:
+        """Route a request and return the response with a label naming its route."""
         private_only = bool(kwargs.pop("private_only", False))
         model_to_use = model or self._active_model
         self.total_calls += 1
 
-        if private_only and (
-            is_non_private_model(model_to_use)
-            or is_non_private_model(self._openrouter_id(model_to_use))
-        ):
+        if "\x00" in prompt or "\x00" in model_to_use:
             self.failed_calls += 1
             raise LLMProviderError(
-                f"Model '{model_to_use}' is excluded when private_only=True",
-                provider="privacy-gate",
+                "Prompt or model contains invalid NUL byte",
+                provider="input-gate",
+                model=model_to_use,
+                is_retryable=False,
+            )
+
+        if not prompt or not prompt.strip():
+            self.failed_calls += 1
+            raise LLMProviderError(
+                "Prompt must not be empty",
+                provider="input-gate",
+                model=model_to_use,
+                is_retryable=False,
+            )
+
+        if is_excluded_model(model_to_use):
+            self.failed_calls += 1
+            raise LLMProviderError(
+                f"Model '{model_to_use}' is excluded by policy",
+                provider="policy-gate",
                 model=model_to_use,
             )
 
+        or_id = self._openrouter_id(model_to_use)
         zai = None if private_only else self.zai_provider
         zai_model = zai.resolve(model_to_use) if zai else None
-        # Read the reason now, next to the resolve that produced it: a parallel
-        # call (e.g. a debate) can fetch the list again and change list_error
-        # while this call waits on OpenRouter
         unavailable = (
             zai.list_error
             if zai is not None and zai_model is None and zai.is_candidate(model_to_use)
@@ -214,16 +234,36 @@ class ModelManager:
         claude = self.claude_provider
         claude_model = claude.resolve(model_to_use) if claude else None
 
-        if private_only and (
-            (isinstance(agy_model, str) and is_non_private_model(agy_model))
-            or (isinstance(claude_model, str) and is_non_private_model(claude_model))
-        ):
-            self.failed_calls += 1
-            raise LLMProviderError(
-                f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
-                provider="privacy-gate",
-                model=model_to_use,
-            )
+        if private_only:
+            if isinstance(agy_model, str) and not self._is_private_cli_target(
+                agy_model, family="agy"
+            ):
+                self.failed_calls += 1
+                raise LLMProviderError(
+                    f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
+                    provider="privacy-gate",
+                    model=model_to_use,
+                )
+            if isinstance(claude_model, str) and not self._is_private_cli_target(
+                claude_model, family="claude"
+            ):
+                self.failed_calls += 1
+                raise LLMProviderError(
+                    f"Resolved CLI model for '{model_to_use}' is excluded when private_only=True",
+                    provider="privacy-gate",
+                    model=model_to_use,
+                )
+            if (
+                agy_model is None
+                and claude_model is None
+                and private_openrouter_providers(or_id) is None
+            ):
+                self.failed_calls += 1
+                raise LLMProviderError(
+                    f"Model '{model_to_use}' is excluded when private_only=True",
+                    provider="privacy-gate",
+                    model=model_to_use,
+                )
 
         try:
             if zai is not None and zai_model is not None:
@@ -253,7 +293,6 @@ class ModelManager:
                     **kwargs,
                 )
             else:
-                or_id = self._openrouter_id(model_to_use)
                 or_kwargs = dict(kwargs)
                 if private_only:
                     or_kwargs["extra_body"] = private_openrouter_extra_body(
@@ -262,8 +301,6 @@ class ModelManager:
                 response = self.provider.generate(prompt, model=or_id, **or_kwargs)
                 model_used = response.model
                 if unavailable:
-                    # A key is set but the plan couldn't be consulted: say so,
-                    # or a broken key would silently bill every GLM call
                     self.zai_unavailable += 1
                     model_used += f" · OpenRouter (Z.ai unavailable: {unavailable})"
         except LLMProviderError as e:
@@ -286,7 +323,7 @@ class ModelManager:
         private_only: bool = False,
         **kwargs: Any,
     ) -> tuple[LLMResponse, str]:
-        """Try a local subscription CLI once, then fall back to OpenRouter once."""
+        """Try a local subscription CLI once; fall back to OpenRouter unless timed out."""
         if stat_prefix == "agy":
             self.agy_calls += 1
         else:
@@ -294,7 +331,25 @@ class ModelManager:
         try:
             response = cli_provider.generate(prompt, model=resolved_model, **kwargs)
             return response, f"{response.model} · {label}"
+        except CLITimeoutError:
+            # Never fall back to OpenRouter after a CLI timeout (avoids 2x timeout stalls).
+            raise
         except LLMProviderError as cli_error:
+            or_id = self._openrouter_id(requested)
+            or_kwargs = dict(kwargs)
+            if private_only:
+                # Fails closed with LLMProviderError if `or_id` is outside the allowlist.
+                try:
+                    or_kwargs["extra_body"] = private_openrouter_extra_body(
+                        or_id, or_kwargs.get("extra_body")
+                    )
+                except LLMProviderError as gate_error:
+                    raise LLMProviderError(
+                        f"{label} failed ({cli_error}); fallback blocked: {gate_error}",
+                        provider=cli_provider.name,
+                        model=resolved_model,
+                        is_retryable=False,
+                    ) from gate_error
             logger.warning(
                 f"{label} failed for {resolved_model}, retrying on OpenRouter: {cli_error}"
             )
@@ -302,12 +357,6 @@ class ModelManager:
                 self.agy_fallbacks += 1
             else:
                 self.claude_fallbacks += 1
-            or_id = self._openrouter_id(requested)
-            or_kwargs = dict(kwargs)
-            if private_only:
-                or_kwargs["extra_body"] = private_openrouter_extra_body(
-                    or_id, or_kwargs.get("extra_body")
-                )
             try:
                 response = self.provider.generate(prompt, model=or_id, **or_kwargs)
             except LLMProviderError as openrouter_error:
@@ -317,7 +366,7 @@ class ModelManager:
                     model=resolved_model,
                     is_retryable=cli_error.is_retryable,
                 ) from openrouter_error
-            reason = str(cli_error)[:80]
+            reason = _cli_fallback_reason(cli_error)
             return response, f"{response.model} · OpenRouter ({label} failed: {reason})"
 
     def _generate_on_plan(
@@ -363,6 +412,9 @@ class ModelManager:
     def _openrouter_id(model_id: str) -> str:
         """OpenRouter's ID for a model: normalize bare GLM, Gemini, and Claude IDs."""
         cleaned = model_id.strip()
+        if not cleaned:
+            return cleaned
+        has_tilde = cleaned.startswith("~")
         unprefixed = cleaned.lstrip("~")
         lowered = unprefixed.lower()
         if lowered.startswith("glm-"):
@@ -375,11 +427,10 @@ class ModelManager:
             if lowered in ("gemini-flash", "gemini-flash-latest"):
                 return "~google/gemini-flash-latest"
             slug = ModelManager._strip_agy_effort_suffix(unprefixed)
-            return f"google/{slug}"
+            return f"{'~' if has_tilde else ''}google/{slug}"
         if lowered.startswith("google/gemini-"):
-            prefix = "~" if cleaned.startswith("~") else ""
             slug = ModelManager._strip_agy_effort_suffix(unprefixed.split("/", 1)[1])
-            return f"{prefix}google/{slug}"
+            return f"{'~' if has_tilde else ''}google/{slug}"
         if lowered.startswith("claude-"):
             if lowered in ("claude-opus", "claude-opus-latest"):
                 return "~anthropic/claude-opus-latest"
@@ -387,45 +438,29 @@ class ModelManager:
                 return "~anthropic/claude-haiku-latest"
             if lowered in ("claude-sonnet", "claude-sonnet-latest", "claude-latest"):
                 return "~anthropic/claude-sonnet-latest"
-            return f"anthropic/{unprefixed}"
+            return f"{'~' if has_tilde else ''}anthropic/{unprefixed}"
         return cleaned
 
     def list_models(self, force_refresh: bool = False) -> list[ModelInfo]:
-        """List available models.
-
-        Args:
-            force_refresh: If True, bypass cache and fetch fresh data.
-
-        Returns:
-            List of ModelInfo objects.
-        """
-        return self.provider.list_models(force_refresh=force_refresh)
+        """List available models (excluding globally disallowed vendors)."""
+        return [
+            m
+            for m in self.provider.list_models(force_refresh=force_refresh)
+            if not is_excluded_model(m.id)
+        ]
 
     def get_model_info(self, model_id: str) -> ModelInfo | None:
-        """Get information about a specific model.
-
-        Args:
-            model_id: The model ID to look up.
-
-        Returns:
-            ModelInfo for the model, or None if not found.
-        """
+        """Get information about a specific model."""
+        if is_excluded_model(model_id):
+            return None
         return self.provider.get_model_info(model_id)
 
     def is_available(self) -> bool:
-        """Check if the model manager is properly configured.
-
-        Returns:
-            True if the provider is available.
-        """
+        """Check if the model manager is properly configured."""
         return self.provider.is_available()
 
     def get_stats(self) -> dict[str, Any]:
-        """Get usage statistics.
-
-        Returns:
-            Dictionary with usage statistics.
-        """
+        """Get usage statistics."""
         success_rate = (
             (self.successful_calls / self.total_calls * 100) if self.total_calls > 0 else 0
         )

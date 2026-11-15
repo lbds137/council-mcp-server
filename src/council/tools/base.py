@@ -11,6 +11,19 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, float | None, str | None], None]
 
+PRIVATE_ONLY_DESCRIPTION = (
+    "When true, allow only privacy-cleared subscription CLIs (`claude`, `agy`) and the "
+    "pinned OpenRouter allowlist (`anthropic`, `openai`, `google` on Vertex, `mistralai`, "
+    "and `z-ai/glm*` pinned to Mistral) with `allow_fallbacks=false` and "
+    "`data_collection=deny`"
+)
+
+PRIVATE_ONLY_PROPERTY: dict[str, Any] = {
+    "type": "boolean",
+    "default": False,
+    "description": PRIVATE_ONLY_DESCRIPTION,
+}
+
 # Set by the server for a call whose client asked for progress. A ContextVar,
 # so it reaches the tool's asyncio tasks and worker threads without plumbing.
 _progress_callback: ContextVar[ProgressCallback | None] = ContextVar(
@@ -55,6 +68,24 @@ def get_model_manager() -> Any:
     """The running server's model manager, or None before it is ready."""
     server = get_server()
     return server.model_manager if server else None
+
+
+def parse_private_only(parameters: dict[str, Any]) -> tuple[bool, str | None]:
+    """Extract and validate optional `private_only` boolean parameter."""
+    raw = parameters.get("private_only", False)
+    if not isinstance(raw, bool):
+        return False, "private_only must be a boolean"
+    return raw, None
+
+
+def build_generation_kwargs(
+    model_override: str | None, *, private_only: bool = False
+) -> dict[str, Any]:
+    """Build keyword arguments for `model_manager.generate_content(...)`."""
+    kwargs: dict[str, Any] = {"model": model_override}
+    if private_only:
+        kwargs["private_only"] = True
+    return kwargs
 
 
 class ToolOutput:

@@ -12,6 +12,7 @@ from council.providers.base import (
     ModelInfo,
     RateLimitError,
 )
+from council.providers.cli_sub import CLITimeoutError
 
 
 class TestModelManagerInit:
@@ -538,9 +539,61 @@ class TestModelManagerCliAndPrivacyRouting:
         assert "weekly reserve" in str(exc_info.value)
         assert "upstream error" in str(exc_info.value)
 
+    @patch("council.manager.ClaudeCliProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_claude_cli_timeout_never_falls_back_to_openrouter(
+        self, openrouter_class, claude_class
+    ):
+        claude_class.is_enabled.return_value = True
+        claude = claude_class.return_value
+        claude.name = "claude-cli"
+        claude.resolve.return_value = "sonnet"
+        claude.generate.side_effect = CLITimeoutError("CLI timed out after 180s", "claude-cli")
+        openrouter = openrouter_class.return_value
+
+        manager = ModelManager(api_key="or-key")
+        with pytest.raises(CLITimeoutError):
+            manager.generate_content("Slow prompt", model="claude-sonnet", private_only=True)
+
+        openrouter.generate.assert_not_called()
+        assert manager.get_stats()["claude_fallbacks"] == 0
+
+    @patch("council.manager.ClaudeCliProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_private_only_cli_quota_fallback_pins_openrouter_and_sanitizes_reason(
+        self, openrouter_class, claude_class
+    ):
+        claude_class.is_enabled.return_value = True
+        claude = claude_class.return_value
+        claude.name = "claude-cli"
+        claude.resolve.return_value = "sonnet"
+        claude.generate.side_effect = RateLimitError(
+            "sensitive raw stderr path /home/testuser/.secret"
+        )
+        openrouter = openrouter_class.return_value
+        openrouter.generate.return_value = self.response("anthropic/claude-sonnet-4-6")
+
+        manager = ModelManager(api_key="or-key")
+        content, used = manager.generate_content(
+            "Private", model="claude-sonnet", private_only=True
+        )
+
+        assert content == "from anthropic/claude-sonnet-4-6"
+        assert (
+            used
+            == "anthropic/claude-sonnet-4-6 · OpenRouter (Claude CLI failed: quota or rate limit)"
+        )
+        assert ".secret" not in used
+        extra = openrouter.generate.call_args[1]["extra_body"]
+        assert extra["provider"] == {
+            "data_collection": "deny",
+            "only": ["anthropic"],
+            "allow_fallbacks": False,
+        }
+
     @patch("council.manager.ZaiCodingProvider")
     @patch("council.manager.OpenRouterProvider")
-    def test_private_only_blocks_non_private_models_and_allows_cleared(
+    def test_private_only_blocks_unlisted_models_skips_zai_plan_and_pins_allowlist(
         self, openrouter_class, zai_class
     ):
         openrouter = openrouter_class.return_value
@@ -548,22 +601,115 @@ class TestModelManagerCliAndPrivacyRouting:
 
         with patch.dict("os.environ", {"ZAI_CODING_API_KEY": "zai-key"}):
             manager = ModelManager(api_key="or-key")
-            with pytest.raises(LLMProviderError) as exc_info:
-                manager.generate_content("Sensitive", model="~z-ai/glm-latest", private_only=True)
-            assert "private_only=True" in str(exc_info.value)
-            zai_class.assert_not_called()
 
+            # Unlisted vendor rejected at privacy-gate (including default active_model when non-private)
+            with pytest.raises(LLMProviderError) as exc_info:
+                manager.generate_content(
+                    "Sensitive", model="~moonshotai/kimi-latest", private_only=True
+                )
+            assert exc_info.value.provider == "privacy-gate"
+            openrouter.generate.assert_not_called()
+
+            manager.set_model("~deepseek/deepseek-pro-latest")
+            with pytest.raises(LLMProviderError) as default_exc:
+                manager.generate_content("Sensitive default", model=None, private_only=True)
+            assert default_exc.value.provider == "privacy-gate"
+
+            # GLM under private_only NEVER touches Z.ai direct plan; routes via OpenRouter pinned to Mistral
+            openrouter.generate.return_value = self.response("z-ai/glm-5.3")
+            glm_content, glm_used = manager.generate_content(
+                "Sensitive GLM", model="~z-ai/glm-latest", private_only=True
+            )
+            zai_class.assert_not_called()
+            assert glm_content == "from z-ai/glm-5.3"
+            assert glm_used == "z-ai/glm-5.3"
+            glm_extra = openrouter.generate.call_args[1]["extra_body"]
+            assert glm_extra["provider"] == {
+                "data_collection": "deny",
+                "only": ["mistral"],
+                "allow_fallbacks": False,
+            }
+
+            # OpenAI non-oss pinned to ["openai"]
+            openrouter.generate.return_value = self.response("openai/gpt-5")
             content, used = manager.generate_content(
                 "Sensitive", model="~openai/gpt-sol-latest", private_only=True
             )
             assert content == "from openai/gpt-5"
             assert used == "openai/gpt-5"
             extra_body = openrouter.generate.call_args[1]["extra_body"]
-            assert extra_body["provider"]["data_collection"] == "deny"
+            assert extra_body["provider"] == {
+                "data_collection": "deny",
+                "only": ["openai"],
+                "allow_fallbacks": False,
+            }
 
+            # Google Gemini pinned to ["google-vertex"]
             manager.generate_content(
                 "Sensitive Gemini", model="~google/gemini-pro-latest", private_only=True
             )
             g_extra = openrouter.generate.call_args[1]["extra_body"]
-            assert g_extra["provider"]["only"] == ["google-vertex"]
-            assert g_extra["provider"]["allow_fallbacks"] is False
+            assert g_extra["provider"] == {
+                "data_collection": "deny",
+                "only": ["google-vertex"],
+                "allow_fallbacks": False,
+            }
+
+            # Global xAI policy gate and NUL byte / empty prompt input gate
+            with pytest.raises(LLMProviderError, match="excluded by policy"):
+                manager.set_model("x-ai/grok-4")
+            with pytest.raises(LLMProviderError, match="NUL byte"):
+                manager.generate_content("bad\x00input", model="~openai/gpt-sol-latest")
+            with pytest.raises(LLMProviderError, match="Prompt must not be empty"):
+                manager.generate_content("   ", model="~openai/gpt-sol-latest")
+
+    @patch("council.manager.AgyCliProvider")
+    @patch("council.manager.OpenRouterProvider")
+    def test_private_only_custom_cli_map_blocks_non_private_target_and_unlisted_fallback(
+        self, openrouter_class, agy_class
+    ):
+        agy_class.is_enabled.return_value = True
+        agy = agy_class.return_value
+        agy.name = "agy-cli"
+        openrouter = openrouter_class.return_value
+
+        manager = ModelManager(api_key="or-key")
+
+        # 1) Custom CLI map resolving to a non-private CLI target (glm-5.3) is blocked BEFORE CLI runs
+        agy.resolve.side_effect = lambda m: "glm-5.3" if m == "custom-glm" else None
+        with pytest.raises(LLMProviderError) as glm_exc:
+            manager.generate_content("Sensitive", model="custom-glm", private_only=True)
+        assert glm_exc.value.provider == "privacy-gate"
+        agy.generate.assert_not_called()
+        openrouter.generate.assert_not_called()
+
+        # 2) Custom CLI map resolving to a private CLI target (gemini-4-argon-high) from an
+        # unlisted requested alias ("custom-gemini"): if CLI fails, OpenRouter fallback is
+        # re-checked by private_openrouter_extra_body("custom-gemini") and blocked!
+        agy.resolve.side_effect = lambda m: "gemini-4-argon-high" if m == "custom-gemini" else None
+        agy.generate.side_effect = RateLimitError("quota exhausted")
+        with pytest.raises(LLMProviderError) as fb_exc:
+            manager.generate_content("Sensitive", model="custom-gemini", private_only=True)
+        assert "private_only=True" in str(fb_exc.value)
+        assert fb_exc.value.is_retryable is False
+        openrouter.generate.assert_not_called()
+
+    def test_model_cache_filters_excluded_xai_models(self):
+        from council.discovery.model_cache import ModelCache
+
+        cache = ModelCache(api_key="test-key")
+        mock_resp = Mock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "openai/gpt-5", "name": "GPT-5"},
+                {"id": "x-ai/grok-4", "name": "Grok 4"},
+                {"id": "openrouter/x-ai/grok-4", "name": "Grok 4 OR"},
+            ]
+        }
+        with patch("council.discovery.model_cache.httpx.get", return_value=mock_resp):
+            models = cache.get_models()
+
+        assert [m.id for m in models] == ["openai/gpt-5"]
+        assert cache.get_model("x-ai/grok-4") is None
+        assert cache.get_model("openai/gpt-5") is not None
