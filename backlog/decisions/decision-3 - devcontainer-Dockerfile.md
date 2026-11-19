@@ -14,4 +14,4 @@ Ruled out 2026-09-24: the server runs on the host, from the venv that `scripts/i
 
 ## Consequences
 
-Development assumes the host toolchain (mise-managed Python, `.venv/bin/python -m pytest`). Containers stay limited to the podman services (postgres, redis) the environment already runs.
+Development runs `pytest` through the repo `.venv` (`.venv/bin/python -m pytest tests/`); CI additionally checks Python 3.12 compatibility.
