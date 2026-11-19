@@ -25,6 +25,9 @@
     "deny": []
   },
   "enableAllProjectMcpServers": false,
+  "env": {
+    "SYG_TRACKING_SURFACE": "backlog-md"
+  },
   "worktree": {
     "baseRef": "head"
   }
