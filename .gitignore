@@ -159,4 +159,7 @@ server_original.py
 .claude/worktrees/
 .claude/dispatch/
 
+# backlog.md CLI (npm toolchain)
+node_modules/
+
 # Development symlinks

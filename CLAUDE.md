@@ -65,6 +65,12 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 2. Add tests in `tests/`
 3. Test locally: `make test` (runs `.venv/bin/python -m pytest tests/`)
 
+The tracking surface is the backlog.md store (`backlog/`): found work is filed
+with `pnpm backlog task create` and dispositions recorded per the
+`seyag:backlog-md` skill, whose opt-in is the `SYG_TRACKING_SURFACE=backlog-md`
+env pin in `.claude/settings.json`.
+The old `docs/IMPROVEMENT_IDEAS.md` is a pointer; its history is in git.
+
 ### 2. Deploying Changes
 ```bash
 # Install or update: pip-installs the checked-out commit (from git) into
