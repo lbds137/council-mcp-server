@@ -67,9 +67,9 @@ mcp__council__ask(question="Explain quantum computing", model="~z-ai/glm-latest"
 
 The tracking surface is the backlog.md store (`backlog/`): found work is filed
 with `pnpm backlog task create` (run `pnpm install` once for the CLI) and
-dispositions recorded per the `seyag:backlog-md` skill, whose opt-in is the
+dispositions recorded per the `seyag:backlog-md` skill, opted in via the
 `SYG_TRACKING_SURFACE=backlog-md` env pin in `.claude/settings.json`
-(pending — not set yet as of 2026-11-19).
+(ec1f0e5, 2026-11-19).
 The old `docs/IMPROVEMENT_IDEAS.md` is a pointer; its history is in git.
 
 ### 2. Deploying Changes
