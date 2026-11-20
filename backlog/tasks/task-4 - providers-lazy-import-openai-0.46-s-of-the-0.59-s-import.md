@@ -4,12 +4,13 @@ title: 'providers: lazy-import openai (0.46 s of the 0.59 s import)'
 status: Deferred
 assignee: []
 created_date: '2026-11-19T21:27:00Z'
-updated_date: '2026-11-19T21:39:00Z'
+updated_date: '2026-11-20T02:12:00Z'
 labels:
   - providers
   - perf
   - deferred
 dependencies: []
+priority: low
 ordinal: 4000
 ---
 
