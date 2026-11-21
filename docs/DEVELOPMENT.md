@@ -121,8 +121,8 @@ GitHub Actions runs on all pushes and pull requests:
 
 ### Development Workflow
 
-See "Shipping Changes" in `CLAUDE.md`: small fixes go straight to `main`, bigger
-changes go through a pull request that is merged once CI is green.
+See "Shipping Changes" in `CLAUDE.md`: every change goes through a pull request, which
+merges itself once the Claude review passes and CI is green.
 
 1. **Create feature branch**
    ```bash

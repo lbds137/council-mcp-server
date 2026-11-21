@@ -92,13 +92,12 @@ live sha and time.
 
 ### 4. Shipping Changes
 The owner doesn't read diffs; the pre-push hook and CI are the gates.
-- **Small fixes** (docs, one-file changes): commit straight to `main`. The pre-push hook runs ruff (lint and format), mypy and pytest.
-- **Bigger changes** (several files, behavior changes): make a branch and open a PR, then merge it in the same session once CI is green (`gh pr checks`, then `gh pr merge --rebase --delete-branch`). CI finishes in under a minute, so no monitor is needed. When the gates can't fully vouch for a change, run a fresh-context review agent before merging.
-- The GitHub ruleset in `.github/rulesets/main.json` (active since 2026-09-24) blocks force-pushes to `main` and its deletion, with no bypass. It doesn't require CI, so direct small-fix pushes still work. Never rewrite `main`'s history.
+- **Every change lands by PR**, never straight to `main`: branch → push → PR. Open it as the owner and not as a draft, because `automerge` only fires for those. The pre-push hook runs ruff (lint and format), mypy and pytest. The `claude-review` job reviews the PR, and `automerge` rebase-merges it once the review passes and `test (3.12)` and `test (3.13)` are green. Never merge by hand (`gh pr merge`): a hand merge skips the review gate. The one exception is a PR that changes `.github/workflows/claude-code-review.yml`. The action skips its own review there, so the owner reads it and merges it by hand. (Owner ruling 2026-10-27.)
+- The fleet's backlog-only direct commit (owner ruling 2026-11-19) needs a store lint to pass first. The pinned backlog.md 1.55.3 has none, so here backlog changes go by PR too.
+- The GitHub ruleset in `.github/rulesets/main.json` ("Protect main", updated 2026-11-20 to the repo standard) requires the PR and those checks, blocks force-pushes, deletion and merge commits, and has no bypass. Never rewrite `main`'s history.
 - Code changes over ~5 lines go through delegation (§ 5); docs and CLAUDE.md edits stay inline
   with the driver (owner's ruling 2026-09-25). Delegated units always get the fresh-context
-  review. Delegation decides who writes the diff; the small/bigger split above decides how it
-  ships, so a 20-line one-file code fix is delegated and then committed straight to `main`.
+  review. Delegation decides who writes the diff, and every diff ships by PR as above.
 
 ### 5. Delegation
 This repo has adopted the harness `delegation` skill: the driver grounds and specs each unit,
